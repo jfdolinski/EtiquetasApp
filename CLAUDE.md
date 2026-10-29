@@ -7,8 +7,8 @@ SaaS multiempresa que lê dados de produtos dos bancos dos ERPs dos clientes (vi
 ## Stack
 
 - Monorepo pnpm: `apps/api` (NestJS + Prisma + PostgreSQL), `apps/web` (React + Vite + Tailwind + Konva), `apps/agent` (Go), `packages/shared` (tipos/contratos compartilhados)
-- Redis + BullMQ para filas e jobs agendados
-- Deploy: Easypanel em VPS Hostinger (containers api, web, postgres, redis)
+- Filas e jobs agendados no próprio Postgres (sem Redis/BullMQ; ver "Sem Redis" abaixo)
+- Deploy: Easypanel em VPS Hostinger (containers postgres, api, web); o web também serve os binários do agente em `/downloads/`. CI em `.github/workflows/ci.yml` testa tudo e sobe as imagens Docker. Passo a passo: [docs/DEPLOY.md](docs/DEPLOY.md)
 
 ## Convenções
 
@@ -55,14 +55,14 @@ cd apps/agent && go test ./... && go vet ./...          # agente (Go 1.27+; no W
 AGENTE_TESTE_PG=host:porta:usuario:senha:banco go test ./internal/banco   # integração com PostgreSQL real
 ```
 
-Postgres e Redis locais: `docker compose up -d` (arquivo na raiz). Copie `apps/api/.env.example` para `apps/api/.env`.
+Postgres local: `docker compose up -d` (arquivo na raiz). Copie `apps/api/.env.example` para `apps/api/.env`.
 Deploy: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Estado das fases
 
 - [x] Fase 1 – Base: monorepo, autenticação, empresas, usuários, permissões, deploy
   - Feito: login JWT com rate limit, super-admin inicial via env, CRUD de empresas (super-admin), usuários e perfis com permissões granulares, aviso de carência/bloqueio no login, auditoria, frontend (login, empresas, usuários, perfis, minha conta), Dockerfiles api/web e guia do Easypanel.
-  - Testado: 35 testes unitários + roteiro ponta a ponta contra Postgres real (27 cenários, incl. isolamento entre empresas). Builds Docker **não** testados (sem Docker na máquina de desenvolvimento).
+  - Testado: 35 testes unitários + roteiro ponta a ponta contra Postgres real (27 cenários, incl. isolamento entre empresas). Builds Docker não testados localmente (sem Docker na máquina); o CI do GitHub constrói e sobe as imagens.
   - Pendente: sem refresh token (sessão expira em `JWT_EXPIRACAO`). (Mensagens de validação em inglês: resolvido na Fase 8.)
 - [x] Fase 2 – Agente: registro por CNPJ, WebSocket, consultas nos três bancos
   - Feito:

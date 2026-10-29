@@ -15,6 +15,8 @@ PDF é impresso pelo navegador.
 
 ## Ativação
 
+O executável é compilado no build da imagem do web e fica disponível em `https://<domínio>/downloads/` (links na tela de ativação). O `SERVIDOR_PUBLICO` do build já vem gravado nele.
+
 1. No painel, em **Agentes → Novo agente**, gere o código de ativação. Ele vale por 24 horas e uma única vez.
 2. Na máquina da loja, rode como administrador:
 

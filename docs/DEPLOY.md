@@ -1,65 +1,138 @@
 # Deploy no Easypanel (VPS Hostinger)
 
-O projeto sobe em quatro serviços dentro de um mesmo projeto do Easypanel. Os exemplos abaixo usam o nome de projeto `etiquetas`; o Easypanel expõe cada serviço na rede interna como `<projeto>_<serviço>` (ex.: `etiquetas_api`).
+O sistema sobe como **três serviços** num projeto do Easypanel. Redis não é necessário.
 
-## 1. Pré-requisito
+| Serviço | O que é |
+|---|---|
+| `postgres` | banco da plataforma |
+| `api` | NestJS, uma réplica |
+| `web` | nginx com o frontend, o proxy de `/api` e os downloads do agente |
 
-O código precisa estar em um repositório Git (GitHub, GitLab ou Gitea) que o Easypanel consiga acessar.
+Os exemplos usam o projeto `etiquetas` e o domínio `app.seudominio.com.br`. O Easypanel expõe os serviços na rede interna como `<projeto>_<serviço>`, por exemplo `etiquetas_api`.
 
-## 2. Banco e Redis
+## 0. O que você precisa ter
 
-1. **+ Service → Postgres**, nome `postgres`. Anote a *Internal Connection URL*.
-2. Redis não é necessário: a fila de impressão e a avaliação diária de cobrança usam o próprio Postgres. A API deve ter **uma réplica** (ver seção 3).
+- **VPS Hostinger com Easypanel instalado.** Pode ser o template "Easypanel" da Hostinger. 2 GB de RAM bastam para começar.
+- **Domínio.** Crie um registro DNS **A** apontando `app.seudominio.com.br` para o IP da VPS.
+- **Conta no GitHub** com um repositório **privado** vazio, por exemplo `etiquetas`. Não marque a opção de criar README, para o primeiro push entrar limpo.
 
-## 3. API
+## 1. Enviar o código para o GitHub
+
+Na pasta do projeto:
+
+```bash
+git remote add origin https://github.com/SEU_USUARIO/etiquetas.git
+git push -u origin main
+```
+
+O Git para Windows abre o navegador para você autorizar o acesso ao GitHub.
+
+O workflow [CI](../.github/workflows/ci.yml) roda a cada push:
+
+- testes da API, do web, do pacote compartilhado e do agente;
+- build das duas imagens Docker;
+- um teste que sobe Postgres, API e web juntos e faz login pelo nginx.
+
+**Espere o CI ficar verde antes do primeiro deploy.** É a primeira vez que as imagens são construídas.
+
+No Easypanel, conecte o GitHub em **Settings → GitHub** e dê acesso ao repositório.
+
+## 2. Gerar os segredos
+
+Gere os valores no seu computador e guarde-os num gerenciador de senhas:
+
+```bash
+node -e "console.log('JWT_SECRET=' + require('crypto').randomBytes(48).toString('base64url'))"
+node -e "console.log('CHAVE_CRIPTOGRAFIA=' + require('crypto').randomBytes(32).toString('base64'))"
+```
+
+- **`CHAVE_CRIPTOGRAFIA`** cifra as senhas dos bancos dos clientes. Se ela se perder, todas as conexões precisam ter a senha digitada de novo. Guarde uma cópia fora do Easypanel.
+- **`JWT_SECRET`**: trocar o valor apenas desconecta todos os usuários.
+
+## 3. Postgres
+
+**+ Service → Postgres**, nome `postgres`. Anote a *Internal Connection URL*.
+
+Em **Backups**, configure backup diário. O banco guarda tudo: empresas, consultas, modelos, histórico e auditoria.
+
+## 4. API
 
 **+ Service → App**, nome `api`.
 
-- **Source:** o repositório, branch `main`.
-- **Build:** Dockerfile, caminho `apps/api/Dockerfile`, contexto `/` (raiz do repositório).
+- **Source:** GitHub, o repositório, branch `main`.
+- **Build:** Dockerfile, caminho `apps/api/Dockerfile`.
 - **Environment:**
 
   ```env
   DATABASE_URL=<Internal Connection URL do Postgres>
-  JWT_SECRET=<48+ caracteres aleatórios>
+  JWT_SECRET=<gerado no passo 2>
+  CHAVE_CRIPTOGRAFIA=<gerado no passo 2>
   JWT_EXPIRACAO=12h
   PORTA=3000
-  SUPERADMIN_EMAIL=voce@seudominio.com.br
-  SUPERADMIN_SENHA=<senha forte>
-  SUPERADMIN_NOME=Administrador da Plataforma
-  CHAVE_CRIPTOGRAFIA=<32 bytes em base64>
   FUSO_HORARIO=America/Sao_Paulo
+  PROXIES_CONFIAVEIS=2
+  SUPERADMIN_EMAIL=voce@seudominio.com.br
+  SUPERADMIN_SENHA=<senha forte, troque depois do primeiro login>
+  SUPERADMIN_NOME=Administrador da Plataforma
   ```
 
-  Gere o segredo com `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` e a chave com `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.
+- **`PROXIES_CONFIAVEIS=2`:** a requisição passa pelo Traefik do Easypanel e pelo nginx do web. Com o valor errado, o limite de tentativas de login enxerga o IP do proxy em vez do IP de cada usuário.
+- **Réplicas: 1.** As conexões dos agentes ficam na memória da API, e a avaliação diária de cobrança roda dentro dela.
+- **Domains:** nenhum. A API só é acessada pelo web, na rede interna, na porta `3000`.
 
-  A `CHAVE_CRIPTOGRAFIA` cifra as senhas dos bancos dos clientes. Guarde uma cópia fora do Easypanel: sem ela, todas as senhas de conexão precisam ser digitadas de novo.
+Ao subir, o container:
 
-- **Réplicas:** mantenha **1**. As conexões WebSocket dos agentes ficam na memória da instância que as recebeu.
+1. aplica as migrações (`prisma migrate deploy`);
+2. sincroniza o catálogo de permissões e concede as permissões novas aos perfis "Administrador";
+3. cria o super-admin, se o e-mail ainda não existir.
 
-- **Domains:** nenhum (a API é acessada pelo web, na rede interna). Porta do container: `3000`.
+Mudar `SUPERADMIN_SENHA` depois não altera um usuário que já existe. Troque a senha em **Minha conta**.
 
-Ao iniciar, o container roda `prisma migrate deploy`, sincroniza o catálogo de permissões e cria o super-admin se o e-mail ainda não existir. Depois do primeiro login, troque a senha em **Minha conta**; mudar `SUPERADMIN_SENHA` depois não altera um usuário já criado.
-
-## 4. Web
+## 5. Web
 
 **+ Service → App**, nome `web`.
 
-- **Build:** Dockerfile, caminho `apps/web/Dockerfile`, contexto `/`.
-- **Environment:** `API_UPSTREAM=http://etiquetas_api:3000` (ajuste ao nome real do projeto).
-- **Domains:** o domínio público (ex.: `app.seudominio.com.br`), porta `80`, HTTPS ligado.
+- **Build:** Dockerfile, caminho `apps/web/Dockerfile`.
+- **Build Args:**
+  - `SERVIDOR_PUBLICO=https://app.seudominio.com.br`: fica gravado no agente, para o técnico não precisar digitar o endereço.
+  - `VERSAO=1.0.0`: opcional, aparece no painel em Agentes.
+- **Environment:** `API_UPSTREAM=http://etiquetas_api:3000`. Ajuste ao nome real do projeto e do serviço.
+- **Domains:** `app.seudominio.com.br`, porta `80`, **HTTPS ligado**. O Easypanel emite o certificado Let's Encrypt.
 
-O nginx do web serve o frontend e repassa `/api/*` para a API, incluindo o WebSocket dos agentes (`/api/agente/conectar`). Os agentes se conectam ao mesmo domínio público, por `wss://`.
+O nginx serve o frontend e repassa `/api/*` para a API, incluindo o WebSocket dos agentes em `wss://app.seudominio.com.br/api/agente/conectar`.
 
-## 5. Conferência
+O build também compila o agente para Windows e Linux. Os arquivos ficam em:
 
-- `https://app.seudominio.com.br/api/health` deve responder `{"status":"ok","banco":"ok"}`.
-- Entre com o super-admin, cadastre uma empresa e entre com o administrador dela em outra janela anônima.
+- `https://app.seudominio.com.br/downloads/etiquetas-agente.exe`
+- `https://app.seudominio.com.br/downloads/etiquetas-agente-linux-amd64`
+- `SHA256SUMS.txt`, com o hash de cada um.
 
-## 6. Agente local
+## 6. Conferência
 
-O agente não roda no Easypanel: ele é instalado na rede de cada cliente. Veja [apps/agent/README.md](../apps/agent/README.md) para compilar os binários (Windows e Linux) e instalar. Compile com `-X main.servidorPadrao=https://app.seudominio.com.br` para o técnico não precisar digitar o endereço.
+1. `https://app.seudominio.com.br/api/health` deve responder `{"status":"ok","banco":"ok"}`.
+2. Entre com o super-admin e troque a senha em **Minha conta**.
+3. Em **Cobrança**, revise os parâmetros: prazos, mensagens e hora da avaliação diária.
+4. Se for usar, cadastre o **Sistema ERP** e o template de consultas.
+5. Cadastre a primeira **Empresa**, com o administrador dela. Numa janela anônima, entre com esse administrador.
+6. Em **Agentes**, crie o agente e gere o código de ativação. Na máquina da loja:
+   1. baixe o executável pelo link da tela;
+   2. rode `etiquetas-agente instalar` como administrador;
+   3. confira se o agente aparece como **Online**.
+7. Cadastre a conexão de banco, use **Testar** e siga com consultas, modelos e impressoras.
 
-## Atualizações
+## 7. Atualizações
 
-Cada deploy reconstrói a imagem; as migrações novas em `apps/api/prisma/migrations` são aplicadas na subida da API.
+- Cada push na `main` com o CI verde pode ser publicado com **Deploy** em cada serviço. Faça primeiro a `api`, por causa das migrações, depois o `web`.
+- Migrações novas em `apps/api/prisma/migrations` são aplicadas na subida da API. Faça backup do Postgres antes de atualizações grandes.
+- Os agentes instalados **não se atualizam sozinhos**. Quando o protocolo mudar, reinstale com o executável novo:
+  1. `etiquetas-agente desinstalar`;
+  2. troque o arquivo;
+  3. `etiquetas-agente instalar`.
+
+  O token continua valendo.
+
+## 8. Antes do primeiro cliente
+
+- **Bancos e impressoras reais:** ainda não foram testados contra MySQL e SQL Server reais nem com impressoras físicas. Faça um piloto e confira a primeira etiqueta de cada linguagem: ZPL, PPLA, PPLB e ESC/POS.
+- **Usuário de banco do cliente:** crie-o **somente leitura**. O agente também recusa escrita, mas a permissão do banco é a proteção principal.
+- **Login:** a sessão expira em `JWT_EXPIRACAO`, por padrão 12 h, sem renovação automática.

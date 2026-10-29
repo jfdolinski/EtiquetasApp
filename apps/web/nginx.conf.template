@@ -3,11 +3,26 @@ map $http_upgrade $connection_upgrade {
   ''      close;
 }
 
+# O Traefik do Easypanel termina o HTTPS e informa o protocolo original.
+map $http_x_forwarded_proto $proto_original {
+  default $http_x_forwarded_proto;
+  ''      $scheme;
+}
+
 server {
   listen 80;
   root /usr/share/nginx/html;
+  server_tokens off;
 
-  # API (e, a partir da Fase 2, o WebSocket dos agentes) no mesmo domínio: sem CORS.
+  gzip on;
+  gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+  gzip_min_length 1024;
+
+  add_header X-Content-Type-Options nosniff always;
+  add_header X-Frame-Options DENY always;
+  add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+  # API e WebSocket dos agentes no mesmo domínio: sem CORS.
   location /api/ {
     proxy_pass ${API_UPSTREAM};
     proxy_http_version 1.1;
@@ -15,14 +30,35 @@ server {
     proxy_set_header Connection $connection_upgrade;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
+    # Acrescenta o IP do Traefik: a API confia em 2 proxies (PROXIES_CONFIAVEIS=2).
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_read_timeout 120s;
+    proxy_set_header X-Forwarded-Proto $proto_original;
+    # Layouts e lotes de etiquetas (a API aceita até 5 MB).
+    client_max_body_size 6m;
+    # Consultas no banco do cliente podem levar até 10 min; o WebSocket tem ping a cada 30 s.
+    proxy_read_timeout 700s;
+    proxy_send_timeout 700s;
   }
 
+  # Executáveis do agente local, gerados no build da imagem.
+  location /downloads/ {
+    add_header Cache-Control "no-cache";
+    add_header X-Content-Type-Options nosniff always;
+    add_header Content-Disposition "attachment";
+  }
+
+  # add_header num location substitui os do server: os de segurança são repetidos.
   location /assets/ {
     expires 1y;
     add_header Cache-Control "public, immutable";
+    add_header X-Content-Type-Options nosniff always;
+  }
+
+  # index.html nunca em cache: um deploy novo aparece no próximo carregamento.
+  location = /index.html {
+    add_header Cache-Control "no-cache";
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
   }
 
   # SPA: qualquer outra rota cai no index.html.

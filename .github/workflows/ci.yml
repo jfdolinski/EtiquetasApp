@@ -1,0 +1,92 @@
+# Testes e builds a cada push/PR. O job "docker" constrói as duas imagens e sobe a API
+# com um Postgres para conferir migrações e o /api/health, como no Easypanel.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: API, web e shared
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @etiquetas/shared build
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm --filter @etiquetas/web build
+
+  agente:
+    name: Agente (Go)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: etiquetas
+          POSTGRES_PASSWORD: etiquetas
+          POSTGRES_DB: etiquetas
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U etiquetas" --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: apps/agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/agent/go.mod
+          cache-dependency-path: apps/agent/go.sum
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: GOOS=windows go vet ./...
+      - run: go test ./...
+        env:
+          AGENTE_TESTE_PG: localhost:5432:etiquetas:etiquetas:etiquetas
+
+  docker:
+    name: Imagens Docker
+    runs-on: ubuntu-latest
+    needs: [node, agente]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build da API
+        run: docker build -f apps/api/Dockerfile -t etiquetas-api .
+      - name: Build do web (com o agente)
+        run: docker build -f apps/web/Dockerfile --build-arg SERVIDOR_PUBLICO=https://exemplo.invalid --build-arg VERSAO=${GITHUB_SHA::7} -t etiquetas-web .
+      - name: Sobe Postgres, API e web e confere
+        run: |
+          set -e
+          docker network create etq
+          docker run -d --name postgres --network etq -e POSTGRES_USER=etiquetas -e POSTGRES_PASSWORD=etiquetas -e POSTGRES_DB=etiquetas postgres:16-alpine
+          for i in $(seq 1 30); do docker exec postgres pg_isready -U etiquetas && break; sleep 1; done
+          docker run -d --name api --network etq \
+            -e DATABASE_URL=postgresql://etiquetas:etiquetas@postgres:5432/etiquetas \
+            -e JWT_SECRET=$(openssl rand -base64 48) \
+            -e CHAVE_CRIPTOGRAFIA=$(openssl rand -base64 32) \
+            -e SUPERADMIN_EMAIL=ci@exemplo.invalid -e SUPERADMIN_SENHA=senha-do-ci-123 \
+            etiquetas-api
+          docker run -d --name web --network etq -e API_UPSTREAM=http://api:3000 -p 8080:80 etiquetas-web
+          for i in $(seq 1 60); do curl -fsS http://localhost:8080/api/health && break; sleep 2; done
+          curl -fsS http://localhost:8080/api/health | grep '"banco":"ok"'
+          curl -fsS -o /dev/null http://localhost:8080/
+          curl -fsS -o /dev/null http://localhost:8080/downloads/etiquetas-agente.exe
+          curl -fsS http://localhost:8080/downloads/versao.txt
+          token=$(curl -fsS -X POST http://localhost:8080/api/auth/login -H 'Content-Type: application/json' \
+            -d '{"email":"ci@exemplo.invalid","senha":"senha-do-ci-123"}' | sed -E 's/.*"token":"([^"]+)".*/\1/')
+          test -n "$token"
+          echo "Login pelo nginx ok"
+      - name: Logs em caso de falha
+        if: failure()
+        run: docker logs api; docker logs web

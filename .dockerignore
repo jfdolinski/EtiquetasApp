@@ -2,6 +2,9 @@
 **/dist
 **/coverage
 **/.env
+**/*.log
 .git
-apps/agent
+.claude
 docs
+# O agente é compilado na imagem do web; os binários locais não entram.
+apps/agent/bin

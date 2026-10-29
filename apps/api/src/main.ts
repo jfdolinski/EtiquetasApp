@@ -17,8 +17,8 @@ async function iniciar() {
   const { AppModule } = await import('./app.module');
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  // Atrás do proxy do Easypanel/nginx: necessário para o rate limit enxergar o IP real.
-  app.set('trust proxy', 1);
+  // Atrás do Traefik (Easypanel) e do nginx do web: o rate limit precisa do IP real do cliente.
+  app.set('trust proxy', cfg.proxiesConfiaveis);
   app.setGlobalPrefix('api');
   app.useGlobalPipes(criarValidationPipe());
   // Layouts grandes e lotes de até 500 etiquetas passam do limite padrão de 100 KB.

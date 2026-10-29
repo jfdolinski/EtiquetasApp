@@ -194,7 +194,12 @@ function InstrucoesAtivacao({ resposta, aoFechar }: { resposta: CodigoAtivacaoRe
       </p>
       <div className="rounded-md bg-slate-100 py-4 text-center font-mono text-3xl tracking-widest select-all">{resposta.codigo}</div>
       <ol className="list-decimal space-y-1.5 pl-5 text-slate-700">
-        <li>Na máquina da loja, baixe o <code>etiquetas-agente</code> e abra um terminal como administrador.</li>
+        <li>
+          Na máquina da loja, baixe o agente para{' '}
+          <a href="/downloads/etiquetas-agente.exe" download className="text-blue-700 underline">Windows</a> ou{' '}
+          <a href="/downloads/etiquetas-agente-linux-amd64" download className="text-blue-700 underline">Linux</a> e abra um terminal como
+          administrador na pasta do arquivo.
+        </li>
         <li>
           Execute <code className="rounded bg-slate-100 px-1">etiquetas-agente instalar</code> e informe:
           <ul className="mt-1 list-disc pl-5">

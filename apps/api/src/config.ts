@@ -3,6 +3,12 @@ export interface Config {
   jwtSegredo: string;
   jwtExpiracao: string;
   corsOrigem: string | null;
+  /**
+   * Proxies reversos à frente da API (Express `trust proxy`). No Easypanel são 2: Traefik
+   * e o nginx do web. Errar para menos faz o rate limit enxergar o IP do proxy (todos os
+   * usuários dividem o mesmo limite); errar para mais deixa o cliente forjar o IP.
+   */
+  proxiesConfiaveis: number;
   /** 32 bytes para AES-256-GCM das senhas dos bancos dos clientes. */
   chaveCriptografia: Buffer;
   /** Fuso usado em {data_hoje} e {data_hora_agora}. */
@@ -43,6 +49,7 @@ export function config(): Config {
     jwtSegredo,
     jwtExpiracao: process.env.JWT_EXPIRACAO || '12h',
     corsOrigem: process.env.CORS_ORIGEM || null,
+    proxiesConfiaveis: Math.max(0, Number(process.env.PROXIES_CONFIAVEIS ?? 2) || 0),
     chaveCriptografia,
     fusoHorario,
     superAdmin:

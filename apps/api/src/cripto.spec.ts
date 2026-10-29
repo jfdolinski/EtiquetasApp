@@ -15,7 +15,10 @@ describe('cripto', () => {
   it('recusa valor adulterado ou chave errada', () => {
     const valor = cifrar('x', chave);
     const partes = valor.split(':');
-    partes[3] = Buffer.from('y').toString('base64');
+    // Inverte um bit do byte cifrado: trocar por um valor fixo coincidiria com o original 1 vez em 256.
+    const cifrado = Buffer.from(partes[3], 'base64');
+    cifrado[0] ^= 0x01;
+    partes[3] = cifrado.toString('base64');
     expect(() => decifrar(partes.join(':'), chave)).toThrow();
     expect(() => decifrar(valor, randomBytes(32))).toThrow();
   });
