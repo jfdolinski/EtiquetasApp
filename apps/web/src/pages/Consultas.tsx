@@ -5,6 +5,7 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 import { ExigeEmpresa } from '../components/ExigeEmpresa';
 import { Alerta, Cabecalho, Selo, Tabela, formatarData } from '../components/ui';
+import { PainelTemplateErp } from './TemplateErp';
 
 export function Consultas() {
   return (
@@ -40,6 +41,7 @@ function ListaConsultas() {
         }
       />
       {error && <Alerta>{error.message}</Alerta>}
+      <PainelTemplateErp conexoes={conexoes} />
       {!isLoading && (
         <Tabela colunas={['Consulta', 'Finalidade', 'Conexão', 'Campos', 'Atualizada em']} vazio={consultas.length === 0}>
           {consultas.map((c) => (
@@ -48,7 +50,8 @@ function ListaConsultas() {
                 <Link to={`/consultas/${c.id}`} className="font-medium text-blue-700 hover:underline">
                   {c.nome}
                 </Link>
-                {!c.ativo && <Selo cor="cinza">Desativada</Selo>}
+                {!c.ativo && <Selo cor="cinza">Desativada</Selo>}{' '}
+                {c.templateConsultaId && <Selo cor="cinza">Template do ERP</Selo>}
                 {c.descricao && <div className="text-xs text-slate-500">{c.descricao}</div>}
               </td>
               <td className="px-4 py-2.5">{ROTULO_FINALIDADE[c.finalidade]}</td>

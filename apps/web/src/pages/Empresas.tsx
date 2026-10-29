@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
-import { formatarCnpj, STATUS_ASSINATURA, type EmpresaResumo, type StatusAssinatura } from '@etiquetas/shared';
+import { formatarCnpj, STATUS_ASSINATURA, type EmpresaResumo, type SistemaErpResumo, type StatusAssinatura } from '@etiquetas/shared';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Alerta, Botao, Cabecalho, Campo, Modal, Selecao, Selo, Tabela, formatarData } from '../components/ui';
@@ -24,6 +24,8 @@ export function Empresas() {
     queryKey: ['empresas'],
     queryFn: () => api<EmpresaResumo[]>('/empresas'),
   });
+  const { data: erps = [] } = useQuery({ queryKey: ['erps'], queryFn: () => api<SistemaErpResumo[]>('/erps') });
+  const nomeErp = new Map(erps.map((e) => [e.id, e.nome]));
 
   return (
     <>
@@ -34,7 +36,7 @@ export function Empresas() {
       />
       {error && <Alerta>{error.message}</Alerta>}
       {!isLoading && (
-        <Tabela colunas={['Empresa', 'CNPJ', 'Plano', 'Assinatura', 'Usuários', 'Criada em', '']} vazio={empresas.length === 0}>
+        <Tabela colunas={['Empresa', 'CNPJ', 'ERP', 'Plano', 'Assinatura', 'Usuários', 'Criada em', '']} vazio={empresas.length === 0}>
           {empresas.map((e) => (
             <tr key={e.id} className={e.ativa ? '' : 'text-slate-400'}>
               <td className="px-4 py-2.5">
@@ -42,6 +44,7 @@ export function Empresas() {
                 {e.nomeFantasia && <div className="text-xs text-slate-500">{e.razaoSocial}</div>}
               </td>
               <td className="px-4 py-2.5 font-mono text-xs">{formatarCnpj(e.cnpj)}</td>
+              <td className="px-4 py-2.5">{(e.sistemaErpId && nomeErp.get(e.sistemaErpId)) ?? '—'}</td>
               <td className="px-4 py-2.5">{e.plano}</td>
               <td className="px-4 py-2.5">
                 <Selo cor={e.ativa ? COR_STATUS[e.statusAssinatura] : 'cinza'}>
@@ -79,9 +82,22 @@ export function Empresas() {
   );
 }
 
+/** ERPs ativos para vincular à empresa (o template é copiado depois, nas Consultas SQL). */
+function SelecaoErp({ valor, aoMudar }: { valor: string; aoMudar: (v: string) => void }) {
+  const { data: erps = [] } = useQuery({ queryKey: ['erps'], queryFn: () => api<SistemaErpResumo[]>('/erps') });
+  return (
+    <Selecao rotulo="Sistema ERP" value={valor} onChange={(e) => aoMudar(e.target.value)}>
+      <option value="">Nenhum</option>
+      {erps.filter((e) => e.ativo || e.id === valor).map((e) => (
+        <option key={e.id} value={e.id}>{e.nome}</option>
+      ))}
+    </Selecao>
+  );
+}
+
 function FormNovaEmpresa({ aoConcluir }: { aoConcluir: () => void }) {
   const cliente = useQueryClient();
-  const [f, setF] = useState({ razaoSocial: '', nomeFantasia: '', cnpj: '', codigoErp: '', adminNome: '', adminEmail: '', adminSenha: '' });
+  const [f, setF] = useState({ razaoSocial: '', nomeFantasia: '', cnpj: '', codigoErp: '', sistemaErpId: '', adminNome: '', adminEmail: '', adminSenha: '' });
   const mutacao = useMutation({
     mutationFn: () =>
       api<EmpresaResumo>('/empresas', {
@@ -91,6 +107,7 @@ function FormNovaEmpresa({ aoConcluir }: { aoConcluir: () => void }) {
           nomeFantasia: f.nomeFantasia || undefined,
           cnpj: f.cnpj,
           codigoErp: f.codigoErp || undefined,
+          sistemaErpId: f.sistemaErpId || undefined,
           admin: { nome: f.adminNome, email: f.adminEmail, senha: f.adminSenha },
         },
       }),
@@ -115,6 +132,7 @@ function FormNovaEmpresa({ aoConcluir }: { aoConcluir: () => void }) {
         <Campo rotulo="CNPJ" required placeholder="00.000.000/0000-00" {...campo('cnpj')} ajuda="Aceita CNPJ alfanumérico." />
         <Campo rotulo="Código no ERP" {...campo('codigoErp')} />
       </div>
+      <SelecaoErp valor={f.sistemaErpId} aoMudar={(sistemaErpId) => setF({ ...f, sistemaErpId })} />
       <fieldset className="space-y-3 rounded-md border border-slate-200 p-3">
         <legend className="px-1 text-sm font-medium text-slate-700">Administrador da empresa</legend>
         <Campo rotulo="Nome" required {...campo('adminNome')} />
@@ -139,9 +157,10 @@ function FormEditarEmpresa({ empresa, aoConcluir }: { empresa: EmpresaResumo; ao
     plano: empresa.plano,
     statusAssinatura: empresa.statusAssinatura,
     ativa: empresa.ativa,
+    sistemaErpId: empresa.sistemaErpId ?? '',
   });
   const mutacao = useMutation({
-    mutationFn: () => api<EmpresaResumo>(`/empresas/${empresa.id}`, { metodo: 'PATCH', corpo: f }),
+    mutationFn: () => api<EmpresaResumo>(`/empresas/${empresa.id}`, { metodo: 'PATCH', corpo: { ...f, sistemaErpId: f.sistemaErpId || null } }),
     onSuccess: () => {
       void cliente.invalidateQueries({ queryKey: ['empresas'] });
       aoConcluir();
@@ -172,6 +191,7 @@ function FormEditarEmpresa({ empresa, aoConcluir }: { empresa: EmpresaResumo; ao
           ))}
         </Selecao>
       </div>
+      <SelecaoErp valor={f.sistemaErpId} aoMudar={(sistemaErpId) => setF({ ...f, sistemaErpId })} />
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={f.ativa} onChange={(e) => setF({ ...f, ativa: e.target.checked })} />
         Empresa ativa (desmarcar bloqueia o acesso de todos os usuários)

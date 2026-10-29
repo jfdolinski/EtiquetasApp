@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { ConsultasModule } from './consultas/consultas.module';
 import { PermissoesGuard } from './auth/permissoes.guard';
 import { EmpresasModule } from './empresas/empresas.module';
+import { ErpsModule } from './erps/erps.module';
 import { HealthController } from './health.controller';
 import { ImpressaoModule } from './impressao/impressao.module';
 import { ModelosModule } from './modelos/modelos.module';
@@ -28,6 +29,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     ConsultasModule,
     ModelosModule,
     ImpressaoModule,
+    ErpsModule,
   ],
   controllers: [HealthController],
   providers: [

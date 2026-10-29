@@ -56,6 +56,7 @@ export class EmpresasService {
     if (await this.prisma.usuario.findUnique({ where: { email: emailAdmin } })) {
       throw new ConflictException('O e-mail do administrador já está em uso.');
     }
+    if (dto.sistemaErpId) await this.exigirErpAtivo(dto.sistemaErpId);
     const senhaHash = await gerarHashSenha(dto.admin.senha);
 
     try {
@@ -67,6 +68,7 @@ export class EmpresasService {
             cnpj,
             codigoErp: dto.codigoErp?.trim() || null,
             plano: dto.plano?.trim() || undefined,
+            sistemaErpId: dto.sistemaErpId ?? null,
           },
         });
         const perfil = await tx.perfil.create({
@@ -101,8 +103,10 @@ export class EmpresasService {
   }
 
   async atualizar(id: string, dto: AtualizarEmpresaDto, autorId: string) {
-    await this.obter(id);
-    const data: Prisma.EmpresaUpdateInput = {
+    const atual = await this.obter(id);
+    if (dto.sistemaErpId && dto.sistemaErpId !== atual.sistemaErpId) await this.exigirErpAtivo(dto.sistemaErpId);
+    const data: Prisma.EmpresaUncheckedUpdateInput = {
+      sistemaErpId: dto.sistemaErpId,
       razaoSocial: dto.razaoSocial?.trim(),
       nomeFantasia: dto.nomeFantasia === undefined ? undefined : dto.nomeFantasia.trim() || null,
       cnpj: dto.cnpj === undefined ? undefined : cnpjValido(dto.cnpj),
@@ -127,5 +131,10 @@ export class EmpresasService {
       detalhes: { ...dto },
     });
     return this.obter(id);
+  }
+
+  private async exigirErpAtivo(id: string) {
+    const erp = await this.prisma.sistemaErp.findUnique({ where: { id }, select: { ativo: true } });
+    if (!erp || !erp.ativo) throw new BadRequestException('ERP inválido ou desativado.');
   }
 }

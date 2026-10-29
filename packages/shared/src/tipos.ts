@@ -15,6 +15,7 @@ export interface EmpresaResumo {
   plano: string;
   statusAssinatura: StatusAssinatura;
   ativa: boolean;
+  sistemaErpId: string | null;
   criadoEm: string;
   totalUsuarios?: number;
 }

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateIf, ValidateNested } from 'class-validator';
 import { STATUS_ASSINATURA, type StatusAssinatura } from '@etiquetas/shared';
 
 export class AdminInicialDto {
@@ -42,6 +42,10 @@ export class CriarEmpresaDto {
   @MaxLength(60)
   plano?: string;
 
+  @IsOptional()
+  @IsUUID('all', { message: 'ERP inválido.' })
+  sistemaErpId?: string;
+
   @ValidateNested()
   @Type(() => AdminInicialDto)
   admin: AdminInicialDto;
@@ -80,4 +84,10 @@ export class AtualizarEmpresaDto {
   @IsOptional()
   @IsBoolean()
   ativa?: boolean;
+
+  /** null desvincula (as consultas já copiadas continuam na empresa). */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsUUID('all', { message: 'ERP inválido.' })
+  sistemaErpId?: string | null;
 }

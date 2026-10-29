@@ -27,6 +27,8 @@ model Empresa {
   plano            String           @default("padrao")
   statusAssinatura StatusAssinatura @default(ATIVA) @map("status_assinatura")
   ativa            Boolean          @default(true)
+  /// ERP usado pela empresa; o template dele pode ser copiado para as consultas da empresa.
+  sistemaErpId     String?          @map("sistema_erp_id") @db.Uuid
   criadoEm         DateTime         @default(now()) @map("criado_em")
   atualizadoEm     DateTime         @updatedAt @map("atualizado_em")
 
@@ -40,6 +42,7 @@ model Empresa {
   impressoras Impressora[]
   listas      ListaDiaria[]
   trabalhos   TrabalhoImpressao[]
+  sistemaErp  SistemaErp?         @relation(fields: [sistemaErpId], references: [id], onDelete: Restrict)
 
   @@map("empresas")
 }
@@ -188,17 +191,63 @@ model ConsultaSql {
   /// SHA-256 de conexaoId + sql quando os campos foram lidos; diferente do atual = desatualizados.
   camposHash          String?            @map("campos_hash")
   camposAtualizadosEm DateTime?          @map("campos_atualizados_em")
+  /// Consulta do template do ERP de onde esta foi copiada.
+  templateConsultaId  String?            @map("template_consulta_id") @db.Uuid
+  /// SHA-256 do SQL do template no momento da cópia: compara com a consulta (ajustada?)
+  /// e com o template atual (template mudou?).
+  templateSqlHash     String?            @map("template_sql_hash")
   ativo               Boolean            @default(true)
   criadoEm            DateTime           @default(now()) @map("criado_em")
   atualizadoEm        DateTime           @updatedAt @map("atualizado_em")
 
-  empresa Empresa          @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  conexao ConexaoBanco     @relation(fields: [conexaoId], references: [id], onDelete: Restrict)
-  modelos ModeloEtiqueta[]
+  empresa  Empresa           @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  conexao  ConexaoBanco      @relation(fields: [conexaoId], references: [id], onDelete: Restrict)
+  template TemplateConsulta? @relation(fields: [templateConsultaId], references: [id], onDelete: SetNull)
+  modelos  ModeloEtiqueta[]
 
   @@unique([empresaId, nome])
   @@index([conexaoId])
+  @@index([templateConsultaId])
   @@map("consultas_sql")
+}
+
+/// ERP cadastrado na plataforma (ex.: "ERP X – SQL Server"). Mantido pelo super-admin.
+model SistemaErp {
+  id           String    @id @default(uuid()) @db.Uuid
+  nome         String    @unique
+  fabricante   String?
+  tipoBanco    TipoBanco @map("tipo_banco")
+  descricao    String?
+  ativo        Boolean   @default(true)
+  criadoEm     DateTime  @default(now()) @map("criado_em")
+  atualizadoEm DateTime  @updatedAt @map("atualizado_em")
+
+  consultas TemplateConsulta[]
+  empresas  Empresa[]
+
+  @@map("sistemas_erp")
+}
+
+/// Consulta padrão do template de um ERP (TemplateERP da SPEC). Copiada para a empresa ao vincular.
+model TemplateConsulta {
+  id              String             @id @default(uuid()) @db.Uuid
+  sistemaErpId    String             @map("sistema_erp_id") @db.Uuid
+  nome            String
+  descricao       String?
+  finalidade      FinalidadeConsulta @default(OUTRA)
+  sql             String
+  /// Mapeamento de campos: [{ campo, origem?, descricao? }] — colunas que a consulta deve devolver
+  /// e de onde vêm no ERP.
+  camposEsperados Json               @default("[]") @map("campos_esperados")
+  ordem           Int                @default(0)
+  criadoEm        DateTime           @default(now()) @map("criado_em")
+  atualizadoEm    DateTime           @updatedAt @map("atualizado_em")
+
+  sistemaErp SistemaErp    @relation(fields: [sistemaErpId], references: [id], onDelete: Cascade)
+  copias     ConsultaSql[]
+
+  @@unique([sistemaErpId, nome])
+  @@map("templates_consulta")
 }
 
 /// Modelo de etiqueta. Os elementos (CampoEtiqueta da SPEC) ficam em `layout`:

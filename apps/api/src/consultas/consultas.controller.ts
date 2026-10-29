@@ -63,6 +63,13 @@ export class ConsultasController {
     return this.consultas.atualizarCampos(empresaId, id, autor.id);
   }
 
+  @Post(':id/restaurar-template')
+  @HttpCode(200)
+  @RequerPermissao('sql.editar')
+  restaurarTemplate(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() autor: UsuarioRequisicao) {
+    return this.consultas.restaurarTemplate(empresaId, id, autor.id);
+  }
+
   @Delete(':id')
   @HttpCode(204)
   @RequerPermissao('sql.editar')

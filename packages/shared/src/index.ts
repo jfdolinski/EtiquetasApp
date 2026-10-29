@@ -1,6 +1,7 @@
 export * from './agente';
 export * from './cnpj';
 export * from './consultas';
+export * from './erp';
 export * from './etiquetas';
 export * from './impressao';
 export * from './placeholders';

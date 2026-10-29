@@ -36,11 +36,23 @@ const SELECAO = {
   campos: true,
   camposHash: true,
   camposAtualizadosEm: true,
+  templateConsultaId: true,
   ativo: true,
   criadoEm: true,
   atualizadoEm: true,
   conexao: { select: { tipo: true } },
 } satisfies Prisma.ConsultaSqlSelect;
+
+/** Hash do texto do SQL (cópia de template: detectar ajuste e atualização). */
+export function hashSql(sql: string): string {
+  return sha256(sql);
+}
+
+/** Origem da consulta quando copiada de um template de ERP. */
+export interface OrigemTemplate {
+  templateConsultaId: string;
+  sql: string;
+}
 
 type ConsultaSelecionada = Prisma.ConsultaSqlGetPayload<{ select: typeof SELECAO }>;
 
@@ -87,7 +99,7 @@ export class ConsultasService {
     return resumo(await this.buscar(empresaId, id));
   }
 
-  async criar(empresaId: string, dto: CriarConsultaDto, autorId: string): Promise<SalvarConsultaResposta> {
+  async criar(empresaId: string, dto: CriarConsultaDto, autorId: string, template?: OrigemTemplate): Promise<SalvarConsultaResposta> {
     const tipo = await this.tipoDaConexao(empresaId, dto.conexaoId);
     validarSql(dto.sql, tipo);
     try {
@@ -99,16 +111,18 @@ export class ConsultasService {
           descricao: dto.descricao?.trim() || null,
           finalidade: dto.finalidade,
           sql: dto.sql,
+          templateConsultaId: template?.templateConsultaId,
+          templateSqlHash: template ? hashSql(template.sql) : undefined,
         },
         select: SELECAO,
       });
       await this.auditoria.registrar({
         empresaId,
         usuarioId: autorId,
-        acao: 'consulta.criar',
+        acao: template ? 'consulta.copiar_template' : 'consulta.criar',
         entidade: 'ConsultaSql',
         entidadeId: consulta.id,
-        detalhes: { nome: consulta.nome, conexaoId: dto.conexaoId, sql: dto.sql.slice(0, 2000) },
+        detalhes: { nome: consulta.nome, conexaoId: dto.conexaoId, templateConsultaId: template?.templateConsultaId, sql: dto.sql.slice(0, 2000) },
       });
       return this.lerCamposAoSalvar(empresaId, consulta, autorId);
     } catch (erro) {
@@ -209,6 +223,39 @@ export class ConsultasService {
     const consulta = await this.buscar(empresaId, id);
     if (!consulta.ativo) throw new BadRequestException('Esta consulta está desativada.');
     return this.executarSelecionada(empresaId, consulta, usuarioId, parametros, limiteLinhas);
+  }
+
+  /**
+   * Substitui o SQL da consulta pelo do template de origem (descarta ajustes da empresa)
+   * e relê os campos.
+   */
+  async restaurarTemplate(empresaId: string, id: string, autorId: string): Promise<SalvarConsultaResposta> {
+    const atual = await this.buscar(empresaId, id);
+    if (!atual.templateConsultaId) throw new BadRequestException('Esta consulta não veio de um template de ERP.');
+    const template = await this.prisma.templateConsulta.findFirst({
+      // O template precisa ser do ERP vinculado à empresa.
+      where: { id: atual.templateConsultaId, sistemaErp: { empresas: { some: { id: empresaId } } } },
+      select: { sql: true, sistemaErp: { select: { tipoBanco: true } } },
+    });
+    if (!template) throw new BadRequestException('O template de origem não pertence mais ao ERP da empresa.');
+    if (template.sistemaErp.tipoBanco !== atual.conexao.tipo) {
+      throw new BadRequestException('A conexão desta consulta é de outro tipo de banco que o do template.');
+    }
+    validarSql(template.sql, atual.conexao.tipo);
+    const consulta = await this.prisma.consultaSql.update({
+      where: { id },
+      data: { sql: template.sql, templateSqlHash: hashSql(template.sql) },
+      select: SELECAO,
+    });
+    await this.auditoria.registrar({
+      empresaId,
+      usuarioId: autorId,
+      acao: 'consulta.restaurar_template',
+      entidade: 'ConsultaSql',
+      entidadeId: id,
+      detalhes: { sqlAnterior: atual.sql.slice(0, 2000) },
+    });
+    return this.lerCamposAoSalvar(empresaId, consulta, autorId);
   }
 
   /** Relê as colunas da consulta (ex.: depois que o agente voltou a ficar online). */
@@ -341,6 +388,7 @@ function resumo(c: ConsultaSelecionada): ConsultaSqlResumo {
     campos: c.campos as unknown as CampoDinamico[],
     camposDesatualizados: c.camposHash !== hashCampos(c.conexaoId, c.sql),
     camposAtualizadosEm: c.camposAtualizadosEm?.toISOString() ?? null,
+    templateConsultaId: c.templateConsultaId,
     ativo: c.ativo,
     criadoEm: c.criadoEm.toISOString(),
     atualizadoEm: c.atualizadoEm.toISOString(),

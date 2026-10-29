@@ -31,6 +31,7 @@ SaaS multiempresa que lê dados de produtos dos bancos dos ERPs dos clientes (vi
 - **Etiquetas:** `LayoutEtiqueta` (mm) em `packages/shared/src/etiquetas` é a fonte única: o editor (Konva) desenha, `validarLayout` valida na API e os geradores traduzem. `posicionar()` distribui etiquetas em páginas (fileira no rolo, folha) e resolve textos; cada gerador (`zpl.ts`, `ppla.ts`, `pplb.ts`, `escpos.ts`) só traduz elementos posicionados. PDF fica na API (`src/modelos/pdf.ts`, pdf-lib + bwip-js). Recurso não suportado numa linguagem vira item em `avisos`, nunca saída quebrada. Gerar: `gerarSaida(layout, registros, linguagem, dpi, hoje)`.
 - **Impressão:** `TrabalhosService.criar` gera o conteúdo (via `gerarSaida`) e grava `trabalhos_impressao`; essa tabela é a fila (durável, sem Redis). `DespachoService` envia ao agente um trabalho por vez por agente: ao criar, quando o agente conecta (`gateway.quandoConectar`) e numa varredura a cada 30 s. Reivindica com `updateMany status PENDENTE→ENVIANDO`. Queda antes do envio volta para a fila; queda depois de enviado, ou sem confirmação, vira ERRO para o operador conferir (nunca reimprime sozinho). PDF não passa pelo agente: fica CONCLUIDO e é aberto no navegador.
 - **Lista do dia:** modelos com `naListaDiaria` e consulta; colunas convencionais `codigo/ean` (chave), `descricao/nome`, `quantidade/qtd` (`packages/shared/src/impressao.ts`). Atualizar a lista não traz de volta itens impressos, na fila ou descartados no dia.
+- **ERPs e templates:** `SistemaErp` e `TemplateConsulta` são dados da plataforma (sem `empresa_id`, só super-admin, `src/erps`). A empresa aponta para um ERP (`empresas.sistema_erp_id`) e copia as consultas com `ErpEmpresaService.copiar` → `ConsultasService.criar(..., origemTemplate)`. A cópia guarda `template_consulta_id` e `template_sql_hash` (SHA-256 do SQL do template na cópia); `situacaoCopia` compara hashes para mostrar "ajustada"/"template atualizado". Mudar o template nunca altera cópias; a empresa decide restaurar.
 - **Segredos:** senhas de banco com `cifrar/decifrar` (`src/cripto.ts`, AES-256-GCM, `CHAVE_CRIPTOGRAFIA`), nunca devolvidas ao navegador. Tokens e códigos de ativação só como SHA-256.
 
 ## Comandos
@@ -118,6 +119,12 @@ Deploy: [docs/DEPLOY.md](docs/DEPLOY.md).
   - **Não** testado com impressora física nem com impressora instalada no Windows (só o caminho de erro do winspool).
   - Desvio da SPEC: fila de impressão no Postgres em vez de Redis/BullMQ (durável e suficiente com uma réplica da API). Redis fica para os jobs agendados da Fase 7, se fizer sentido lá.
   - Limitações: PDF é impresso pelo navegador (o agente não renderiza PDF); lista do dia é gerada pelo operador (sem agendamento automático); contador recomeça a cada lote de 2000 etiquetas.
-- [ ] Fase 6 – Cadastro de ERPs e templates
+- [x] Fase 6 – Cadastro de ERPs e templates
+  - Feito:
+    - Cadastro de Sistemas ERP (nome, fabricante, tipo de banco) com template: consultas padrão (finalidade, SQL com placeholders validado no dialeto do ERP) e mapeamento de campos (coluna esperada ← origem no ERP).
+    - Vínculo empresa → ERP no cadastro da empresa; painel do template em Consultas SQL: copiar tudo ou uma consulta para a conexão compatível, situação de cada cópia (igual, ajustada, template atualizado, ambos), campos do mapeamento que a cópia não devolve mais, restaurar/atualizar a partir do template.
+    - Regras: copiar de novo não duplica (nome em conflito ganha sufixo); conexão de outro tipo de banco é recusada; trocar o tipo de banco do ERP revalida o template; ERP com empresas vinculadas não pode ser excluído; excluir consulta do template ou desvincular mantém as cópias.
+  - Testado: 1 teste no shared, 9 na API (96 no total); roteiro ponta a ponta com 27 cenários (template, vínculo, cópia com leitura de campos via agente, ajuste, atualização do template, restauração, tipo de banco errado, isolamento, permissões, exclusões); telas conferidas no navegador.
+  - Fora do escopo: modelos de etiqueta no template do ERP (a SPEC fala em consultas e mapeamento; a cópia de modelos entre empresas é da Fase 8).
 - [ ] Fase 7 – Assinatura, carência e bloqueio
 - [ ] Fase 8 – Cópia de modelos, auditoria e refinamentos

@@ -80,6 +80,8 @@ export interface ConsultaSqlResumo {
   /** O SQL ou a conexão mudou depois da última leitura das colunas. */
   camposDesatualizados: boolean;
   camposAtualizadosEm: string | null;
+  /** Consulta do template do ERP de onde foi copiada. */
+  templateConsultaId: string | null;
   ativo: boolean;
   criadoEm: string;
   atualizadoEm: string;
