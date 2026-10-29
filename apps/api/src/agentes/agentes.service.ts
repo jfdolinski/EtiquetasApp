@@ -9,7 +9,8 @@ import {
 import { Prisma } from '@prisma/client';
 import { normalizarCnpj, type AgenteResumo, type AtivacaoAgenteResposta, type CodigoAtivacaoResposta } from '@etiquetas/shared';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import { empresaBloqueada, MENSAGEM_BLOQUEIO } from '../auth/acesso-empresa';
+import { empresaBloqueada } from '../auth/acesso-empresa';
+import { MensagensCobrancaService } from '../cobranca/mensagens-cobranca.service';
 import { gerarCodigoAtivacao, gerarTokenAgente, normalizarCodigoAtivacao, sha256 } from '../cripto';
 import { ehViolacaoUnica } from '../prisma/erros';
 import { PrismaService } from '../prisma/prisma.service';
@@ -46,6 +47,7 @@ export class AgentesService {
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
     private readonly gateway: AgentesGateway,
+    private readonly cobranca: MensagensCobrancaService,
   ) {}
 
   async listar(empresaId: string): Promise<AgenteResumo[]> {
@@ -184,7 +186,7 @@ export class AgentesService {
       },
     });
     if (!agente) throw new UnauthorizedException(MENSAGEM_ATIVACAO_INVALIDA);
-    if (empresaBloqueada(agente.empresa)) throw new ForbiddenException(MENSAGEM_BLOQUEIO);
+    if (empresaBloqueada(agente.empresa)) throw new ForbiddenException(await this.cobranca.mensagemBloqueio(agente.empresaId));
 
     const token = gerarTokenAgente();
     // updateMany com o hash na condição: dois pedidos simultâneos com o mesmo código não geram dois tokens.

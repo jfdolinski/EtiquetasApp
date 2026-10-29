@@ -3,7 +3,7 @@ import { NavLink, Outlet } from 'react-router';
 import { formatarCnpj, type CodigoPermissao, type EmpresaResumo } from '@etiquetas/shared';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { Alerta } from './ui';
+import { BannerCobranca } from './BannerCobranca';
 
 interface ItemMenu {
   para: string;
@@ -19,6 +19,7 @@ const MENU: ItemMenu[] = [
   { para: '/historico', rotulo: 'Histórico de impressão', permissao: 'imprimir' },
   { para: '/empresas', rotulo: 'Empresas', superAdmin: true },
   { para: '/erps', rotulo: 'Sistemas ERP', superAdmin: true },
+  { para: '/cobranca', rotulo: 'Cobrança', superAdmin: true },
   { para: '/usuarios', rotulo: 'Usuários', permissao: 'usuario.ver' },
   { para: '/perfis', rotulo: 'Perfis e permissões', permissao: 'perfil.ver' },
   { para: '/agentes', rotulo: 'Agentes', permissao: 'agente.ver' },
@@ -26,6 +27,7 @@ const MENU: ItemMenu[] = [
   { para: '/consultas', rotulo: 'Consultas SQL', permissao: 'sql.ver' },
   { para: '/modelos', rotulo: 'Modelos de etiqueta', permissao: 'etiqueta.modelo.ver' },
   { para: '/impressoras', rotulo: 'Impressoras', permissao: 'impressora.ver' },
+  { para: '/assinatura', rotulo: 'Assinatura', permissao: 'empresa.ver' },
   { para: '/minha-conta', rotulo: 'Minha conta' },
 ];
 
@@ -54,7 +56,7 @@ function SeletorEmpresa() {
 }
 
 export function Layout() {
-  const { usuario, sair, pode, aviso } = useAuth();
+  const { usuario, sair, pode } = useAuth();
   if (!usuario) return null;
 
   const itens = MENU.filter((i) => (i.superAdmin ? usuario.superAdmin : !i.permissao || pode(i.permissao)));
@@ -93,11 +95,7 @@ export function Layout() {
           </button>
         </header>
         <main className="flex-1 px-4 py-6 sm:px-6">
-          {aviso && (
-            <div className="mb-4">
-              <Alerta tipo="aviso">{aviso}</Alerta>
-            </div>
-          )}
+          <BannerCobranca />
           <Outlet />
         </main>
       </div>

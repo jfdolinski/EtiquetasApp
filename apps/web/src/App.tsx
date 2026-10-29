@@ -7,7 +7,9 @@ import { Agentes } from './pages/Agentes';
 import { Bancos } from './pages/Bancos';
 import { Consultas } from './pages/Consultas';
 import { EditorConsulta } from './pages/EditorConsulta';
+import { Assinatura } from './pages/Assinatura';
 import { Avulsa } from './pages/Avulsa';
+import { Cobranca } from './pages/cobranca/Cobranca';
 import { Empresas } from './pages/Empresas';
 import { EditorErp } from './pages/erps/EditorErp';
 import { Erps } from './pages/erps/Erps';
@@ -52,6 +54,8 @@ export function App() {
         <Route path="empresas" element={<Protegida superAdmin><Empresas /></Protegida>} />
         <Route path="erps" element={<Protegida superAdmin><Erps /></Protegida>} />
         <Route path="erps/:id" element={<Protegida superAdmin><EditorErp /></Protegida>} />
+        <Route path="cobranca" element={<Protegida superAdmin><Cobranca /></Protegida>} />
+        <Route path="assinatura" element={<Protegida permissao="empresa.ver"><Assinatura /></Protegida>} />
         <Route path="usuarios" element={<Protegida permissao="usuario.ver"><Usuarios /></Protegida>} />
         <Route path="perfis" element={<Protegida permissao="perfil.ver"><Perfis /></Protegida>} />
         <Route path="agentes" element={<Protegida permissao="agente.ver"><Agentes /></Protegida>} />

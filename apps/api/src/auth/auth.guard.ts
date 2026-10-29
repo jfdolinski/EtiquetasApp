@@ -2,7 +2,8 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Unauthor
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
-import { empresaBloqueada, MENSAGEM_BLOQUEIO } from './acesso-empresa';
+import { MensagensCobrancaService } from '../cobranca/mensagens-cobranca.service';
+import { empresaBloqueada } from './acesso-empresa';
 import { CHAVE_PUBLICO } from './decorators';
 import type { RequisicaoAutenticada } from './usuario-requisicao';
 
@@ -20,6 +21,7 @@ export class AuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly jwt: JwtService,
     private readonly prisma: PrismaService,
+    private readonly cobranca: MensagensCobrancaService,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -52,7 +54,7 @@ export class AuthGuard implements CanActivate {
 
     if (!usuario.superAdmin) {
       if (!usuario.empresa) throw new ForbiddenException('Usuário sem empresa vinculada.');
-      if (empresaBloqueada(usuario.empresa)) throw new ForbiddenException(MENSAGEM_BLOQUEIO);
+      if (empresaBloqueada(usuario.empresa)) throw new ForbiddenException(await this.cobranca.mensagemBloqueio(usuario.empresaId));
     }
 
     req.usuario = {

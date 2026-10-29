@@ -2,7 +2,7 @@ import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import type { JwtService } from '@nestjs/jwt';
 import type { AuditoriaService } from '../auditoria/auditoria.service';
 import type { PrismaService } from '../prisma/prisma.service';
-import { MENSAGEM_CARENCIA } from './acesso-empresa';
+import type { MensagensCobrancaService } from '../cobranca/mensagens-cobranca.service';
 import { AuthService } from './auth.service';
 import { gerarHashSenha } from './senha';
 
@@ -29,7 +29,13 @@ async function montar(sobrescrever: Record<string, unknown> = {}) {
   };
   const jwt = { signAsync: jest.fn(async () => 'token-assinado') } as unknown as JwtService;
   const auditoria = { registrar: jest.fn(async () => undefined) } as unknown as AuditoriaService;
-  return { servico: new AuthService(prisma as unknown as PrismaService, jwt, auditoria), prisma };
+  const cobranca = {
+    mensagemBloqueio: jest.fn(async () => 'Bloqueada: vencimento 10/11/2026'),
+    avisoAtual: jest.fn(async () =>
+      usuario.empresa?.statusAssinatura === 'CARENCIA' ? { id: 'a1', tipo: 'CARENCIA', mensagem: 'Venceu há 3 dias', criadoEm: '' } : null,
+    ),
+  };
+  return { servico: new AuthService(prisma as unknown as PrismaService, jwt, auditoria, cobranca as unknown as MensagensCobrancaService), prisma, cobranca };
 }
 
 describe('AuthService.login', () => {
@@ -55,14 +61,16 @@ describe('AuthService.login', () => {
     await expect(servico.login('ana@empresa.com', 'senha-correta')).rejects.toThrow(UnauthorizedException);
   });
 
-  it('bloqueia empresa bloqueada', async () => {
-    const { servico } = await montar({ empresa: { id: 'e1', ativa: true, statusAssinatura: 'BLOQUEADA' } });
+  it('bloqueia empresa bloqueada com a mensagem dos parâmetros de cobrança', async () => {
+    const { servico, cobranca } = await montar({ empresa: { id: 'e1', ativa: true, statusAssinatura: 'BLOQUEADA' } });
     await expect(servico.login('ana@empresa.com', 'senha-correta')).rejects.toThrow(ForbiddenException);
+    await expect(servico.login('ana@empresa.com', 'senha-correta')).rejects.toThrow('Bloqueada: vencimento 10/11/2026');
+    expect(cobranca.mensagemBloqueio).toHaveBeenCalledWith('e1');
   });
 
-  it('avisa quando a empresa está em carência', async () => {
+  it('devolve o aviso de cobrança vigente', async () => {
     const { servico } = await montar({ empresa: { id: 'e1', ativa: true, statusAssinatura: 'CARENCIA' } });
     const r = await servico.login('ana@empresa.com', 'senha-correta');
-    expect(r.aviso).toBe(MENSAGEM_CARENCIA);
+    expect(r.aviso).toBe('Venceu há 3 dias');
   });
 });

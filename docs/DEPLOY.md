@@ -9,7 +9,7 @@ O código precisa estar em um repositório Git (GitHub, GitLab ou Gitea) que o E
 ## 2. Banco e Redis
 
 1. **+ Service → Postgres**, nome `postgres`. Anote a *Internal Connection URL*.
-2. **+ Service → Redis**, nome `redis`. (Ainda não usado na Fase 1; fica pronto para as filas.)
+2. Redis não é necessário: a fila de impressão e a avaliação diária de cobrança usam o próprio Postgres. A API deve ter **uma réplica** (ver seção 3).
 
 ## 3. API
 

@@ -5,6 +5,7 @@ import { AgentesModule } from './agentes/agentes.module';
 import { AuditoriaModule } from './auditoria/auditoria.module';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthModule } from './auth/auth.module';
+import { CobrancaModule } from './cobranca/cobranca.module';
 import { ConsultasModule } from './consultas/consultas.module';
 import { PermissoesGuard } from './auth/permissoes.guard';
 import { EmpresasModule } from './empresas/empresas.module';
@@ -30,6 +31,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     ModelosModule,
     ImpressaoModule,
     ErpsModule,
+    CobrancaModule,
   ],
   controllers: [HealthController],
   providers: [

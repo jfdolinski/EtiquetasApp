@@ -32,17 +32,21 @@ model Empresa {
   criadoEm         DateTime         @default(now()) @map("criado_em")
   atualizadoEm     DateTime         @updatedAt @map("atualizado_em")
 
-  usuarios    Usuario[]
-  perfis      Perfil[]
-  logs        LogAuditoria[]
-  agentes     Agente[]
-  conexoes    ConexaoBanco[]
-  consultas   ConsultaSql[]
-  modelos     ModeloEtiqueta[]
-  impressoras Impressora[]
-  listas      ListaDiaria[]
-  trabalhos   TrabalhoImpressao[]
-  sistemaErp  SistemaErp?         @relation(fields: [sistemaErpId], references: [id], onDelete: Restrict)
+  usuarios           Usuario[]
+  perfis             Perfil[]
+  logs               LogAuditoria[]
+  agentes            Agente[]
+  conexoes           ConexaoBanco[]
+  consultas          ConsultaSql[]
+  modelos            ModeloEtiqueta[]
+  impressoras        Impressora[]
+  listas             ListaDiaria[]
+  trabalhos          TrabalhoImpressao[]
+  sistemaErp         SistemaErp?           @relation(fields: [sistemaErpId], references: [id], onDelete: Restrict)
+  assinatura         Assinatura?
+  parametrosCobranca ParametroCobranca?
+  pagamentos         PagamentoAssinatura[]
+  avisosCobranca     AvisoCobranca[]
 
   @@map("empresas")
 }
@@ -62,10 +66,11 @@ model Usuario {
   criadoEm      DateTime  @default(now()) @map("criado_em")
   atualizadoEm  DateTime  @updatedAt @map("atualizado_em")
 
-  empresa   Empresa?            @relation(fields: [empresaId], references: [id], onDelete: Restrict)
-  perfil    Perfil?             @relation(fields: [perfilId], references: [id], onDelete: SetNull)
-  logs      LogAuditoria[]
-  trabalhos TrabalhoImpressao[]
+  empresa    Empresa?              @relation(fields: [empresaId], references: [id], onDelete: Restrict)
+  perfil     Perfil?               @relation(fields: [perfilId], references: [id], onDelete: SetNull)
+  logs       LogAuditoria[]
+  trabalhos  TrabalhoImpressao[]
+  pagamentos PagamentoAssinatura[]
 
   @@index([empresaId])
   @@map("usuarios")
@@ -414,6 +419,114 @@ model Impressora {
   @@unique([empresaId, nome])
   @@index([agenteId])
   @@map("impressoras")
+}
+
+/// Parâmetros de cobrança. Linha com empresa_id nulo = globais (única, criada na inicialização);
+/// linha por empresa sobrescreve só os campos preenchidos (null = herda).
+model ParametroCobranca {
+  id                  String   @id @default(uuid()) @db.Uuid
+  empresaId           String?  @unique @map("empresa_id") @db.Uuid
+  diasAvisoPrevio     Int?     @map("dias_aviso_previo")
+  diasCarencia        Int?     @map("dias_carencia")
+  diasAteBloqueio     Int?     @map("dias_ate_bloqueio")
+  frequenciaAvisoDias Int?     @map("frequencia_aviso_dias")
+  /// Só nos globais: hora (0–23, FUSO_HORARIO) da avaliação diária.
+  horaAvaliacao       Int?     @map("hora_avaliacao")
+  mensagemAvisoPrevio String?  @map("mensagem_aviso_previo")
+  mensagemCarencia    String?  @map("mensagem_carencia")
+  mensagemPreBloqueio String?  @map("mensagem_pre_bloqueio")
+  mensagemBloqueio    String?  @map("mensagem_bloqueio")
+  atualizadoEm        DateTime @updatedAt @map("atualizado_em")
+
+  empresa Empresa? @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@map("parametros_cobranca")
+}
+
+/// Mensalidade fixa da empresa.
+model Assinatura {
+  id              String   @id @default(uuid()) @db.Uuid
+  empresaId       String   @unique @map("empresa_id") @db.Uuid
+  valorMensal     Decimal  @map("valor_mensal") @db.Decimal(10, 2)
+  /// Dia do mês (1–31; em meses curtos vale o último dia).
+  diaVencimento   Int      @map("dia_vencimento")
+  /// Vencimento em aberto mais antigo. Pagar avança este campo.
+  vencimentoAtual DateTime @map("vencimento_atual") @db.Date
+  /// O job diário não altera o status desta empresa.
+  controleManual  Boolean  @default(false) @map("controle_manual")
+  observacoes     String?
+  criadoEm        DateTime @default(now()) @map("criado_em")
+  atualizadoEm    DateTime @updatedAt @map("atualizado_em")
+
+  empresa    Empresa               @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  pagamentos PagamentoAssinatura[]
+
+  @@map("assinaturas")
+}
+
+model PagamentoAssinatura {
+  id                String   @id @default(uuid()) @db.Uuid
+  empresaId         String   @map("empresa_id") @db.Uuid
+  assinaturaId      String   @map("assinatura_id") @db.Uuid
+  valor             Decimal  @db.Decimal(10, 2)
+  /// Mensalidades quitadas por este pagamento.
+  meses             Int
+  vencimentoQuitado DateTime @map("vencimento_quitado") @db.Date
+  novoVencimento    DateTime @map("novo_vencimento") @db.Date
+  pagoEm            DateTime @map("pago_em") @db.Date
+  observacao        String?
+  registradoPorId   String?  @map("registrado_por_id") @db.Uuid
+  criadoEm          DateTime @default(now()) @map("criado_em")
+
+  empresa       Empresa    @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  assinatura    Assinatura @relation(fields: [assinaturaId], references: [id], onDelete: Cascade)
+  registradoPor Usuario?   @relation(fields: [registradoPorId], references: [id], onDelete: SetNull)
+
+  @@index([empresaId, criadoEm])
+  @@map("pagamentos_assinatura")
+}
+
+enum TipoAvisoCobranca {
+  AVISO_PREVIO
+  CARENCIA
+  PRE_BLOQUEIO
+  BLOQUEADA
+}
+
+/// Aviso emitido pelo job (repetido a cada frequenciaAvisoDias) e exibido aos usuários da empresa.
+model AvisoCobranca {
+  id         String            @id @default(uuid()) @db.Uuid
+  empresaId  String            @map("empresa_id") @db.Uuid
+  tipo       TipoAvisoCobranca
+  mensagem   String
+  /// Vencimento a que o aviso se refere: pagar torna os avisos anteriores obsoletos.
+  vencimento DateTime          @db.Date
+  criadoEm   DateTime          @default(now()) @map("criado_em")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@index([empresaId, criadoEm])
+  @@map("avisos_cobranca")
+}
+
+enum OrigemExecucao {
+  AGENDADA
+  MANUAL
+}
+
+/// Execuções da avaliação diária de inadimplência (no máximo uma agendada por dia).
+model ExecucaoAvaliacao {
+  id          String         @id @default(uuid()) @db.Uuid
+  /// Dia (fuso da plataforma) da execução.
+  data        DateTime       @db.Date
+  origem      OrigemExecucao
+  iniciadoEm  DateTime       @default(now()) @map("iniciado_em")
+  concluidoEm DateTime?      @map("concluido_em")
+  resultado   Json?
+  erro        String?
+
+  @@index([data])
+  @@map("execucoes_avaliacao")
 }
 
 model LogAuditoria {

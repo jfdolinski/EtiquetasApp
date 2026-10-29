@@ -1,5 +1,6 @@
 import { ConflictException, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import type { AuditoriaService } from '../auditoria/auditoria.service';
+import type { MensagensCobrancaService } from '../cobranca/mensagens-cobranca.service';
 import { sha256 } from '../cripto';
 import type { PrismaService } from '../prisma/prisma.service';
 import { AgentesGateway } from './agentes.gateway';
@@ -47,7 +48,8 @@ function montar() {
       throw new AgenteDesconectado('offline');
     }),
   } as unknown as jest.Mocked<AgentesGateway>;
-  return { servico: new AgentesService(prisma as unknown as PrismaService, auditoria, gateway), prisma, gateway };
+  const cobranca = { mensagemBloqueio: jest.fn(async () => 'Acesso bloqueado.') } as unknown as MensagensCobrancaService;
+  return { servico: new AgentesService(prisma as unknown as PrismaService, auditoria, gateway, cobranca), prisma, gateway };
 }
 
 describe('AgentesService', () => {

@@ -3,7 +3,8 @@ import { JwtService } from '@nestjs/jwt';
 import { ehCodigoPermissao, type LoginResposta, type UsuarioLogado } from '@etiquetas/shared';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { avisoEmpresa, empresaBloqueada, MENSAGEM_BLOQUEIO } from './acesso-empresa';
+import { MensagensCobrancaService } from '../cobranca/mensagens-cobranca.service';
+import { empresaBloqueada } from './acesso-empresa';
 import type { PayloadToken } from './auth.guard';
 import { compararComHashFicticio, conferirSenha, gerarHashSenha } from './senha';
 
@@ -15,6 +16,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly auditoria: AuditoriaService,
+    private readonly cobranca: MensagensCobrancaService,
   ) {}
 
   async login(email: string, senha: string): Promise<LoginResposta> {
@@ -30,8 +32,8 @@ export class AuthService {
     let aviso: string | null = null;
     if (!usuario.superAdmin) {
       if (!usuario.empresa) throw new ForbiddenException('Usuário sem empresa vinculada.');
-      if (empresaBloqueada(usuario.empresa)) throw new ForbiddenException(MENSAGEM_BLOQUEIO);
-      aviso = avisoEmpresa(usuario.empresa);
+      if (empresaBloqueada(usuario.empresa)) throw new ForbiddenException(await this.cobranca.mensagemBloqueio(usuario.empresaId));
+      aviso = (await this.cobranca.avisoAtual(usuario.empresa.id))?.mensagem ?? null;
     }
 
     await this.prisma.usuario.update({ where: { id: usuario.id }, data: { ultimoLoginEm: new Date() } });

@@ -32,6 +32,8 @@ SaaS multiempresa que lê dados de produtos dos bancos dos ERPs dos clientes (vi
 - **Impressão:** `TrabalhosService.criar` gera o conteúdo (via `gerarSaida`) e grava `trabalhos_impressao`; essa tabela é a fila (durável, sem Redis). `DespachoService` envia ao agente um trabalho por vez por agente: ao criar, quando o agente conecta (`gateway.quandoConectar`) e numa varredura a cada 30 s. Reivindica com `updateMany status PENDENTE→ENVIANDO`. Queda antes do envio volta para a fila; queda depois de enviado, ou sem confirmação, vira ERRO para o operador conferir (nunca reimprime sozinho). PDF não passa pelo agente: fica CONCLUIDO e é aberto no navegador.
 - **Lista do dia:** modelos com `naListaDiaria` e consulta; colunas convencionais `codigo/ean` (chave), `descricao/nome`, `quantidade/qtd` (`packages/shared/src/impressao.ts`). Atualizar a lista não traz de volta itens impressos, na fila ou descartados no dia.
 - **ERPs e templates:** `SistemaErp` e `TemplateConsulta` são dados da plataforma (sem `empresa_id`, só super-admin, `src/erps`). A empresa aponta para um ERP (`empresas.sistema_erp_id`) e copia as consultas com `ErpEmpresaService.copiar` → `ConsultasService.criar(..., origemTemplate)`. A cópia guarda `template_consulta_id` e `template_sql_hash` (SHA-256 do SQL do template na cópia); `situacaoCopia` compara hashes para mostrar "ajustada"/"template atualizado". Mudar o template nunca altera cópias; a empresa decide restaurar.
+- **Cobrança:** regras puras em `packages/shared/src/cobranca.ts` (`avaliarAssinatura`: aviso prévio → carência → pré-bloqueio → bloqueio; `renderizarMensagem`). `AvaliacaoCobrancaService` roda a avaliação diária em processo (conferida a cada 10 min, após `horaAvaliacao`, uma AGENDADA por dia em `execucoes_avaliacao`) com `pg_try_advisory_xact_lock` — trava de sessão não serve com o pool do Prisma. Salvar assinatura, pagamento, estorno ou prazos chama `avaliarEmpresa` na hora. Mensagens de bloqueio/carência para login, guard e ativação do agente vêm de `MensagensCobrancaService` (módulo global); as constantes de `acesso-empresa.ts` só valem para status definido à mão.
+- **Sem Redis:** fila de impressão e job diário usam o Postgres. Redis/BullMQ da SPEC não foi adotado (decisão da Fase 5, mantida na 7).
 - **Segredos:** senhas de banco com `cifrar/decifrar` (`src/cripto.ts`, AES-256-GCM, `CHAVE_CRIPTOGRAFIA`), nunca devolvidas ao navegador. Tokens e códigos de ativação só como SHA-256.
 
 ## Comandos
@@ -126,5 +128,13 @@ Deploy: [docs/DEPLOY.md](docs/DEPLOY.md).
     - Regras: copiar de novo não duplica (nome em conflito ganha sufixo); conexão de outro tipo de banco é recusada; trocar o tipo de banco do ERP revalida o template; ERP com empresas vinculadas não pode ser excluído; excluir consulta do template ou desvincular mantém as cópias.
   - Testado: 1 teste no shared, 9 na API (96 no total); roteiro ponta a ponta com 27 cenários (template, vínculo, cópia com leitura de campos via agente, ajuste, atualização do template, restauração, tipo de banco errado, isolamento, permissões, exclusões); telas conferidas no navegador.
   - Fora do escopo: modelos de etiqueta no template do ERP (a SPEC fala em consultas e mapeamento; a cópia de modelos entre empresas é da Fase 8).
-- [ ] Fase 7 – Assinatura, carência e bloqueio
+- [x] Fase 7 – Assinatura, carência e bloqueio
+  - Feito:
+    - `Assinatura` (mensalidade fixa, dia de vencimento, vencimento em aberto, controle manual), `PagamentoAssinatura` (quita N meses; estorno do último), `ParametroCobranca` global + sobrescrita de prazos por empresa, `AvisoCobranca`, `ExecucaoAvaliacao`.
+    - Parâmetros: dias de aviso prévio, carência, dias até o bloqueio, frequência dos avisos, hora da avaliação e quatro mensagens com variáveis.
+    - Job diário: ajusta o status (ATIVA/CARENCIA/BLOQUEADA), audita a mudança e emite avisos na frequência configurada; avaliação manual; pagamento libera na hora.
+    - Mensagem de bloqueio configurada no login, no guard (token já emitido) e na ativação do agente; banner de aviso para os usuários; página Assinatura da empresa; tela Cobrança do super-admin.
+  - Testado: 6 testes no shared, 5 na API (101 no total); roteiro ponta a ponta com 26 cenários (execução agendada, carência, pré-bloqueio, bloqueio com mensagem configurada, pagamento/estorno, prazos por empresa, controle manual, trava contra execução simultânea, permissões); telas conferidas no navegador.
+  - Fora do escopo: envio de e-mail/WhatsApp dos avisos (hoje só no sistema) e integração com gateway de pagamento (pagamento registrado à mão).
+  - Pendente: os builds Docker continuam sem teste; o serviço Redis do guia de deploy pode ser omitido.
 - [ ] Fase 8 – Cópia de modelos, auditoria e refinamentos

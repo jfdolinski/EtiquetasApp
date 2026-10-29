@@ -1,6 +1,7 @@
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { JwtService } from '@nestjs/jwt';
+import type { MensagensCobrancaService } from '../cobranca/mensagens-cobranca.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import { AuthGuard } from './auth.guard';
 import { Publico } from './decorators';
@@ -20,7 +21,8 @@ function montar(usuario: unknown, tokenValido = true) {
     }),
   } as unknown as JwtService;
   const prisma = { usuario: { findUnique: jest.fn(async () => usuario) } } as unknown as PrismaService;
-  return new AuthGuard(new Reflector(), jwt, prisma);
+  const cobranca = { mensagemBloqueio: jest.fn(async () => 'Acesso bloqueado.') } as unknown as MensagensCobrancaService;
+  return new AuthGuard(new Reflector(), jwt, prisma, cobranca);
 }
 
 const usuarioBase = {
