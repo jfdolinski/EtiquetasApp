@@ -57,7 +57,7 @@ Códigos de erro: `conexao_desconhecida`, `sql_recusado`, `banco`, `tempo_esgota
 
 A `configuracao` é enviada ao conectar e sempre que uma conexão do agente é criada, editada ou excluída.
 
-Os `parametros` de `consultar` já vêm na sintaxe do driver: `$1` no PostgreSQL, `?` no MySQL e `@p1` no SQL Server. A conversão dos placeholders `{...}` é feita no servidor, na Fase 3.
+Os `parametros` de `consultar` já vêm na sintaxe do driver: `$1` no PostgreSQL, `?` no MySQL e `@p1` no SQL Server. A conversão dos placeholders `{...}` é feita no servidor (`compilarSql` em `packages/shared/src/placeholders.ts`).
 
 Os valores das linhas chegam normalizados:
 

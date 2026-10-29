@@ -26,6 +26,8 @@ SaaS multiempresa que lê dados de produtos dos bancos dos ERPs dos clientes (vi
 - **Auditoria:** mutações chamam `AuditoriaService.registrar` (dentro da transação quando houver).
 - **Banco:** nomes em português no Prisma com `@map` para snake_case. Migrações em `apps/api/prisma/migrations`.
 - **Agente:** `AgentesGateway` (ws puro no upgrade de `/api/agente/conectar`) guarda as sessões em memória → API com **uma réplica**. Para falar com o agente: `gateway.sessao(agenteId).requisitar(tipo, dados, timeout)`; mudou conexão de banco → `gateway.enviarConfiguracao(agenteId)`. Mensagem nova do protocolo: atualizar `protocolo.ts`, `apps/agent/internal/protocolo` e `apps/agent/PROTOCOLO.md` juntos.
+- **Consultas SQL:** placeholders `{...}` são compilados por `compilarSql` (`packages/shared/src/placeholders.ts`, lexer por dialeto, igual ao validador do agente) em `$n` / `?` / `@pn` + lista de parâmetros. Valores dos placeholders fixos vêm sempre do banco próprio (`ConsultasService.compilar`); o cliente só informa `{param.*}`. Executar SQL num banco do cliente: `ConexoesService.executar(empresaId, conexaoId, sqlCompilado, parametros, limite)`; consulta salva: `ConsultasService.executar(...)`. Placeholder novo: catálogo `PLACEHOLDERS` + valor em `ConsultasService.compilar`.
+- **Campos dinâmicos:** colunas lidas ao salvar a consulta (execução com 1 linha e `{param.*}` nulos), gravadas em `consultas_sql.campos` com `campos_hash` = SHA-256(conexão + SQL); hash diferente = campos desatualizados.
 - **Segredos:** senhas de banco com `cifrar/decifrar` (`src/cripto.ts`, AES-256-GCM, `CHAVE_CRIPTOGRAFIA`), nunca devolvidas ao navegador. Tokens e códigos de ativação só como SHA-256.
 
 ## Comandos
@@ -77,7 +79,17 @@ Deploy: [docs/DEPLOY.md](docs/DEPLOY.md).
     - Atualização automática do agente e instalador `.msi`.
     - API com uma réplica só (sessões em memória).
     - Desativar agente com o serviço instalado faz o serviço reiniciar em loop até ser reativado.
-- [ ] Fase 3 – SQL e campos dinâmicos
+- [x] Fase 3 – SQL e campos dinâmicos
+  - Feito:
+    - Entidade `ConsultaSql` (conexão, finalidade: lista do dia / busca de produto / outra, SQL com placeholders).
+    - Placeholders fixos `{empresa.cnpj}`, `{empresa.codigo_erp}`, `{empresa.razao_social}`, `{usuario.id}`, `{usuario.email}`, `{data_hoje}`, `{data_hora_agora}` (fuso `FUSO_HORARIO`), e `{param.nome}` informados na execução.
+    - Sempre parâmetros ligados; recusa placeholder entre aspas, placeholder desconhecido e `$1`/`?`/`@p1` escritos à mão.
+    - Prévia de SQL não salvo, com o SQL enviado ao banco e os parâmetros.
+    - Campos dinâmicos lidos ao salvar, com categoria (texto, número, data, data e hora, sim/não, binário), aviso de colunas sem nome ou repetidas e marcação de desatualizados; agente offline não impede salvar.
+    - Tela Consultas SQL e editor com inserção de placeholders, valores de teste e painel de campos.
+    - `GET /consultas/conexoes` para quem tem `sql.ver` sem `agente.ver`; conexão usada por consultas não pode ser excluída.
+  - Testado: 13 testes do compilador de placeholders (incl. escapes por dialeto), 9 do serviço (67 na API), roteiro ponta a ponta com API, agente e "ERP" PostgreSQL reais (24 cenários: filtro por empresa/data, injeção via parâmetro, aspas no valor, colunas adicionadas/removidas, agente offline, isolamento, permissões), editor conferido no navegador.
+  - Pendente: SQL Server e MySQL seguem sem teste em banco real; o editor é um textarea (sem realce de sintaxe).
 - [ ] Fase 4 – Editor de etiquetas e geração ZPL/PPLA/ESC-POS/PDF
 - [ ] Fase 5 – Lista do dia e impressão em lote
 - [ ] Fase 6 – Cadastro de ERPs e templates

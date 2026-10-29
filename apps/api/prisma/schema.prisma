@@ -35,6 +35,7 @@ model Empresa {
   logs     LogAuditoria[]
   agentes  Agente[]
   conexoes ConexaoBanco[]
+  consultas ConsultaSql[]
 
   @@map("empresas")
 }
@@ -152,12 +153,45 @@ model ConexaoBanco {
   criadoEm     DateTime  @default(now()) @map("criado_em")
   atualizadoEm DateTime  @updatedAt @map("atualizado_em")
 
-  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  agente  Agente  @relation(fields: [agenteId], references: [id], onDelete: Restrict)
+  empresa   Empresa       @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  agente    Agente        @relation(fields: [agenteId], references: [id], onDelete: Restrict)
+  consultas ConsultaSql[]
 
   @@unique([empresaId, nome])
   @@index([agenteId])
   @@map("conexoes_banco")
+}
+
+enum FinalidadeConsulta {
+  LISTA_DIARIA
+  BUSCA_PRODUTO
+  OUTRA
+}
+
+/// Consulta SQL da empresa com placeholders {...}, executada no banco do ERP via agente.
+model ConsultaSql {
+  id                  String             @id @default(uuid()) @db.Uuid
+  empresaId           String             @map("empresa_id") @db.Uuid
+  conexaoId           String             @map("conexao_id") @db.Uuid
+  nome                String
+  descricao           String?
+  finalidade          FinalidadeConsulta @default(OUTRA)
+  sql                 String
+  /// CampoDinamico[] de packages/shared: colunas lidas na última execução bem-sucedida.
+  campos              Json               @default("[]")
+  /// SHA-256 de conexaoId + sql quando os campos foram lidos; diferente do atual = desatualizados.
+  camposHash          String?            @map("campos_hash")
+  camposAtualizadosEm DateTime?          @map("campos_atualizados_em")
+  ativo               Boolean            @default(true)
+  criadoEm            DateTime           @default(now()) @map("criado_em")
+  atualizadoEm        DateTime           @updatedAt @map("atualizado_em")
+
+  empresa Empresa      @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  conexao ConexaoBanco @relation(fields: [conexaoId], references: [id], onDelete: Restrict)
+
+  @@unique([empresaId, nome])
+  @@index([conexaoId])
+  @@map("consultas_sql")
 }
 
 model LogAuditoria {

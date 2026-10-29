@@ -5,6 +5,8 @@ import { useAuth } from './auth';
 import { Layout } from './components/Layout';
 import { Agentes } from './pages/Agentes';
 import { Bancos } from './pages/Bancos';
+import { Consultas } from './pages/Consultas';
+import { EditorConsulta } from './pages/EditorConsulta';
 import { Empresas } from './pages/Empresas';
 import { Inicio } from './pages/Inicio';
 import { Login } from './pages/Login';
@@ -42,6 +44,8 @@ export function App() {
         <Route path="perfis" element={<Protegida permissao="perfil.ver"><Perfis /></Protegida>} />
         <Route path="agentes" element={<Protegida permissao="agente.ver"><Agentes /></Protegida>} />
         <Route path="bancos" element={<Protegida permissao="agente.ver"><Bancos /></Protegida>} />
+        <Route path="consultas" element={<Protegida permissao="sql.ver"><Consultas /></Protegida>} />
+        <Route path="consultas/:id" element={<Protegida permissao="sql.ver"><EditorConsulta /></Protegida>} />
         <Route path="minha-conta" element={<MinhaConta />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

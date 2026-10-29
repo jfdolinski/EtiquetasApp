@@ -13,6 +13,7 @@ import {
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { ExigeEmpresa } from '../components/ExigeEmpresa';
+import { TabelaResultado } from '../components/TabelaResultado';
 import { Alerta, Botao, Cabecalho, Campo, Modal, Selecao, Selo, Tabela } from '../components/ui';
 
 const OPCOES_SSL: Record<TipoBanco, { valor: string; rotulo: string }[]> = {
@@ -349,38 +350,7 @@ function ConsoleSql({ conexao }: { conexao: ConexaoBancoResumo }) {
         <Botao type="submit" disabled={consultar.isPending || !sql.trim()}>{consultar.isPending ? 'Executando…' : 'Executar'}</Botao>
       </div>
       {consultar.error && <Alerta>{consultar.error.message}</Alerta>}
-      {r && (
-        <>
-          <div className="text-xs text-slate-500">
-            {r.linhas.length} linha(s){r.truncado && ' (há mais)'} · {r.colunas.length} coluna(s) · {r.duracaoMs} ms
-          </div>
-          <div className="max-h-96 overflow-auto rounded-lg border border-slate-200">
-            <table className="min-w-full divide-y divide-slate-200 text-xs">
-              <thead className="sticky top-0 bg-slate-50">
-                <tr>
-                  {r.colunas.map((c, i) => (
-                    <th key={i} className="px-3 py-2 text-left font-medium whitespace-nowrap text-slate-700">
-                      {c.nome}
-                      <div className="font-normal text-slate-400">{c.tipo.toLowerCase()}</div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-white font-mono">
-                {r.linhas.map((linha, i) => (
-                  <tr key={i}>
-                    {linha.map((v, j) => (
-                      <td key={j} className="max-w-xs truncate px-3 py-1.5 whitespace-nowrap">
-                        {v === null ? <span className="text-slate-400">null</span> : typeof v === 'object' ? JSON.stringify(v) : String(v)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
+      {r && <TabelaResultado resultado={r} />}
     </form>
   );
 }

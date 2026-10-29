@@ -19,6 +19,7 @@ const MENU: ItemMenu[] = [
   { para: '/perfis', rotulo: 'Perfis e permissões', permissao: 'perfil.ver' },
   { para: '/agentes', rotulo: 'Agentes', permissao: 'agente.ver' },
   { para: '/bancos', rotulo: 'Bancos de dados', permissao: 'agente.ver' },
+  { para: '/consultas', rotulo: 'Consultas SQL', permissao: 'sql.ver' },
   { para: '/minha-conta', rotulo: 'Minha conta' },
 ];
 

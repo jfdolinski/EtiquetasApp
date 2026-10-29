@@ -5,6 +5,7 @@ import { AgentesModule } from './agentes/agentes.module';
 import { AuditoriaModule } from './auditoria/auditoria.module';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthModule } from './auth/auth.module';
+import { ConsultasModule } from './consultas/consultas.module';
 import { PermissoesGuard } from './auth/permissoes.guard';
 import { EmpresasModule } from './empresas/empresas.module';
 import { HealthController } from './health.controller';
@@ -22,6 +23,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     UsuariosModule,
     PerfisModule,
     AgentesModule,
+    ConsultasModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -5,6 +5,8 @@ export interface Config {
   corsOrigem: string | null;
   /** 32 bytes para AES-256-GCM das senhas dos bancos dos clientes. */
   chaveCriptografia: Buffer;
+  /** Fuso usado em {data_hoje} e {data_hora_agora}. */
+  fusoHorario: string;
   superAdmin: { email: string; senha: string; nome: string } | null;
 }
 
@@ -27,6 +29,13 @@ export function config(): Config {
     throw new Error('CHAVE_CRIPTOGRAFIA ausente ou inválida (32 bytes em base64).');
   }
 
+  const fusoHorario = process.env.FUSO_HORARIO || 'America/Sao_Paulo';
+  try {
+    new Intl.DateTimeFormat('pt-BR', { timeZone: fusoHorario });
+  } catch {
+    throw new Error(`FUSO_HORARIO inválido: ${fusoHorario}`);
+  }
+
   const { SUPERADMIN_EMAIL, SUPERADMIN_SENHA } = process.env;
 
   cache = {
@@ -35,6 +44,7 @@ export function config(): Config {
     jwtExpiracao: process.env.JWT_EXPIRACAO || '12h',
     corsOrigem: process.env.CORS_ORIGEM || null,
     chaveCriptografia,
+    fusoHorario,
     superAdmin:
       SUPERADMIN_EMAIL && SUPERADMIN_SENHA
         ? {

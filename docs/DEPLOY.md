@@ -28,6 +28,7 @@ O código precisa estar em um repositório Git (GitHub, GitLab ou Gitea) que o E
   SUPERADMIN_SENHA=<senha forte>
   SUPERADMIN_NOME=Administrador da Plataforma
   CHAVE_CRIPTOGRAFIA=<32 bytes em base64>
+  FUSO_HORARIO=America/Sao_Paulo
   ```
 
   Gere o segredo com `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` e a chave com `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.

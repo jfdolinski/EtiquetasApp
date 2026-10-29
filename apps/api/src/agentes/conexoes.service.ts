@@ -8,7 +8,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { ConexaoBancoResumo, OpcoesConexao, ResultadoConsulta, ResultadoTesteConexao } from '@etiquetas/shared';
+import type { ConexaoBancoResumo, OpcoesConexao, ResultadoConsulta, ResultadoTesteConexao, TipoBanco } from '@etiquetas/shared';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { config } from '../config';
 import { cifrar } from '../cripto';
@@ -120,6 +120,10 @@ export class ConexoesService {
 
   async excluir(empresaId: string, id: string, autorId: string) {
     const atual = await this.buscar(empresaId, id);
+    const emUso = await this.prisma.consultaSql.count({ where: { empresaId, conexaoId: id } });
+    if (emUso > 0) {
+      throw new ConflictException(`Esta conexão é usada por ${emUso} consulta(s) SQL. Mude-as de conexão ou exclua-as antes.`);
+    }
     await this.prisma.conexaoBanco.delete({ where: { id } });
     await this.auditoria.registrar({
       empresaId,
@@ -139,15 +143,7 @@ export class ConexoesService {
 
   /** Executa um SQL de teste (somente leitura) no banco do cliente, via agente. */
   async consultar(empresaId: string, id: string, dto: ConsultarDto, autorId: string): Promise<ResultadoConsulta> {
-    const conexao = await this.buscar(empresaId, id);
-    const tempoLimiteSegundos = (conexao.opcoes as OpcoesConexao).tempoLimiteSegundos ?? TEMPO_LIMITE_PADRAO_S;
-    const dados: DadosConsultar = {
-      conexaoId: id,
-      sql: dto.sql,
-      parametros: [],
-      limiteLinhas: dto.limiteLinhas ?? LIMITE_LINHAS_TESTE,
-      tempoLimiteSegundos,
-    };
+    await this.buscar(empresaId, id);
     await this.auditoria.registrar({
       empresaId,
       usuarioId: autorId,
@@ -156,6 +152,28 @@ export class ConexoesService {
       entidadeId: id,
       detalhes: { sql: dto.sql.slice(0, 2000) },
     });
+    return this.executar(empresaId, id, dto.sql, [], dto.limiteLinhas ?? LIMITE_LINHAS_TESTE);
+  }
+
+  /** Tipo de banco da conexão (para compilar os placeholders na sintaxe certa). */
+  async tipo(empresaId: string, id: string): Promise<TipoBanco> {
+    return (await this.buscar(empresaId, id)).tipo;
+  }
+
+  /**
+   * Executa SQL já compilado (parâmetros na sintaxe do driver) no banco da conexão.
+   * Base para o teste ad hoc, as consultas salvas e, depois, a lista do dia.
+   */
+  async executar(
+    empresaId: string,
+    id: string,
+    sql: string,
+    parametros: unknown[],
+    limiteLinhas: number,
+  ): Promise<ResultadoConsulta> {
+    const conexao = await this.buscar(empresaId, id);
+    const tempoLimiteSegundos = (conexao.opcoes as OpcoesConexao).tempoLimiteSegundos ?? TEMPO_LIMITE_PADRAO_S;
+    const dados: DadosConsultar = { conexaoId: id, sql, parametros, limiteLinhas, tempoLimiteSegundos };
     // Margem para o agente devolver o erro de tempo esgotado do próprio banco.
     return this.viaAgente(conexao, 'consultar', dados, (tempoLimiteSegundos + 10) * 1000);
   }
