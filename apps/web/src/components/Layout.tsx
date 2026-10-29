@@ -28,6 +28,7 @@ const MENU: ItemMenu[] = [
   { para: '/modelos', rotulo: 'Modelos de etiqueta', permissao: 'etiqueta.modelo.ver' },
   { para: '/impressoras', rotulo: 'Impressoras', permissao: 'impressora.ver' },
   { para: '/assinatura', rotulo: 'Assinatura', permissao: 'empresa.ver' },
+  { para: '/auditoria', rotulo: 'Auditoria', permissao: 'auditoria.ver' },
   { para: '/minha-conta', rotulo: 'Minha conta' },
 ];
 

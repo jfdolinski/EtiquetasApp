@@ -1,6 +1,7 @@
-import { DPIS, LINGUAGENS, type LayoutEtiqueta, type LinguagemImpressora, type MetodoImpressora, type Registro } from '@etiquetas/shared';
+import { DPIS, LINGUAGENS, type LayoutEtiqueta, type LinguagemImpressora, type MetodoImpressora, type ModeloExportado, type Registro } from '@etiquetas/shared';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsIn,
@@ -80,6 +81,20 @@ export class AtualizarModeloDto {
   @IsOptional()
   @IsBoolean()
   ativo?: boolean;
+}
+
+export class ImportarModeloDto {
+  /** Conteúdo do arquivo exportado (validado no serviço). */
+  @IsObject({ message: 'Arquivo de modelo inválido.' })
+  arquivo: ModeloExportado;
+}
+
+export class CopiarModeloDto {
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Escolha ao menos uma empresa.' })
+  @ArrayMaxSize(200)
+  @IsUUID('all', { each: true, message: 'Empresa inválida.' })
+  empresaIds: string[];
 }
 
 export class AmostraDto {

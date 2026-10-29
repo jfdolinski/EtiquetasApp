@@ -8,6 +8,7 @@ import { Bancos } from './pages/Bancos';
 import { Consultas } from './pages/Consultas';
 import { EditorConsulta } from './pages/EditorConsulta';
 import { Assinatura } from './pages/Assinatura';
+import { Auditoria } from './pages/Auditoria';
 import { Avulsa } from './pages/Avulsa';
 import { Cobranca } from './pages/cobranca/Cobranca';
 import { Empresas } from './pages/Empresas';
@@ -68,6 +69,7 @@ export function App() {
         <Route path="hoje" element={<Protegida permissao="imprimir"><Hoje /></Protegida>} />
         <Route path="avulsa" element={<Protegida permissao="imprimir"><Avulsa /></Protegida>} />
         <Route path="historico" element={<Protegida permissao="imprimir"><Historico /></Protegida>} />
+        <Route path="auditoria" element={<Protegida permissao="auditoria.ver"><Auditoria /></Protegida>} />
         <Route path="minha-conta" element={<MinhaConta />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

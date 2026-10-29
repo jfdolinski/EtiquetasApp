@@ -69,7 +69,7 @@ export class TrabalhosService {
 
     for (let i = 0; i < grupo.registros.length; i += ETIQUETAS_POR_TRABALHO) {
       const lote = grupo.registros.slice(i, i + ETIQUETAS_POR_TRABALHO);
-      const saida = await gerarSaida(grupo.modelo.layout, lote, grupo.impressora.linguagem, grupo.impressora.dpi, hoje);
+      const saida = await gerarSaida(grupo.modelo.layout, lote, grupo.impressora.linguagem, grupo.impressora.dpi, hoje, i);
       avisos.push(...saida.avisos.map((a) => `${grupo.modelo.nome}: ${a}`));
       const agora = new Date();
 

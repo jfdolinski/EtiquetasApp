@@ -23,6 +23,7 @@ export const PERMISSOES = [
   { codigo: 'impressora.ver', grupo: 'Impressoras', descricao: 'Ver impressoras' },
   { codigo: 'impressora.editar', grupo: 'Impressoras', descricao: 'Cadastrar e editar impressoras' },
   { codigo: 'imprimir', grupo: 'Impressão', descricao: 'Imprimir etiquetas' },
+  { codigo: 'auditoria.ver', grupo: 'Auditoria', descricao: 'Consultar o registro de auditoria da empresa' },
 ] as const;
 
 export type CodigoPermissao = (typeof PERMISSOES)[number]['codigo'];

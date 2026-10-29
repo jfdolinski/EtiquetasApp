@@ -1,8 +1,9 @@
 import 'reflect-metadata';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { config } from './config';
+import { criarValidationPipe } from './validacao';
 
 async function iniciar() {
   try {
@@ -19,7 +20,9 @@ async function iniciar() {
   // Atrás do proxy do Easypanel/nginx: necessário para o rate limit enxergar o IP real.
   app.set('trust proxy', 1);
   app.setGlobalPrefix('api');
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+  app.useGlobalPipes(criarValidationPipe());
+  // Layouts grandes e lotes de até 500 etiquetas passam do limite padrão de 100 KB.
+  app.useBodyParser('json', { limit: '5mb' });
   if (cfg.corsOrigem) app.enableCors({ origin: cfg.corsOrigem.split(',').map((o) => o.trim()) });
   app.enableShutdownHooks();
 

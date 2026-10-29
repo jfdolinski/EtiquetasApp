@@ -6,6 +6,8 @@ export interface OpcoesGeracao {
   dpi: number;
   /** AAAA-MM-DD no fuso da empresa (datas e validades). */
   hoje: string;
+  /** Posição da primeira etiqueta no lote completo (o contador continua entre trabalhos). */
+  indiceInicial?: number;
 }
 
 /** Junta avisos sem repetir e sem deixar a lista crescer sem limite. */
@@ -55,7 +57,7 @@ export interface PaginaPosicionada {
 export function posicionar(layout: LayoutEtiqueta, registros: Registro[], opcoes: OpcoesGeracao): PaginaPosicionada[] {
   const p = paginar(layout);
   const pt = (mm: number) => mmParaPontos(mm, opcoes.dpi);
-  let indice = 0;
+  let indice = opcoes.indiceInicial ?? 0;
   return emPaginas(registros, p.porPagina).map((registrosPagina) => ({
     larguraPontos: pt(p.larguraPaginaMm),
     alturaPontos: pt(p.alturaPaginaMm),

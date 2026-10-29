@@ -9,7 +9,10 @@ import {
   linhasParaRegistros,
   validarLayout,
   type AmostraModelo,
+  type CampoDinamico,
+  type CopiaModeloResultado,
   type LayoutEtiqueta,
+  type ModeloExportado,
   type LinguagemImpressora,
   type ModeloEtiquetaResumo,
   type Registro,
@@ -145,6 +148,122 @@ export class ModelosService {
     });
   }
 
+  /** Arquivo portável do modelo (layout + referência à consulta), para levar a outra empresa. */
+  async exportar(empresaId: string, id: string, autorId: string): Promise<ModeloExportado> {
+    const m = await this.prisma.modeloEtiqueta.findFirst({
+      where: { id, empresaId },
+      select: { nome: true, descricao: true, layout: true, consulta: { select: { nome: true, templateConsultaId: true } } },
+    });
+    if (!m) throw new NotFoundException('Modelo não encontrado.');
+    await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'modelo.exportar', entidade: 'ModeloEtiqueta', entidadeId: id });
+    return {
+      formato: 'etiquetas.modelo',
+      versao: 1,
+      exportadoEm: new Date().toISOString(),
+      nome: m.nome,
+      descricao: m.descricao,
+      layout: m.layout as unknown as LayoutEtiqueta,
+      consulta: m.consulta,
+    };
+  }
+
+  async importar(empresaId: string, arquivo: ModeloExportado, autorId: string) {
+    if (arquivo?.formato !== 'etiquetas.modelo' || arquivo.versao !== 1) {
+      throw new BadRequestException('Arquivo de modelo inválido ou de versão não suportada.');
+    }
+    if (typeof arquivo.nome !== 'string' || !arquivo.nome.trim()) throw new BadRequestException('Arquivo de modelo sem nome.');
+    return this.criarDeExportado(empresaId, arquivo, autorId, 'modelo.importar');
+  }
+
+  /**
+   * Copia um modelo para outras empresas (super-admin). Cada destino é independente: um
+   * erro num não impede os demais. Impressora e lista do dia não são copiadas (são da loja).
+   */
+  async copiarParaEmpresas(origemId: string, id: string, destinos: string[], autorId: string): Promise<CopiaModeloResultado[]> {
+    if (destinos.includes(origemId)) {
+      throw new BadRequestException('A empresa de origem não pode ser destino da cópia (use Exportar/Importar para duplicar).');
+    }
+    const empresas = await this.prisma.empresa.findMany({
+      where: { id: { in: destinos } },
+      select: { id: true, razaoSocial: true, nomeFantasia: true },
+    });
+    if (empresas.length !== new Set(destinos).size) throw new BadRequestException('Há empresas de destino inexistentes.');
+    const exportado = await this.exportar(origemId, id, autorId);
+    const resultados: CopiaModeloResultado[] = [];
+    for (const e of empresas) {
+      const empresaNome = e.nomeFantasia || e.razaoSocial;
+      try {
+        const r = await this.criarDeExportado(e.id, exportado, autorId, 'modelo.copiar_recebido', { origemEmpresaId: origemId, origemModeloId: id });
+        resultados.push({ empresaId: e.id, empresaNome, modeloId: r.modelo.id, nome: r.modelo.nome, avisos: r.avisos, erro: null });
+      } catch (erro) {
+        resultados.push({ empresaId: e.id, empresaNome, modeloId: null, nome: null, avisos: [], erro: (erro as Error).message });
+      }
+    }
+    await this.auditoria.registrar({
+      empresaId: origemId,
+      usuarioId: autorId,
+      acao: 'modelo.copiar',
+      entidade: 'ModeloEtiqueta',
+      entidadeId: id,
+      detalhes: { destinos: resultados.map((r) => ({ empresaId: r.empresaId, modeloId: r.modeloId, erro: r.erro })) },
+    });
+    return resultados;
+  }
+
+  /** Cria o modelo no destino: nome livre, consulta equivalente (do mesmo template do ERP ou de mesmo nome). */
+  private async criarDeExportado(
+    empresaId: string,
+    dados: ModeloExportado,
+    autorId: string,
+    acao: string,
+    origem?: Record<string, string>,
+  ): Promise<{ modelo: ModeloEtiquetaResumo; avisos: string[] }> {
+    exigirLayoutValido(dados.layout);
+    const avisos: string[] = [];
+
+    const usados = new Set((await this.prisma.modeloEtiqueta.findMany({ where: { empresaId }, select: { nome: true } })).map((m) => m.nome.toLowerCase()));
+    const base = dados.nome.trim().slice(0, 70);
+    let nome = base;
+    for (let n = 2; usados.has(nome.toLowerCase()); n++) nome = `${base} (${n})`;
+    if (nome !== base) avisos.push(`Já existia um modelo "${base}"; o novo se chama "${nome}".`);
+
+    let consultaId: string | null = null;
+    if (dados.consulta) {
+      const c =
+        (dados.consulta.templateConsultaId &&
+          (await this.prisma.consultaSql.findFirst({
+            where: { empresaId, templateConsultaId: dados.consulta.templateConsultaId, ativo: true },
+            select: { id: true, nome: true, campos: true },
+          }))) ||
+        (await this.prisma.consultaSql.findFirst({
+          where: { empresaId, nome: { equals: dados.consulta.nome, mode: 'insensitive' }, ativo: true },
+          select: { id: true, nome: true, campos: true },
+        }));
+      if (c) {
+        consultaId = c.id;
+        const campos = new Set((c.campos as unknown as CampoDinamico[]).map((x) => x.nome.toLowerCase()));
+        const faltando = camposUsados(dados.layout).filter((x) => !campos.has(x.toLowerCase()));
+        if (campos.size && faltando.length) avisos.push(`A consulta "${c.nome}" não devolve: ${faltando.join(', ')}.`);
+      } else {
+        avisos.push(`Nenhuma consulta equivalente a "${dados.consulta.nome}" nesta empresa: vincule a consulta no editor do modelo.`);
+      }
+    }
+
+    const modelo = await this.prisma.modeloEtiqueta.create({
+      data: { empresaId, nome, descricao: dados.descricao, consultaId, layout: dados.layout as unknown as Prisma.InputJsonObject },
+      select: SELECAO,
+    });
+    await this.auditoria.registrar({
+      empresaId,
+      usuarioId: autorId,
+      acao,
+      entidade: 'ModeloEtiqueta',
+      entidadeId: modelo.id,
+      detalhes: { nome, consultaId, avisos, ...origem },
+    });
+    return { modelo: resumo(modelo), avisos };
+  }
+
   /** Consultas ativas com seus campos, para o editor (sem o SQL: quem edita etiqueta pode não ter `sql.ver`). */
   async consultasDisponiveis(empresaId: string): Promise<ConsultaParaModelo[]> {
     const consultas = await this.consultas.listar(empresaId);
@@ -220,9 +339,10 @@ export function gerarSaida(
   linguagem: LinguagemImpressora,
   dpi: number,
   hoje: string,
+  indiceInicial = 0,
 ): Promise<SaidaEtiquetas> | SaidaEtiquetas {
-  if (linguagem === 'PDF') return gerarPdf(layout, registros, hoje);
-  return GERADORES[linguagem](layout, registros, { dpi, hoje });
+  if (linguagem === 'PDF') return gerarPdf(layout, registros, hoje, indiceInicial);
+  return GERADORES[linguagem](layout, registros, { dpi, hoje, indiceInicial });
 }
 
 function exigirLayoutValido(layout: LayoutEtiqueta) {

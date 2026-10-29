@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { CODIGOS_PERMISSAO, PERMISSOES } from '@etiquetas/shared';
 import { config } from '../config';
+import { NOME_PERFIL_ADMIN } from '../empresas/empresas.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { gerarHashSenha } from './senha';
 
@@ -16,7 +17,16 @@ export class InicializacaoService implements OnApplicationBootstrap {
     await this.garantirSuperAdmin();
   }
 
+  /**
+   * Sincroniza o catálogo. Códigos que acabaram de surgir (nova versão do sistema) são
+   * concedidos aos perfis "Administrador" já existentes: sem isso, empresas antigas nunca
+   * teriam acesso às funções novas. Códigos que já existiam não são reconcedidos (o
+   * administrador pode tê-los removido de propósito).
+   */
   private async sincronizarPermissoes() {
+    const conhecidos = new Set((await this.prisma.permissao.findMany({ select: { codigo: true } })).map((p) => p.codigo));
+    // Banco vazio (primeira subida): não há perfis antigos para atualizar.
+    const novos = conhecidos.size ? CODIGOS_PERMISSAO.filter((c) => !conhecidos.has(c)) : [];
     await this.prisma.$transaction([
       ...PERMISSOES.map((p) =>
         this.prisma.permissao.upsert({
@@ -27,6 +37,14 @@ export class InicializacaoService implements OnApplicationBootstrap {
       ),
       this.prisma.permissao.deleteMany({ where: { codigo: { notIn: [...CODIGOS_PERMISSAO] } } }),
     ]);
+    if (novos.length) {
+      const admins = await this.prisma.perfil.findMany({ where: { nome: NOME_PERFIL_ADMIN }, select: { id: true } });
+      await this.prisma.perfilPermissao.createMany({
+        data: admins.flatMap((p) => novos.map((permissaoCodigo) => ({ perfilId: p.id, permissaoCodigo }))),
+        skipDuplicates: true,
+      });
+      this.log.log(`Permissões novas (${novos.join(', ')}) concedidas a ${admins.length} perfil(is) Administrador.`);
+    }
   }
 
   private async garantirSuperAdmin() {

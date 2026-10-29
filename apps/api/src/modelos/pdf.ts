@@ -164,7 +164,7 @@ class DesenhoPdf {
 }
 
 /** PDF vetorial: uma página por fileira (rolo) ou por folha, no tamanho exato do papel. */
-export async function gerarPdf(layout: LayoutEtiqueta, registros: Registro[], hoje: string): Promise<SaidaEtiquetas> {
+export async function gerarPdf(layout: LayoutEtiqueta, registros: Registro[], hoje: string, indiceInicial = 0): Promise<SaidaEtiquetas> {
   const avisos = new Avisos();
   const doc = await PDFDocument.create();
   doc.setTitle('Etiquetas');
@@ -175,7 +175,7 @@ export async function gerarPdf(layout: LayoutEtiqueta, registros: Registro[], ho
     avisos,
   );
 
-  for (const p of posicionar(layout, registros, { dpi: DPI, hoje })) {
+  for (const p of posicionar(layout, registros, { dpi: DPI, hoje, indiceInicial })) {
     const pagina = doc.addPage([pt(p.larguraPontos), pt(p.alturaPontos)]);
     for (const e of p.elementos) await desenho.elemento(pagina, e);
   }

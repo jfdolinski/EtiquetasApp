@@ -1,7 +1,16 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
-import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
+import { ApenasSuperAdmin, EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
-import { AmostraDto, AtualizarImpressoraDto, AtualizarModeloDto, CriarImpressoraDto, CriarModeloDto, GerarDto } from './dto';
+import {
+  AmostraDto,
+  AtualizarImpressoraDto,
+  AtualizarModeloDto,
+  CopiarModeloDto,
+  CriarImpressoraDto,
+  CriarModeloDto,
+  GerarDto,
+  ImportarModeloDto,
+} from './dto';
 import { ImpressorasService } from './impressoras.service';
 import { ModelosService } from './modelos.service';
 
@@ -57,6 +66,31 @@ export class ModelosController {
   @RequerPermissao('etiqueta.modelo.editar')
   async excluir(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() autor: UsuarioRequisicao) {
     await this.modelos.excluir(empresaId, id, autor.id);
+  }
+
+  @Get(':id/exportar')
+  @RequerPermissao('etiqueta.modelo.ver')
+  exportar(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() autor: UsuarioRequisicao) {
+    return this.modelos.exportar(empresaId, id, autor.id);
+  }
+
+  @Post('importar')
+  @RequerPermissao('etiqueta.modelo.editar')
+  importar(@EmpresaAtual() empresaId: string, @Body() dto: ImportarModeloDto, @UsuarioAtual() autor: UsuarioRequisicao) {
+    return this.modelos.importar(empresaId, dto.arquivo, autor.id);
+  }
+
+  /** Copia o modelo da empresa atual (X-Empresa-Id) para outras empresas. */
+  @Post(':id/copiar')
+  @HttpCode(200)
+  @ApenasSuperAdmin()
+  copiar(
+    @EmpresaAtual() empresaId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CopiarModeloDto,
+    @UsuarioAtual() autor: UsuarioRequisicao,
+  ) {
+    return this.modelos.copiarParaEmpresas(empresaId, id, dto.empresaIds, autor.id);
   }
 
   /** Linhas reais da consulta do modelo, para pré-visualizar no editor. */

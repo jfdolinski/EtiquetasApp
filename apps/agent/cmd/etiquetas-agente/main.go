@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/kardianos/service"
 
@@ -64,15 +65,32 @@ func (p *programa) Start(s service.Service) error {
 	p.fim = make(chan struct{})
 	go func() {
 		defer close(p.fim)
-		err := cliente.Novo(*cfg, p.caminhoConfig, versao, p.log).Executar(ctx)
-		if err != nil {
+		for {
+			err := cliente.Novo(*cfg, p.caminhoConfig, versao, p.log).Executar(ctx)
+			if err == nil {
+				return // parada pedida
+			}
 			p.log.Error("agente parou", "erro", err)
-			os.Exit(2) // como serviço, o gerenciador registra a falha
-
+			if service.Interactive() {
+				os.Exit(2)
+			}
+			// Como serviço, sair faria o gerenciador reiniciar em loop sem resolver nada (o token
+			// continua recusado). Espera e tenta de novo, relendo a configuração: o agente volta
+			// sozinho se for reativado no painel ou se o técnico rodar `etiquetas-agente ativar`.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(esperaAposRecusa):
+			}
+			if novo, err := config.Carregar(p.caminhoConfig); err == nil && novo.Ativado() {
+				cfg = novo
+			}
 		}
 	}()
 	return nil
 }
+
+const esperaAposRecusa = 5 * time.Minute
 
 func (p *programa) Stop(s service.Service) error {
 	if p.cancelar != nil {

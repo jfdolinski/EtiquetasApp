@@ -34,6 +34,8 @@ SaaS multiempresa que lê dados de produtos dos bancos dos ERPs dos clientes (vi
 - **ERPs e templates:** `SistemaErp` e `TemplateConsulta` são dados da plataforma (sem `empresa_id`, só super-admin, `src/erps`). A empresa aponta para um ERP (`empresas.sistema_erp_id`) e copia as consultas com `ErpEmpresaService.copiar` → `ConsultasService.criar(..., origemTemplate)`. A cópia guarda `template_consulta_id` e `template_sql_hash` (SHA-256 do SQL do template na cópia); `situacaoCopia` compara hashes para mostrar "ajustada"/"template atualizado". Mudar o template nunca altera cópias; a empresa decide restaurar.
 - **Cobrança:** regras puras em `packages/shared/src/cobranca.ts` (`avaliarAssinatura`: aviso prévio → carência → pré-bloqueio → bloqueio; `renderizarMensagem`). `AvaliacaoCobrancaService` roda a avaliação diária em processo (conferida a cada 10 min, após `horaAvaliacao`, uma AGENDADA por dia em `execucoes_avaliacao`) com `pg_try_advisory_xact_lock` — trava de sessão não serve com o pool do Prisma. Salvar assinatura, pagamento, estorno ou prazos chama `avaliarEmpresa` na hora. Mensagens de bloqueio/carência para login, guard e ativação do agente vêm de `MensagensCobrancaService` (módulo global); as constantes de `acesso-empresa.ts` só valem para status definido à mão.
 - **Sem Redis:** fila de impressão e job diário usam o Postgres. Redis/BullMQ da SPEC não foi adotado (decisão da Fase 5, mantida na 7).
+- **Permissão nova:** basta adicioná-la em `packages/shared/src/permissoes.ts`; na próxima subida ela entra no catálogo e é concedida aos perfis "Administrador" existentes (não aos personalizados).
+- **Validação:** `criarValidationPipe()` traduz as mensagens padrão do class-validator; mensagens personalizadas nos DTOs (em português) ficam como estão.
 - **Segredos:** senhas de banco com `cifrar/decifrar` (`src/cripto.ts`, AES-256-GCM, `CHAVE_CRIPTOGRAFIA`), nunca devolvidas ao navegador. Tokens e códigos de ativação só como SHA-256.
 
 ## Comandos
@@ -61,7 +63,7 @@ Deploy: [docs/DEPLOY.md](docs/DEPLOY.md).
 - [x] Fase 1 – Base: monorepo, autenticação, empresas, usuários, permissões, deploy
   - Feito: login JWT com rate limit, super-admin inicial via env, CRUD de empresas (super-admin), usuários e perfis com permissões granulares, aviso de carência/bloqueio no login, auditoria, frontend (login, empresas, usuários, perfis, minha conta), Dockerfiles api/web e guia do Easypanel.
   - Testado: 35 testes unitários + roteiro ponta a ponta contra Postgres real (27 cenários, incl. isolamento entre empresas). Builds Docker **não** testados (sem Docker na máquina de desenvolvimento).
-  - Pendente: mensagens de validação padrão do class-validator ainda em inglês em alguns campos; sem refresh token (sessão expira em `JWT_EXPIRACAO`).
+  - Pendente: sem refresh token (sessão expira em `JWT_EXPIRACAO`). (Mensagens de validação em inglês: resolvido na Fase 8.)
 - [x] Fase 2 – Agente: registro por CNPJ, WebSocket, consultas nos três bancos
   - Feito:
     - Ativação: CNPJ + código de ativação de uso único (24 h) gerado no painel.
@@ -84,7 +86,7 @@ Deploy: [docs/DEPLOY.md](docs/DEPLOY.md).
   - Pendente:
     - Atualização automática do agente e instalador `.msi`.
     - API com uma réplica só (sessões em memória).
-    - Desativar agente com o serviço instalado faz o serviço reiniciar em loop até ser reativado.
+    - (Resolvido na Fase 8: com o token recusado, o serviço espera 5 min e tenta de novo, em vez de reiniciar em loop.)
 - [x] Fase 3 – SQL e campos dinâmicos
   - Feito:
     - Entidade `ConsultaSql` (conexão, finalidade: lista do dia / busca de produto / outra, SQL com placeholders).
@@ -120,7 +122,7 @@ Deploy: [docs/DEPLOY.md](docs/DEPLOY.md).
     - Telas Lista do dia, Histórico e Avulsa conferidas no navegador.
   - **Não** testado com impressora física nem com impressora instalada no Windows (só o caminho de erro do winspool).
   - Desvio da SPEC: fila de impressão no Postgres em vez de Redis/BullMQ (durável e suficiente com uma réplica da API). Redis fica para os jobs agendados da Fase 7, se fizer sentido lá.
-  - Limitações: PDF é impresso pelo navegador (o agente não renderiza PDF); lista do dia é gerada pelo operador (sem agendamento automático); contador recomeça a cada lote de 2000 etiquetas.
+  - Limitações: PDF é impresso pelo navegador (o agente não renderiza PDF); lista do dia é gerada pelo operador (sem agendamento automático). (Contador entre lotes: resolvido na Fase 8.)
 - [x] Fase 6 – Cadastro de ERPs e templates
   - Feito:
     - Cadastro de Sistemas ERP (nome, fabricante, tipo de banco) com template: consultas padrão (finalidade, SQL com placeholders validado no dialeto do ERP) e mapeamento de campos (coluna esperada ← origem no ERP).
@@ -137,4 +139,10 @@ Deploy: [docs/DEPLOY.md](docs/DEPLOY.md).
   - Testado: 6 testes no shared, 5 na API (101 no total); roteiro ponta a ponta com 26 cenários (execução agendada, carência, pré-bloqueio, bloqueio com mensagem configurada, pagamento/estorno, prazos por empresa, controle manual, trava contra execução simultânea, permissões); telas conferidas no navegador.
   - Fora do escopo: envio de e-mail/WhatsApp dos avisos (hoje só no sistema) e integração com gateway de pagamento (pagamento registrado à mão).
   - Pendente: os builds Docker continuam sem teste; o serviço Redis do guia de deploy pode ser omitido.
-- [ ] Fase 8 – Cópia de modelos, auditoria e refinamentos
+- [x] Fase 8 – Cópia de modelos, auditoria e refinamentos
+  - Feito:
+    - Modelos: exportar/importar arquivo `.etiqueta.json` (qualquer empresa com `etiqueta.modelo.editar`) e cópia direta para outras empresas pelo super-admin. A consulta é vinculada à equivalente no destino (mesmo template do ERP, senão mesmo nome); impressora e lista do dia não vão; nome em conflito ganha sufixo; avisos de consulta/campos ausentes.
+    - Auditoria: tela com filtros (tipo de ação, usuário, período) e paginação por cursor; permissão nova `auditoria.ver`; super-admin vê a plataforma toda (inclui ações sem empresa) com filtro por empresa.
+    - Permissões novas do catálogo passam a ser concedidas aos perfis "Administrador" existentes na inicialização (só os códigos recém-criados).
+    - Mensagens padrão do class-validator traduzidas (`src/validacao.ts`); corpo JSON até 5 MB; contador contínuo entre lotes de impressão; agente como serviço não reinicia em loop com token recusado.
+  - Testado: 11 testes novos na API (112 no total); roteiro ponta a ponta com 25 cenários (permissão concedida a admin antigo, auditoria com isolamento/filtros/cursor, exportar/importar/copiar com vínculo de consulta, validação em português, lote de ~500 KB); telas conferidas no navegador. A espera de 5 min do agente como serviço foi só compilada/revisada, não exercitada.

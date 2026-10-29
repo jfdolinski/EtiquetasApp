@@ -1,4 +1,5 @@
 export * from './agente';
+export * from './auditoria';
 export * from './cnpj';
 export * from './cobranca';
 export * from './consultas';
