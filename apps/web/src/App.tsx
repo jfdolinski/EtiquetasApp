@@ -7,7 +7,10 @@ import { Agentes } from './pages/Agentes';
 import { Bancos } from './pages/Bancos';
 import { Consultas } from './pages/Consultas';
 import { EditorConsulta } from './pages/EditorConsulta';
+import { Avulsa } from './pages/Avulsa';
 import { Empresas } from './pages/Empresas';
+import { Historico } from './pages/Historico';
+import { Hoje } from './pages/Hoje';
 import { Impressoras } from './pages/Impressoras';
 import { Modelos } from './pages/modelos/Modelos';
 import { Inicio } from './pages/Inicio';
@@ -54,6 +57,9 @@ export function App() {
         <Route path="modelos" element={<Protegida permissao="etiqueta.modelo.ver"><Modelos /></Protegida>} />
         <Route path="modelos/:id" element={<Protegida permissao="etiqueta.modelo.ver"><Suspense fallback={<div className="text-sm text-slate-500">Carregando editor…</div>}><EditorModelo /></Suspense></Protegida>} />
         <Route path="impressoras" element={<Protegida permissao="impressora.ver"><Impressoras /></Protegida>} />
+        <Route path="hoje" element={<Protegida permissao="imprimir"><Hoje /></Protegida>} />
+        <Route path="avulsa" element={<Protegida permissao="imprimir"><Avulsa /></Protegida>} />
+        <Route path="historico" element={<Protegida permissao="imprimir"><Historico /></Protegida>} />
         <Route path="minha-conta" element={<MinhaConta />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

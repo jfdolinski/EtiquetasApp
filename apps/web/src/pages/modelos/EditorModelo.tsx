@@ -8,6 +8,7 @@ import {
   type AmostraModelo,
   type ConsultaParaModelo,
   type ElementoEtiqueta,
+  type ImpressoraResumo,
   type LayoutEtiqueta,
   type ModeloEtiquetaResumo,
   type TipoElemento,
@@ -64,6 +65,13 @@ function Editor({ modelo, consultas }: { modelo: ModeloEtiquetaResumo | null; co
   const [nome, setNome] = useState(modelo?.nome ?? '');
   const [descricao, setDescricao] = useState(modelo?.descricao ?? '');
   const [consultaId, setConsultaId] = useState(modelo?.consultaId ?? consultas[0]?.id ?? '');
+  const [impressoraId, setImpressoraId] = useState(modelo?.impressoraId ?? '');
+  const [naListaDiaria, setNaListaDiaria] = useState(modelo?.naListaDiaria ?? false);
+  const { data: impressoras = [] } = useQuery({
+    queryKey: ['impressoras', empresaId],
+    queryFn: () => api<ImpressoraResumo[]>('/impressoras'),
+    enabled: pode('impressora.ver'),
+  });
   const [layout, setLayout] = useState<LayoutEtiqueta>(modelo?.layout ?? LAYOUT_PADRAO);
   const [selecionado, setSelecionado] = useState<string | null>(null);
   const [zoom, setZoom] = useState(() => Math.max(2, Math.min(10, Math.floor(640 / (modelo?.layout.larguraMm ?? 60)))));
@@ -122,7 +130,15 @@ function Editor({ modelo, consultas }: { modelo: ModeloEtiquetaResumo | null; co
 
   const salvar = useMutation({
     mutationFn: () => {
-      const corpo = { nome, descricao: descricao || undefined, consultaId: consultaId || null, layout };
+      const corpo = {
+        nome,
+        descricao: descricao || undefined,
+        consultaId: consultaId || null,
+        // Sem impressora.ver o campo não é exibido; mantém o valor gravado.
+        ...(pode('impressora.ver') ? { impressoraId: impressoraId || null } : {}),
+        naListaDiaria,
+        layout,
+      };
       return modelo
         ? api<ModeloEtiquetaResumo>(`/modelos/${modelo.id}`, { metodo: 'PATCH', corpo })
         : api<ModeloEtiquetaResumo>('/modelos', { metodo: 'POST', corpo });
@@ -191,6 +207,20 @@ function Editor({ modelo, consultas }: { modelo: ModeloEtiquetaResumo | null; co
           ))}
         </Selecao>
         <Campo rotulo="Descrição" value={descricao} onChange={(e) => (setDescricao(e.target.value), setAlterado(true))} />
+        {pode('impressora.ver') && (
+          <Selecao rotulo="Impressora padrão" value={impressoraId} onChange={(e) => (setImpressoraId(e.target.value), setAlterado(true))}>
+            <option value="">Nenhuma</option>
+            {impressoras.map((i) => (
+              <option key={i.id} value={i.id} disabled={!i.ativo}>
+                {i.nome} ({i.linguagem} {i.dpi} dpi)
+              </option>
+            ))}
+          </Selecao>
+        )}
+        <label className="flex items-center gap-2 self-end pb-2 text-sm sm:col-span-2">
+          <input type="checkbox" checked={naListaDiaria} onChange={(e) => (setNaListaDiaria(e.target.checked), setAlterado(true))} />
+          Incluir na lista do dia (os produtos da consulta entram em “Lista do dia”)
+        </label>
       </fieldset>
 
       <div className="grid gap-4 xl:grid-cols-[13rem_minmax(0,1fr)_19rem]">

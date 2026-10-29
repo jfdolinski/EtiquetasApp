@@ -34,6 +34,15 @@ export class CriarModeloDto {
   @IsUUID('all', { message: 'Consulta inválida.' })
   consultaId?: string | null;
 
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsUUID('all', { message: 'Impressora inválida.' })
+  impressoraId?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  naListaDiaria?: boolean;
+
   @IsObject({ message: 'Layout inválido.' })
   layout: LayoutEtiqueta;
 }
@@ -54,6 +63,15 @@ export class AtualizarModeloDto {
   @ValidateIf((_, v) => v !== null)
   @IsUUID('all', { message: 'Consulta inválida.' })
   consultaId?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsUUID('all', { message: 'Impressora inválida.' })
+  impressoraId?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  naListaDiaria?: boolean;
 
   @IsOptional()
   @IsObject({ message: 'Layout inválido.' })

@@ -38,6 +38,8 @@ model Empresa {
   consultas   ConsultaSql[]
   modelos     ModeloEtiqueta[]
   impressoras Impressora[]
+  listas      ListaDiaria[]
+  trabalhos   TrabalhoImpressao[]
 
   @@map("empresas")
 }
@@ -57,9 +59,10 @@ model Usuario {
   criadoEm      DateTime  @default(now()) @map("criado_em")
   atualizadoEm  DateTime  @updatedAt @map("atualizado_em")
 
-  empresa Empresa?       @relation(fields: [empresaId], references: [id], onDelete: Restrict)
-  perfil  Perfil?        @relation(fields: [perfilId], references: [id], onDelete: SetNull)
-  logs    LogAuditoria[]
+  empresa   Empresa?            @relation(fields: [empresaId], references: [id], onDelete: Restrict)
+  perfil    Perfil?             @relation(fields: [perfilId], references: [id], onDelete: SetNull)
+  logs      LogAuditoria[]
+  trabalhos TrabalhoImpressao[]
 
   @@index([empresaId])
   @@map("usuarios")
@@ -201,23 +204,125 @@ model ConsultaSql {
 /// Modelo de etiqueta. Os elementos (CampoEtiqueta da SPEC) ficam em `layout`:
 /// LayoutEtiqueta de packages/shared, validado por validarLayout ao gravar.
 model ModeloEtiqueta {
-  id           String   @id @default(uuid()) @db.Uuid
-  empresaId    String   @map("empresa_id") @db.Uuid
+  id            String   @id @default(uuid()) @db.Uuid
+  empresaId     String   @map("empresa_id") @db.Uuid
   /// Consulta que fornece os campos dinâmicos.
-  consultaId   String?  @map("consulta_id") @db.Uuid
-  nome         String
-  descricao    String?
-  layout       Json
-  ativo        Boolean  @default(true)
-  criadoEm     DateTime @default(now()) @map("criado_em")
-  atualizadoEm DateTime @updatedAt @map("atualizado_em")
+  consultaId    String?  @map("consulta_id") @db.Uuid
+  /// Impressora da lista do dia e sugerida na etiqueta avulsa.
+  impressoraId  String?  @map("impressora_id") @db.Uuid
+  naListaDiaria Boolean  @default(false) @map("na_lista_diaria")
+  nome          String
+  descricao     String?
+  layout        Json
+  ativo         Boolean  @default(true)
+  criadoEm      DateTime @default(now()) @map("criado_em")
+  atualizadoEm  DateTime @updatedAt @map("atualizado_em")
 
-  empresa  Empresa      @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  consulta ConsultaSql? @relation(fields: [consultaId], references: [id], onDelete: SetNull)
+  empresa    Empresa      @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  consulta   ConsultaSql? @relation(fields: [consultaId], references: [id], onDelete: SetNull)
+  impressora Impressora?  @relation(fields: [impressoraId], references: [id], onDelete: SetNull)
+  itens      ItemLista[]
 
   @@unique([empresaId, nome])
   @@index([consultaId])
   @@map("modelos_etiqueta")
+}
+
+/// Lista do dia de uma empresa: produtos lidos das consultas, agrupados por modelo/impressora.
+model ListaDiaria {
+  id           String   @id @default(uuid()) @db.Uuid
+  empresaId    String   @map("empresa_id") @db.Uuid
+  data         DateTime @db.Date
+  /// ErroLista[] de packages/shared: modelos que não puderam ser lidos.
+  erros        Json     @default("[]")
+  criadoEm     DateTime @default(now()) @map("criado_em")
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
+
+  empresa Empresa     @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  itens   ItemLista[]
+
+  @@unique([empresaId, data])
+  @@map("listas_diarias")
+}
+
+enum StatusItemLista {
+  PENDENTE
+  NA_FILA
+  IMPRESSO
+  DESCARTADO
+}
+
+model ItemLista {
+  id           String          @id @default(uuid()) @db.Uuid
+  empresaId    String          @map("empresa_id") @db.Uuid
+  listaId      String          @map("lista_id") @db.Uuid
+  modeloId     String          @map("modelo_id") @db.Uuid
+  impressoraId String?         @map("impressora_id") @db.Uuid
+  /// Identificação do produto (código/EAN) para não repetir o que já foi impresso.
+  chave        String
+  descricao    String
+  /// Linha da consulta usada para preencher a etiqueta.
+  registro     Json
+  quantidade   Int             @default(1)
+  status       StatusItemLista @default(PENDENTE)
+  trabalhoId   String?         @map("trabalho_id") @db.Uuid
+  impressoEm   DateTime?       @map("impresso_em")
+  criadoEm     DateTime        @default(now()) @map("criado_em")
+  atualizadoEm DateTime        @updatedAt @map("atualizado_em")
+
+  lista      ListaDiaria        @relation(fields: [listaId], references: [id], onDelete: Cascade)
+  modelo     ModeloEtiqueta     @relation(fields: [modeloId], references: [id], onDelete: Cascade)
+  impressora Impressora?        @relation(fields: [impressoraId], references: [id], onDelete: SetNull)
+  trabalho   TrabalhoImpressao? @relation(fields: [trabalhoId], references: [id], onDelete: SetNull)
+
+  @@index([listaId, status])
+  @@index([trabalhoId])
+  @@map("itens_lista")
+}
+
+enum StatusTrabalho {
+  PENDENTE
+  ENVIANDO
+  CONCLUIDO
+  ERRO
+  CANCELADO
+}
+
+enum OrigemTrabalho {
+  LISTA
+  AVULSA
+}
+
+/// Trabalho de impressão: conteúdo já gerado na linguagem da impressora, entregue pelo agente.
+/// Fila durável no próprio Postgres (ver src/impressao/despacho.service.ts).
+model TrabalhoImpressao {
+  id                  String              @id @default(uuid()) @db.Uuid
+  empresaId           String              @map("empresa_id") @db.Uuid
+  impressoraId        String?             @map("impressora_id") @db.Uuid
+  /// Nomes guardados para o histórico sobreviver à exclusão do modelo/impressora.
+  impressoraNome      String              @map("impressora_nome")
+  modeloNome          String              @map("modelo_nome")
+  linguagem           LinguagemImpressora
+  origem              OrigemTrabalho
+  quantidadeEtiquetas Int                 @map("quantidade_etiquetas")
+  conteudo            Bytes
+  status              StatusTrabalho      @default(PENDENTE)
+  tentativas          Int                 @default(0)
+  erro                String?
+  criadoPorId         String?             @map("criado_por_id") @db.Uuid
+  criadoEm            DateTime            @default(now()) @map("criado_em")
+  enviadoEm           DateTime?           @map("enviado_em")
+  concluidoEm         DateTime?           @map("concluido_em")
+  atualizadoEm        DateTime            @updatedAt @map("atualizado_em")
+
+  empresa    Empresa     @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  impressora Impressora? @relation(fields: [impressoraId], references: [id], onDelete: SetNull)
+  criadoPor  Usuario?    @relation(fields: [criadoPorId], references: [id], onDelete: SetNull)
+  itens      ItemLista[]
+
+  @@index([empresaId, criadoEm])
+  @@index([status])
+  @@map("trabalhos_impressao")
 }
 
 enum LinguagemImpressora {
@@ -251,8 +356,11 @@ model Impressora {
   criadoEm        DateTime            @default(now()) @map("criado_em")
   atualizadoEm    DateTime            @updatedAt @map("atualizado_em")
 
-  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  agente  Agente? @relation(fields: [agenteId], references: [id], onDelete: SetNull)
+  empresa   Empresa             @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  agente    Agente?             @relation(fields: [agenteId], references: [id], onDelete: SetNull)
+  modelos   ModeloEtiqueta[]
+  itens     ItemLista[]
+  trabalhos TrabalhoImpressao[]
 
   @@unique([empresaId, nome])
   @@index([agenteId])

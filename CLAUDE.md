@@ -29,6 +29,8 @@ SaaS multiempresa que lê dados de produtos dos bancos dos ERPs dos clientes (vi
 - **Consultas SQL:** placeholders `{...}` são compilados por `compilarSql` (`packages/shared/src/placeholders.ts`, lexer por dialeto, igual ao validador do agente) em `$n` / `?` / `@pn` + lista de parâmetros. Valores dos placeholders fixos vêm sempre do banco próprio (`ConsultasService.compilar`); o cliente só informa `{param.*}`. Executar SQL num banco do cliente: `ConexoesService.executar(empresaId, conexaoId, sqlCompilado, parametros, limite)`; consulta salva: `ConsultasService.executar(...)`. Placeholder novo: catálogo `PLACEHOLDERS` + valor em `ConsultasService.compilar`.
 - **Campos dinâmicos:** colunas lidas ao salvar a consulta (execução com 1 linha e `{param.*}` nulos), gravadas em `consultas_sql.campos` com `campos_hash` = SHA-256(conexão + SQL); hash diferente = campos desatualizados.
 - **Etiquetas:** `LayoutEtiqueta` (mm) em `packages/shared/src/etiquetas` é a fonte única: o editor (Konva) desenha, `validarLayout` valida na API e os geradores traduzem. `posicionar()` distribui etiquetas em páginas (fileira no rolo, folha) e resolve textos; cada gerador (`zpl.ts`, `ppla.ts`, `pplb.ts`, `escpos.ts`) só traduz elementos posicionados. PDF fica na API (`src/modelos/pdf.ts`, pdf-lib + bwip-js). Recurso não suportado numa linguagem vira item em `avisos`, nunca saída quebrada. Gerar: `gerarSaida(layout, registros, linguagem, dpi, hoje)`.
+- **Impressão:** `TrabalhosService.criar` gera o conteúdo (via `gerarSaida`) e grava `trabalhos_impressao`; essa tabela é a fila (durável, sem Redis). `DespachoService` envia ao agente um trabalho por vez por agente: ao criar, quando o agente conecta (`gateway.quandoConectar`) e numa varredura a cada 30 s. Reivindica com `updateMany status PENDENTE→ENVIANDO`. Queda antes do envio volta para a fila; queda depois de enviado, ou sem confirmação, vira ERRO para o operador conferir (nunca reimprime sozinho). PDF não passa pelo agente: fica CONCLUIDO e é aberto no navegador.
+- **Lista do dia:** modelos com `naListaDiaria` e consulta; colunas convencionais `codigo/ean` (chave), `descricao/nome`, `quantidade/qtd` (`packages/shared/src/impressao.ts`). Atualizar a lista não traz de volta itens impressos, na fila ou descartados no dia.
 - **Segredos:** senhas de banco com `cifrar/decifrar` (`src/cripto.ts`, AES-256-GCM, `CHAVE_CRIPTOGRAFIA`), nunca devolvidas ao navegador. Tokens e códigos de ativação só como SHA-256.
 
 ## Comandos
@@ -102,7 +104,20 @@ Deploy: [docs/DEPLOY.md](docs/DEPLOY.md).
   - Testado: 14 testes dos geradores/valores/layout no shared, 7 na API (incl. PDF real), roteiro ponta a ponta com 24 cenários (geração nas 5 linguagens com dados reais via agente, impressora definindo DPI, isolamento, permissões, registros inválidos), editor conferido no navegador e PDF inspecionado (texto girado, contador, acentos).
   - **Não** validado em impressoras reais. ZPL e PDF seguem padrões bem conhecidos; PPLA (sintaxe DPL), QR em PPLB e ESC/POS em modo página precisam de teste em equipamento antes do primeiro cliente — a saída PPLA traz esse aviso.
   - Limitações: PPLA/PPLB removem acentos e não quebram linha; ESC/POS não gira nem imprime linhas/retângulos; QR em PPLA não gerado. Chunk do editor ~1,2 MB (bwip-js).
-- [ ] Fase 5 – Lista do dia e impressão em lote
+- [x] Fase 5 – Lista do dia e impressão em lote
+  - Feito:
+    - `ListaDiaria`, `ItemLista` e `TrabalhoImpressao`; modelo ganha impressora padrão e "incluir na lista do dia".
+    - Lista do dia: executa as consultas via agente, agrupa por impressora → modelo; operador desmarca, ajusta quantidade, descarta; impressão em lote com um clique (um trabalho por modelo/impressora).
+    - Etiqueta avulsa: modelos com consulta de busca, busca ao vivo com `{param.*}`, impressão na impressora padrão ou escolhida.
+    - Fila de trabalhos no Postgres com despacho ao agente, acompanhamento na tela, reenviar/cancelar, histórico com origem e autor, download do conteúdo, auditoria.
+    - Agente: mensagem `imprimir` com envio RAW por rede (TCP) ou impressora do sistema (winspool RAW no Windows, `lp -o raw` no Linux).
+  - Testado:
+    - 3 testes no shared, 13 na API (despacho e lista; 87 no total), testes do agente com impressora TCP simulada e chamada real ao winspool.
+    - Roteiro ponta a ponta com 30 cenários: lote com quantidades, modelo sem impressora, impressora desligada → erro → reenviar, agente offline → imprime ao voltar, cancelamento, PDF, avulsa, isolamento e permissões.
+    - Telas Lista do dia, Histórico e Avulsa conferidas no navegador.
+  - **Não** testado com impressora física nem com impressora instalada no Windows (só o caminho de erro do winspool).
+  - Desvio da SPEC: fila de impressão no Postgres em vez de Redis/BullMQ (durável e suficiente com uma réplica da API). Redis fica para os jobs agendados da Fase 7, se fizer sentido lá.
+  - Limitações: PDF é impresso pelo navegador (o agente não renderiza PDF); lista do dia é gerada pelo operador (sem agendamento automático); contador recomeça a cada lote de 2000 etiquetas.
 - [ ] Fase 6 – Cadastro de ERPs e templates
 - [ ] Fase 7 – Assinatura, carência e bloqueio
 - [ ] Fase 8 – Cópia de modelos, auditoria e refinamentos

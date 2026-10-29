@@ -22,7 +22,15 @@ export class ErroDoAgente extends Error {
 }
 
 export class TempoEsgotadoAgente extends Error {}
-export class AgenteDesconectado extends Error {}
+export class AgenteDesconectado extends Error {
+  /** true: a requisição já tinha sido enviada (o agente pode ter executado). */
+  constructor(
+    mensagem: string,
+    readonly duranteOperacao = false,
+  ) {
+    super(mensagem);
+  }
+}
 
 interface Pendente {
   resolver: (valor: unknown) => void;
@@ -79,7 +87,7 @@ export class SessaoAgente {
   encerrar() {
     for (const [id, pendente] of this.pendentes) {
       clearTimeout(pendente.temporizador);
-      pendente.rejeitar(new AgenteDesconectado('O agente desconectou durante a operação.'));
+      pendente.rejeitar(new AgenteDesconectado('O agente desconectou durante a operação.', true));
       this.pendentes.delete(id);
     }
   }

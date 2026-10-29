@@ -58,6 +58,20 @@ export interface DadosRotacionarToken {
   token: string;
 }
 
+/**
+ * `imprimir`: bytes prontos na linguagem da impressora (base64). O agente responde ok
+ * depois de entregar tudo à impressora (rede) ou ao spooler (impressora do sistema).
+ */
+export interface DadosImprimir {
+  trabalhoId: string;
+  metodo: 'REDE' | 'SISTEMA';
+  /** IP:porta (REDE) ou nome da impressora no sistema (SISTEMA). */
+  endereco: string;
+  /** Nome do documento no spooler. */
+  nome: string;
+  dados: string;
+}
+
 // Agente → servidor
 
 /** `ola`: primeira mensagem depois de conectar. */

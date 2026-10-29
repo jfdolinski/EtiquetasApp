@@ -39,6 +39,7 @@ export class AgentesGateway implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly wss = new WebSocketServer({ noServer: true, maxPayload: TAMANHO_MAXIMO_MENSAGEM });
   private readonly sessoes = new Map<string, SessaoAgente>();
   private heartbeat?: NodeJS.Timeout;
+  private readonly ouvintesConexao: ((agenteId: string) => void)[] = [];
 
   constructor(
     private readonly adaptador: HttpAdapterHost,
@@ -63,6 +64,11 @@ export class AgentesGateway implements OnApplicationBootstrap, OnModuleDestroy {
     clearInterval(this.heartbeat);
     for (const sessao of this.sessoes.values()) sessao.fechar(1001, 'Servidor reiniciando.');
     this.wss.close();
+  }
+
+  /** Chamado sempre que um agente conecta (ex.: despachar trabalhos de impressão pendentes). */
+  quandoConectar(ouvinte: (agenteId: string) => void) {
+    this.ouvintesConexao.push(ouvinte);
   }
 
   estaOnline(agenteId: string): boolean {
@@ -170,6 +176,7 @@ export class AgentesGateway implements OnApplicationBootstrap, OnModuleDestroy {
 
     void this.registrarContato(agenteId);
     void this.enviarConfiguracao(agenteId);
+    for (const ouvinte of this.ouvintesConexao) ouvinte(agenteId);
   }
 
   private async aoReceber(sessao: SessaoAgente, texto: string) {

@@ -19,6 +19,7 @@ import (
 
 	"etiquetas/agente/internal/banco"
 	"etiquetas/agente/internal/config"
+	"etiquetas/agente/internal/impressao"
 	"etiquetas/agente/internal/protocolo"
 )
 
@@ -247,6 +248,18 @@ func (c *Cliente) processar(ctx context.Context, msg protocolo.Mensagem) (any, e
 			return nil, err
 		}
 		return c.executor.Testar(ctx, req.ConexaoID)
+
+	case protocolo.TipoImprimir:
+		var req protocolo.Imprimir
+		if err := json.Unmarshal(msg.Dados, &req); err != nil {
+			return nil, errors.New("trabalho de impressão inválido")
+		}
+		inicio := time.Now()
+		if err := impressao.Imprimir(ctx, req.Metodo, req.Endereco, req.Nome, req.Dados); err != nil {
+			return nil, err
+		}
+		c.Log.Info("trabalho impresso", "trabalho", req.TrabalhoID, "impressora", req.Endereco, "bytes", len(req.Dados), "ms", time.Since(inicio).Milliseconds())
+		return struct{}{}, nil
 
 	case protocolo.TipoRotacionarToken:
 		var req protocolo.RotacionarToken

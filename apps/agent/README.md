@@ -1,6 +1,11 @@
 # Agente local (Go)
 
-Programa instalado na rede do cliente. Abre uma conexão WebSocket **de saída** com a API, sem precisar abrir portas no firewall da loja. Pela conexão, recebe as conexões de banco e executa consultas somente leitura no ERP: PostgreSQL, MySQL/MariaDB ou SQL Server. Os trabalhos de impressão chegam na Fase 5.
+Programa instalado na rede do cliente. Abre uma conexão WebSocket **de saída** com a API, sem precisar abrir portas no firewall da loja. Pela conexão, recebe as conexões de banco e executa consultas somente leitura no ERP: PostgreSQL, MySQL/MariaDB ou SQL Server. Também recebe os trabalhos de impressão já gerados (ZPL, PPLA, PPLB, ESC/POS) e entrega à impressora:
+
+- **Rede:** envio RAW para IP:porta, normalmente 9100.
+- **Impressora do sistema:** spooler em modo RAW, pelo winspool no Windows ou `lp -o raw` no Linux.
+
+PDF é impresso pelo navegador.
 
 - Nada de SQL ou de credenciais fica no disco. As conexões de banco chegam do servidor e ficam só em memória.
 - No disco fica apenas `agente.json`, com o endereço do servidor e o token do agente:

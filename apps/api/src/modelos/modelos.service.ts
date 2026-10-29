@@ -28,6 +28,8 @@ const SELECAO = {
   nome: true,
   descricao: true,
   consultaId: true,
+  impressoraId: true,
+  naListaDiaria: true,
   layout: true,
   ativo: true,
   criadoEm: true,
@@ -60,6 +62,7 @@ export class ModelosService {
   async criar(empresaId: string, dto: CriarModeloDto, autorId: string): Promise<ModeloEtiquetaResumo> {
     exigirLayoutValido(dto.layout);
     if (dto.consultaId) await this.exigirConsultaDaEmpresa(empresaId, dto.consultaId);
+    if (dto.impressoraId) await this.exigirImpressoraDaEmpresa(empresaId, dto.impressoraId);
     try {
       const modelo = await this.prisma.modeloEtiqueta.create({
         data: {
@@ -67,6 +70,8 @@ export class ModelosService {
           nome: dto.nome.trim(),
           descricao: dto.descricao?.trim() || null,
           consultaId: dto.consultaId ?? null,
+          impressoraId: dto.impressoraId ?? null,
+          naListaDiaria: dto.naListaDiaria ?? false,
           layout: dto.layout as unknown as Prisma.InputJsonObject,
         },
         select: SELECAO,
@@ -90,6 +95,7 @@ export class ModelosService {
     await this.buscar(empresaId, id);
     if (dto.layout) exigirLayoutValido(dto.layout);
     if (dto.consultaId) await this.exigirConsultaDaEmpresa(empresaId, dto.consultaId);
+    if (dto.impressoraId) await this.exigirImpressoraDaEmpresa(empresaId, dto.impressoraId);
     try {
       const modelo = await this.prisma.modeloEtiqueta.update({
         where: { id },
@@ -97,6 +103,8 @@ export class ModelosService {
           nome: dto.nome?.trim(),
           descricao: dto.descricao === undefined ? undefined : dto.descricao.trim() || null,
           consultaId: dto.consultaId,
+          impressoraId: dto.impressoraId,
+          naListaDiaria: dto.naListaDiaria,
           layout: dto.layout as unknown as Prisma.InputJsonObject | undefined,
           ativo: dto.ativo,
         },
@@ -108,7 +116,14 @@ export class ModelosService {
         acao: 'modelo.editar',
         entidade: 'ModeloEtiqueta',
         entidadeId: id,
-        detalhes: { nome: dto.nome, consultaId: dto.consultaId, ativo: dto.ativo, layoutAlterado: Boolean(dto.layout) },
+        detalhes: {
+          nome: dto.nome,
+          consultaId: dto.consultaId,
+          impressoraId: dto.impressoraId,
+          naListaDiaria: dto.naListaDiaria,
+          ativo: dto.ativo,
+          layoutAlterado: Boolean(dto.layout),
+        },
       });
       return resumo(modelo);
     } catch (erro) {
@@ -182,6 +197,11 @@ export class ModelosService {
     return gerarSaida(dto.layout, dto.registros, linguagem, dpi ?? 203, hoje);
   }
 
+  private async exigirImpressoraDaEmpresa(empresaId: string, impressoraId: string) {
+    const impressora = await this.prisma.impressora.findFirst({ where: { id: impressoraId, empresaId }, select: { id: true } });
+    if (!impressora) throw new BadRequestException('Impressora inválida para esta empresa.');
+  }
+
   private async exigirConsultaDaEmpresa(empresaId: string, consultaId: string) {
     const consulta = await this.prisma.consultaSql.findFirst({ where: { id: consultaId, empresaId }, select: { id: true } });
     if (!consulta) throw new BadRequestException('Consulta inválida para esta empresa.');
@@ -211,7 +231,7 @@ function exigirLayoutValido(layout: LayoutEtiqueta) {
 }
 
 /** Registros vêm do navegador: só objetos planos com valores simples e tamanho limitado. */
-function validarRegistros(registros: Registro[]) {
+export function validarRegistros(registros: Registro[]) {
   for (const r of registros) {
     if (!r || typeof r !== 'object' || Array.isArray(r)) throw new BadRequestException('Registro inválido.');
     const chaves = Object.keys(r);

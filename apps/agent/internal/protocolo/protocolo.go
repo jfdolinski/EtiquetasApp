@@ -22,6 +22,7 @@ const (
 	TipoConsultar       = "consultar"
 	TipoTestarConexao   = "testar_conexao"
 	TipoRotacionarToken = "rotacionar_token"
+	TipoImprimir        = "imprimir"
 )
 
 // Mensagem é o envelope de todo frame. Dados é decodificado conforme o Tipo.
@@ -72,6 +73,15 @@ type Consultar struct {
 
 type TestarConexao struct {
 	ConexaoID string `json:"conexaoId"`
+}
+
+// Imprimir: bytes prontos na linguagem da impressora; Dados chega em base64 no JSON.
+type Imprimir struct {
+	TrabalhoID string `json:"trabalhoId"`
+	Metodo     string `json:"metodo"`   // REDE | SISTEMA
+	Endereco   string `json:"endereco"` // IP:porta ou nome da impressora no sistema
+	Nome       string `json:"nome"`
+	Dados      []byte `json:"dados"`
 }
 
 type RotacionarToken struct {

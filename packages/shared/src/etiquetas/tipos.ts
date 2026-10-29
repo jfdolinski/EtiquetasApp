@@ -128,6 +128,10 @@ export interface ModeloEtiquetaResumo {
   nome: string;
   descricao: string | null;
   consultaId: string | null;
+  /** Impressora usada na lista do dia e sugerida na avulsa. */
+  impressoraId: string | null;
+  /** Entra na lista do dia (a consulta deve ter finalidade "Lista do dia"). */
+  naListaDiaria: boolean;
   layout: LayoutEtiqueta;
   ativo: boolean;
   criadoEm: string;

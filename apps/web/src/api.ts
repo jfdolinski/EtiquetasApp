@@ -38,6 +38,21 @@ export class ErroApi extends Error {
 /** Disparado quando a API responde 401, para o AuthProvider encerrar a sessão. */
 export const EVENTO_SESSAO_EXPIRADA = 'etiquetas:sessao-expirada';
 
+/** Baixa um arquivo autenticado (ex.: conteúdo de um trabalho de impressão). */
+export async function apiArquivo(caminho: string): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  const token = sessao.token();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const empresa = sessao.empresa();
+  if (empresa) headers['X-Empresa-Id'] = empresa;
+  const resposta = await fetch(`/api${caminho}`, { headers });
+  if (!resposta.ok) {
+    const dados = await resposta.json().catch(() => null);
+    throw new ErroApi(resposta.status, dados?.message || 'Erro ao baixar o arquivo.');
+  }
+  return resposta.blob();
+}
+
 export async function api<T>(caminho: string, opcoes: { metodo?: string; corpo?: unknown } = {}): Promise<T> {
   const headers: Record<string, string> = {};
   const token = sessao.token();

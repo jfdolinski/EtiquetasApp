@@ -54,6 +54,14 @@ Códigos de erro: `conexao_desconhecida`, `sql_recusado`, `banco`, `tempo_esgota
 | `testar_conexao` | sim | `{ conexaoId }` | `{ ok, versaoServidor, duracaoMs }` |
 | `consultar` | sim | `{ conexaoId, sql, parametros, limiteLinhas, tempoLimiteSegundos }` | `{ colunas: [{ nome, tipo }], linhas: any[][], truncado, duracaoMs }` |
 | `rotacionar_token` | sim | `{ token }` | `{}`, enviado depois de gravar o token em disco |
+| `imprimir` | sim | `{ trabalhoId, metodo: REDE \| SISTEMA, endereco, nome, dados (base64) }` | `{}`, enviado depois de entregar todos os bytes |
+
+No `imprimir`, os bytes já vêm na linguagem da impressora e são entregues sem conversão:
+
+- **REDE:** conexão TCP em `endereco` (IP:porta, normalmente 9100).
+- **SISTEMA:** spooler com tipo de dados RAW (`winspool` no Windows, `lp -o raw` no Linux).
+
+O servidor manda um trabalho por vez para cada agente. Se o agente cair antes de receber, o trabalho volta para a fila. Se cair depois de receber, o trabalho fica com erro e o operador confere a impressora antes de reenviar, para não imprimir duas vezes.
 
 A `configuracao` é enviada ao conectar e sempre que uma conexão do agente é criada, editada ou excluída.
 

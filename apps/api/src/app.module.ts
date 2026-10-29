@@ -9,6 +9,7 @@ import { ConsultasModule } from './consultas/consultas.module';
 import { PermissoesGuard } from './auth/permissoes.guard';
 import { EmpresasModule } from './empresas/empresas.module';
 import { HealthController } from './health.controller';
+import { ImpressaoModule } from './impressao/impressao.module';
 import { ModelosModule } from './modelos/modelos.module';
 import { PerfisModule } from './perfis/perfis.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -26,6 +27,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     AgentesModule,
     ConsultasModule,
     ModelosModule,
+    ImpressaoModule,
   ],
   controllers: [HealthController],
   providers: [

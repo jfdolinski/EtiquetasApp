@@ -14,6 +14,9 @@ interface ItemMenu {
 
 const MENU: ItemMenu[] = [
   { para: '/', rotulo: 'Início' },
+  { para: '/hoje', rotulo: 'Lista do dia', permissao: 'imprimir' },
+  { para: '/avulsa', rotulo: 'Etiqueta avulsa', permissao: 'imprimir' },
+  { para: '/historico', rotulo: 'Histórico de impressão', permissao: 'imprimir' },
   { para: '/empresas', rotulo: 'Empresas', superAdmin: true },
   { para: '/usuarios', rotulo: 'Usuários', permissao: 'usuario.ver' },
   { para: '/perfis', rotulo: 'Perfis e permissões', permissao: 'perfil.ver' },
