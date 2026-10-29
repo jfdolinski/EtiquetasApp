@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from 'react-router';
 import type { CodigoPermissao } from '@etiquetas/shared';
 import { useAuth } from './auth';
 import { Layout } from './components/Layout';
+import { Agentes } from './pages/Agentes';
+import { Bancos } from './pages/Bancos';
 import { Empresas } from './pages/Empresas';
 import { Inicio } from './pages/Inicio';
 import { Login } from './pages/Login';
@@ -38,6 +40,8 @@ export function App() {
         <Route path="empresas" element={<Protegida superAdmin><Empresas /></Protegida>} />
         <Route path="usuarios" element={<Protegida permissao="usuario.ver"><Usuarios /></Protegida>} />
         <Route path="perfis" element={<Protegida permissao="perfil.ver"><Perfis /></Protegida>} />
+        <Route path="agentes" element={<Protegida permissao="agente.ver"><Agentes /></Protegida>} />
+        <Route path="bancos" element={<Protegida permissao="agente.ver"><Bancos /></Protegida>} />
         <Route path="minha-conta" element={<MinhaConta />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

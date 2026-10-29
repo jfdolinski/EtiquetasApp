@@ -33,6 +33,8 @@ model Empresa {
   usuarios Usuario[]
   perfis   Perfil[]
   logs     LogAuditoria[]
+  agentes  Agente[]
+  conexoes ConexaoBanco[]
 
   @@map("empresas")
 }
@@ -96,6 +98,66 @@ model PerfilPermissao {
 
   @@id([perfilId, permissaoCodigo])
   @@map("perfis_permissoes")
+}
+
+enum TipoBanco {
+  POSTGRES
+  MYSQL
+  SQLSERVER
+}
+
+/// Agente local instalado na rede do cliente. Conecta por WebSocket de saída.
+model Agente {
+  id                     String    @id @default(uuid()) @db.Uuid
+  empresaId              String    @map("empresa_id") @db.Uuid
+  nome                   String
+  /// SHA-256 (hex) do token do agente. O token em si só existe no agente.
+  tokenHash              String?   @unique @map("token_hash")
+  /// SHA-256 (hex) do código de ativação de uso único.
+  codigoAtivacaoHash     String?   @map("codigo_ativacao_hash")
+  codigoAtivacaoExpiraEm DateTime? @map("codigo_ativacao_expira_em")
+  ativo                  Boolean   @default(true)
+  versao                 String?
+  hostname               String?
+  sistemaOperacional     String?   @map("sistema_operacional")
+  ultimoContatoEm        DateTime? @map("ultimo_contato_em")
+  ativadoEm              DateTime? @map("ativado_em")
+  criadoEm               DateTime  @default(now()) @map("criado_em")
+  atualizadoEm           DateTime  @updatedAt @map("atualizado_em")
+
+  empresa  Empresa        @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  conexoes ConexaoBanco[]
+
+  @@unique([empresaId, nome])
+  @@index([empresaId, codigoAtivacaoHash])
+  @@map("agentes")
+}
+
+/// Banco do ERP do cliente, acessado pelo agente da mesma rede.
+model ConexaoBanco {
+  id           String    @id @default(uuid()) @db.Uuid
+  empresaId    String    @map("empresa_id") @db.Uuid
+  agenteId     String    @map("agente_id") @db.Uuid
+  nome         String
+  tipo         TipoBanco
+  host         String
+  porta        Int
+  banco        String
+  usuario      String
+  /// AES-256-GCM com CHAVE_CRIPTOGRAFIA (ver src/cripto). Nulo = sem senha.
+  senhaCifrada String?   @map("senha_cifrada")
+  /// OpcoesConexao de packages/shared (ssl, instancia, tempoLimiteSegundos).
+  opcoes       Json      @default("{}")
+  ativo        Boolean   @default(true)
+  criadoEm     DateTime  @default(now()) @map("criado_em")
+  atualizadoEm DateTime  @updatedAt @map("atualizado_em")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  agente  Agente  @relation(fields: [agenteId], references: [id], onDelete: Restrict)
+
+  @@unique([empresaId, nome])
+  @@index([agenteId])
+  @@map("conexoes_banco")
 }
 
 model LogAuditoria {

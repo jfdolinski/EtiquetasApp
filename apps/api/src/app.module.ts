@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { AgentesModule } from './agentes/agentes.module';
 import { AuditoriaModule } from './auditoria/auditoria.module';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthModule } from './auth/auth.module';
@@ -20,6 +21,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     EmpresasModule,
     UsuariosModule,
     PerfisModule,
+    AgentesModule,
   ],
   controllers: [HealthController],
   providers: [

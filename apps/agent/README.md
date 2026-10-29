@@ -1,4 +1,79 @@
 # Agente local (Go)
 
-Implementado na Fase 2: registro por CNPJ, conexão WebSocket de saída com a API, execução de consultas
-nos bancos do ERP (PostgreSQL, MySQL, SQL Server) e envio de trabalhos de impressão. Veja `docs/SPEC.md`, seção 3.8.
+Programa instalado na rede do cliente. Abre uma conexão WebSocket **de saída** com a API, sem precisar abrir portas no firewall da loja. Pela conexão, recebe as conexões de banco e executa consultas somente leitura no ERP: PostgreSQL, MySQL/MariaDB ou SQL Server. Os trabalhos de impressão chegam na Fase 5.
+
+- Nada de SQL ou de credenciais fica no disco. As conexões de banco chegam do servidor e ficam só em memória.
+- No disco fica apenas `agente.json`, com o endereço do servidor e o token do agente:
+  - Windows: `%ProgramData%\EtiquetasAgente`, com acesso restrito a SYSTEM e Administradores.
+  - Linux como root: `/etc/etiquetas-agente`, com permissão `0600`.
+- Protocolo: [PROTOCOLO.md](PROTOCOLO.md).
+
+## Ativação
+
+1. No painel, em **Agentes → Novo agente**, gere o código de ativação. Ele vale por 24 horas e uma única vez.
+2. Na máquina da loja, rode como administrador:
+
+   ```bash
+   etiquetas-agente instalar
+   ```
+
+   O agente pede o endereço do servidor, o CNPJ e o código. Também é possível passar tudo direto:
+
+   ```bash
+   etiquetas-agente instalar -servidor https://app.seudominio.com.br -cnpj 11.222.333/0001-81 -codigo K7PX-3MQA
+   ```
+
+3. Depois disso o agente roda como serviço do sistema (serviço do Windows ou unidade do systemd) e aparece como **Online** no painel.
+
+Só o CNPJ não basta para ativar, porque o CNPJ é público. O código de uso único é que prova que a instalação foi autorizada no painel.
+
+## Comandos
+
+| Comando | O que faz |
+|---|---|
+| `ativar` | Troca CNPJ + código pelo token e grava `agente.json` |
+| `executar` | Roda em primeiro plano. É o padrão; pede a ativação se ainda não houver token |
+| `instalar` / `desinstalar` | Instala e inicia, ou para e remove, o serviço (requer administrador ou root) |
+| `iniciar` / `parar` / `status` | Controlam o serviço |
+| `versao` | Mostra a versão |
+
+Opções: `-config <arquivo>`, `-servidor <url>`, `-cnpj`, `-codigo`, `-log <arquivo>`.
+
+## Token
+
+- **Rotacionar token**, no painel, com o agente online: o servidor envia um token novo, o agente grava em disco e confirma, e só então o antigo deixa de valer. Não é preciso mexer na máquina.
+- **Reinstalar (novo código)**: revoga o token na hora. O agente conectado cai e encerra pedindo uma nova ativação. Use quando a máquina for trocada ou o token tiver vazado.
+- **Desativar** derruba o agente imediatamente. **Bloquear a empresa** derruba no próximo heartbeat, em até 30 segundos.
+
+## Segurança das consultas
+
+1. O SQL precisa ser um único comando `SELECT` ou `WITH`, sem palavras de escrita (`INSERT`, `UPDATE`, `DROP`, `INTO`, `EXEC`, `COMMIT`…). Fica fora da checagem o que estiver dentro de strings e comentários; o lexer segue as regras de cada banco ([somente_leitura.go](internal/banco/somente_leitura.go)).
+2. A consulta roda dentro de uma transação que é sempre desfeita. No PostgreSQL e no MySQL essa transação é `READ ONLY`. O driver do SQL Server não oferece transação somente leitura, então lá vale o rollback.
+3. A proteção principal continua sendo um **usuário de banco com permissão só de leitura**. Configure assim em todos os clientes.
+
+Também há limite de linhas (no máximo 100 mil por consulta) e de tempo (30 s por padrão, até 10 min).
+
+## Desenvolvimento
+
+Requer Go 1.27 ou mais novo.
+
+```bash
+cd apps/agent
+go test ./...
+go build -o bin/etiquetas-agente.exe ./cmd/etiquetas-agente
+```
+
+O teste de integração com PostgreSQL só roda com a variável abaixo definida:
+
+```bash
+AGENTE_TESTE_PG=localhost:5432:usuario:senha:banco go test ./internal/banco
+```
+
+Binários de distribuição: `bin/` fica fora do Git.
+
+```bash
+GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.versao=0.2.0 -X main.servidorPadrao=https://app.seudominio.com.br" -o bin/etiquetas-agente.exe ./cmd/etiquetas-agente
+GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.versao=0.2.0 -X main.servidorPadrao=https://app.seudominio.com.br" -o bin/etiquetas-agente ./cmd/etiquetas-agente
+```
+
+Ainda não implementado: atualização automática do agente e instalador gráfico (`.msi`). Hoje a instalação é o executável mais o comando `instalar`.

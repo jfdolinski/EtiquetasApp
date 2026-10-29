@@ -17,6 +17,8 @@ const MENU: ItemMenu[] = [
   { para: '/empresas', rotulo: 'Empresas', superAdmin: true },
   { para: '/usuarios', rotulo: 'Usuários', permissao: 'usuario.ver' },
   { para: '/perfis', rotulo: 'Perfis e permissões', permissao: 'perfil.ver' },
+  { para: '/agentes', rotulo: 'Agentes', permissao: 'agente.ver' },
+  { para: '/bancos', rotulo: 'Bancos de dados', permissao: 'agente.ver' },
   { para: '/minha-conta', rotulo: 'Minha conta' },
 ];
 

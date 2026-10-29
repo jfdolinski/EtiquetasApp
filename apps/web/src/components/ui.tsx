@@ -51,7 +51,19 @@ export function Alerta({ tipo = 'erro', children }: { tipo?: 'erro' | 'aviso' | 
   return <div className={`rounded-md border px-4 py-3 text-sm ${cores[tipo]}`}>{children}</div>;
 }
 
-export function Modal({ titulo, aberto, aoFechar, children }: { titulo: string; aberto: boolean; aoFechar: () => void; children: ReactNode }) {
+export function Modal({
+  titulo,
+  aberto,
+  aoFechar,
+  children,
+  largo = false,
+}: {
+  titulo: string;
+  aberto: boolean;
+  aoFechar: () => void;
+  children: ReactNode;
+  largo?: boolean;
+}) {
   useEffect(() => {
     if (!aberto) return;
     const tecla = (e: KeyboardEvent) => e.key === 'Escape' && aoFechar();
@@ -62,7 +74,7 @@ export function Modal({ titulo, aberto, aoFechar, children }: { titulo: string; 
   if (!aberto) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 sm:items-center">
-      <div role="dialog" aria-modal="true" aria-label={titulo} className="w-full max-w-lg rounded-lg bg-white shadow-xl">
+      <div role="dialog" aria-modal="true" aria-label={titulo} className={`w-full ${largo ? 'max-w-5xl' : 'max-w-lg'} rounded-lg bg-white shadow-xl`}>
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
           <h2 className="text-base font-semibold">{titulo}</h2>
           <button type="button" onClick={aoFechar} className="rounded p-1 text-slate-500 hover:bg-slate-100" aria-label="Fechar">

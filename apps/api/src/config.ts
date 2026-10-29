@@ -3,6 +3,8 @@ export interface Config {
   jwtSegredo: string;
   jwtExpiracao: string;
   corsOrigem: string | null;
+  /** 32 bytes para AES-256-GCM das senhas dos bancos dos clientes. */
+  chaveCriptografia: Buffer;
   superAdmin: { email: string; senha: string; nome: string } | null;
 }
 
@@ -20,6 +22,11 @@ export function config(): Config {
     throw new Error('DATABASE_URL não definida.');
   }
 
+  const chaveCriptografia = Buffer.from(process.env.CHAVE_CRIPTOGRAFIA ?? '', 'base64');
+  if (chaveCriptografia.length !== 32) {
+    throw new Error('CHAVE_CRIPTOGRAFIA ausente ou inválida (32 bytes em base64).');
+  }
+
   const { SUPERADMIN_EMAIL, SUPERADMIN_SENHA } = process.env;
 
   cache = {
@@ -27,6 +34,7 @@ export function config(): Config {
     jwtSegredo,
     jwtExpiracao: process.env.JWT_EXPIRACAO || '12h',
     corsOrigem: process.env.CORS_ORIGEM || null,
+    chaveCriptografia,
     superAdmin:
       SUPERADMIN_EMAIL && SUPERADMIN_SENHA
         ? {
