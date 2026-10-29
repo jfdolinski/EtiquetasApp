@@ -28,6 +28,7 @@ SaaS multiempresa que lê dados de produtos dos bancos dos ERPs dos clientes (vi
 - **Agente:** `AgentesGateway` (ws puro no upgrade de `/api/agente/conectar`) guarda as sessões em memória → API com **uma réplica**. Para falar com o agente: `gateway.sessao(agenteId).requisitar(tipo, dados, timeout)`; mudou conexão de banco → `gateway.enviarConfiguracao(agenteId)`. Mensagem nova do protocolo: atualizar `protocolo.ts`, `apps/agent/internal/protocolo` e `apps/agent/PROTOCOLO.md` juntos.
 - **Consultas SQL:** placeholders `{...}` são compilados por `compilarSql` (`packages/shared/src/placeholders.ts`, lexer por dialeto, igual ao validador do agente) em `$n` / `?` / `@pn` + lista de parâmetros. Valores dos placeholders fixos vêm sempre do banco próprio (`ConsultasService.compilar`); o cliente só informa `{param.*}`. Executar SQL num banco do cliente: `ConexoesService.executar(empresaId, conexaoId, sqlCompilado, parametros, limite)`; consulta salva: `ConsultasService.executar(...)`. Placeholder novo: catálogo `PLACEHOLDERS` + valor em `ConsultasService.compilar`.
 - **Campos dinâmicos:** colunas lidas ao salvar a consulta (execução com 1 linha e `{param.*}` nulos), gravadas em `consultas_sql.campos` com `campos_hash` = SHA-256(conexão + SQL); hash diferente = campos desatualizados.
+- **Etiquetas:** `LayoutEtiqueta` (mm) em `packages/shared/src/etiquetas` é a fonte única: o editor (Konva) desenha, `validarLayout` valida na API e os geradores traduzem. `posicionar()` distribui etiquetas em páginas (fileira no rolo, folha) e resolve textos; cada gerador (`zpl.ts`, `ppla.ts`, `pplb.ts`, `escpos.ts`) só traduz elementos posicionados. PDF fica na API (`src/modelos/pdf.ts`, pdf-lib + bwip-js). Recurso não suportado numa linguagem vira item em `avisos`, nunca saída quebrada. Gerar: `gerarSaida(layout, registros, linguagem, dpi, hoje)`.
 - **Segredos:** senhas de banco com `cifrar/decifrar` (`src/cripto.ts`, AES-256-GCM, `CHAVE_CRIPTOGRAFIA`), nunca devolvidas ao navegador. Tokens e códigos de ativação só como SHA-256.
 
 ## Comandos
@@ -90,7 +91,17 @@ Deploy: [docs/DEPLOY.md](docs/DEPLOY.md).
     - `GET /consultas/conexoes` para quem tem `sql.ver` sem `agente.ver`; conexão usada por consultas não pode ser excluída.
   - Testado: 13 testes do compilador de placeholders (incl. escapes por dialeto), 9 do serviço (67 na API), roteiro ponta a ponta com API, agente e "ERP" PostgreSQL reais (24 cenários: filtro por empresa/data, injeção via parâmetro, aspas no valor, colunas adicionadas/removidas, agente offline, isolamento, permissões), editor conferido no navegador.
   - Pendente: SQL Server e MySQL seguem sem teste em banco real; o editor é um textarea (sem realce de sintaxe).
-- [ ] Fase 4 – Editor de etiquetas e geração ZPL/PPLA/ESC-POS/PDF
+- [x] Fase 4 – Editor de etiquetas e geração ZPL/PPLA/ESC-POS/PDF
+  - Feito:
+    - `ModeloEtiqueta` (layout JSON validado, consulta vinculada) e `Impressora` (linguagem, DPI, rede IP:porta ou impressora do sistema, agente).
+    - Layout: tamanho, colunas, margens, espaçamentos, rolo ou folha (A4/Carta/outra); elementos texto, código de barras (EAN-13, EAN-8, Code 128, Code 39), QR code, retângulo e linha, com rotação 0/90/180/270.
+    - Conteúdo: texto fixo, campo da consulta (formato texto/número/moeda/data), data de hoje + N dias, contador.
+    - Geradores ZPL, PPLA, PPLB, ESC/POS (modo página) e PDF; EAN com dígito verificador conferido.
+    - Editor Konva: arrastar, redimensionar, setas/Delete, zoom, campos da consulta com um clique, dados reais da consulta via agente, pré-visualização da saída (PDF embutido, texto, download).
+    - Telas Modelos de etiqueta e Impressoras; editor carregado sob demanda.
+  - Testado: 14 testes dos geradores/valores/layout no shared, 7 na API (incl. PDF real), roteiro ponta a ponta com 24 cenários (geração nas 5 linguagens com dados reais via agente, impressora definindo DPI, isolamento, permissões, registros inválidos), editor conferido no navegador e PDF inspecionado (texto girado, contador, acentos).
+  - **Não** validado em impressoras reais. ZPL e PDF seguem padrões bem conhecidos; PPLA (sintaxe DPL), QR em PPLB e ESC/POS em modo página precisam de teste em equipamento antes do primeiro cliente — a saída PPLA traz esse aviso.
+  - Limitações: PPLA/PPLB removem acentos e não quebram linha; ESC/POS não gira nem imprime linhas/retângulos; QR em PPLA não gerado. Chunk do editor ~1,2 MB (bwip-js).
 - [ ] Fase 5 – Lista do dia e impressão em lote
 - [ ] Fase 6 – Cadastro de ERPs e templates
 - [ ] Fase 7 – Assinatura, carência e bloqueio

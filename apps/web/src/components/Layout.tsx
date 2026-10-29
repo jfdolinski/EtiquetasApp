@@ -20,6 +20,8 @@ const MENU: ItemMenu[] = [
   { para: '/agentes', rotulo: 'Agentes', permissao: 'agente.ver' },
   { para: '/bancos', rotulo: 'Bancos de dados', permissao: 'agente.ver' },
   { para: '/consultas', rotulo: 'Consultas SQL', permissao: 'sql.ver' },
+  { para: '/modelos', rotulo: 'Modelos de etiqueta', permissao: 'etiqueta.modelo.ver' },
+  { para: '/impressoras', rotulo: 'Impressoras', permissao: 'impressora.ver' },
   { para: '/minha-conta', rotulo: 'Minha conta' },
 ];
 

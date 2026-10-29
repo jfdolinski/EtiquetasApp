@@ -30,12 +30,14 @@ model Empresa {
   criadoEm         DateTime         @default(now()) @map("criado_em")
   atualizadoEm     DateTime         @updatedAt @map("atualizado_em")
 
-  usuarios Usuario[]
-  perfis   Perfil[]
-  logs     LogAuditoria[]
-  agentes  Agente[]
-  conexoes ConexaoBanco[]
-  consultas ConsultaSql[]
+  usuarios    Usuario[]
+  perfis      Perfil[]
+  logs        LogAuditoria[]
+  agentes     Agente[]
+  conexoes    ConexaoBanco[]
+  consultas   ConsultaSql[]
+  modelos     ModeloEtiqueta[]
+  impressoras Impressora[]
 
   @@map("empresas")
 }
@@ -126,8 +128,9 @@ model Agente {
   criadoEm               DateTime  @default(now()) @map("criado_em")
   atualizadoEm           DateTime  @updatedAt @map("atualizado_em")
 
-  empresa  Empresa        @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  conexoes ConexaoBanco[]
+  empresa     Empresa        @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  conexoes    ConexaoBanco[]
+  impressoras Impressora[]
 
   @@unique([empresaId, nome])
   @@index([empresaId, codigoAtivacaoHash])
@@ -186,12 +189,74 @@ model ConsultaSql {
   criadoEm            DateTime           @default(now()) @map("criado_em")
   atualizadoEm        DateTime           @updatedAt @map("atualizado_em")
 
-  empresa Empresa      @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  conexao ConexaoBanco @relation(fields: [conexaoId], references: [id], onDelete: Restrict)
+  empresa Empresa          @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  conexao ConexaoBanco     @relation(fields: [conexaoId], references: [id], onDelete: Restrict)
+  modelos ModeloEtiqueta[]
 
   @@unique([empresaId, nome])
   @@index([conexaoId])
   @@map("consultas_sql")
+}
+
+/// Modelo de etiqueta. Os elementos (CampoEtiqueta da SPEC) ficam em `layout`:
+/// LayoutEtiqueta de packages/shared, validado por validarLayout ao gravar.
+model ModeloEtiqueta {
+  id           String   @id @default(uuid()) @db.Uuid
+  empresaId    String   @map("empresa_id") @db.Uuid
+  /// Consulta que fornece os campos dinâmicos.
+  consultaId   String?  @map("consulta_id") @db.Uuid
+  nome         String
+  descricao    String?
+  layout       Json
+  ativo        Boolean  @default(true)
+  criadoEm     DateTime @default(now()) @map("criado_em")
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
+
+  empresa  Empresa      @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  consulta ConsultaSql? @relation(fields: [consultaId], references: [id], onDelete: SetNull)
+
+  @@unique([empresaId, nome])
+  @@index([consultaId])
+  @@map("modelos_etiqueta")
+}
+
+enum LinguagemImpressora {
+  ZPL
+  PPLA
+  PPLB
+  ESCPOS
+  PDF
+}
+
+enum MetodoImpressora {
+  /// Envio direto para IP:porta (RAW, normalmente 9100).
+  REDE
+  /// Impressora instalada no sistema do computador do agente.
+  SISTEMA
+}
+
+model Impressora {
+  id              String              @id @default(uuid()) @db.Uuid
+  empresaId       String              @map("empresa_id") @db.Uuid
+  /// Agente que entrega os trabalhos (Fase 5).
+  agenteId        String?             @map("agente_id") @db.Uuid
+  nome            String
+  linguagem       LinguagemImpressora
+  dpi             Int                 @default(203)
+  metodo          MetodoImpressora    @default(REDE)
+  endereco        String
+  modelo          String?
+  larguraMaximaMm Float?              @map("largura_maxima_mm")
+  ativo           Boolean             @default(true)
+  criadoEm        DateTime            @default(now()) @map("criado_em")
+  atualizadoEm    DateTime            @updatedAt @map("atualizado_em")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  agente  Agente? @relation(fields: [agenteId], references: [id], onDelete: SetNull)
+
+  @@unique([empresaId, nome])
+  @@index([agenteId])
+  @@map("impressoras")
 }
 
 model LogAuditoria {
