@@ -1,0 +1,15 @@
+{
+  "name": "sistema-etiquetas",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "corepack pnpm -r build",
+    "dev:api": "corepack pnpm --filter @etiquetas/api dev",
+    "dev:web": "corepack pnpm --filter @etiquetas/web dev",
+    "test": "corepack pnpm -r test",
+    "typecheck": "corepack pnpm -r typecheck"
+  }
+}

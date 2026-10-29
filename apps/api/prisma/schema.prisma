@@ -1,0 +1,117 @@
+// Banco próprio da plataforma. Toda tabela de dados do tenant tem `empresa_id`.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StatusAssinatura {
+  ATIVA
+  CARENCIA
+  BLOQUEADA
+  CANCELADA
+}
+
+model Empresa {
+  id               String           @id @default(uuid()) @db.Uuid
+  razaoSocial      String           @map("razao_social")
+  nomeFantasia     String?          @map("nome_fantasia")
+  /// Normalizado: 14 caracteres, sem máscara, maiúsculo (aceita CNPJ alfanumérico).
+  cnpj             String           @unique @db.VarChar(14)
+  codigoErp        String?          @map("codigo_erp")
+  plano            String           @default("padrao")
+  statusAssinatura StatusAssinatura @default(ATIVA) @map("status_assinatura")
+  ativa            Boolean          @default(true)
+  criadoEm         DateTime         @default(now()) @map("criado_em")
+  atualizadoEm     DateTime         @updatedAt @map("atualizado_em")
+
+  usuarios Usuario[]
+  perfis   Perfil[]
+  logs     LogAuditoria[]
+
+  @@map("empresas")
+}
+
+model Usuario {
+  id            String    @id @default(uuid()) @db.Uuid
+  /// Nulo apenas para super-admins da plataforma.
+  empresaId     String?   @map("empresa_id") @db.Uuid
+  perfilId      String?   @map("perfil_id") @db.Uuid
+  nome          String
+  /// Sempre em minúsculas; único em toda a plataforma.
+  email         String    @unique
+  senhaHash     String    @map("senha_hash")
+  superAdmin    Boolean   @default(false) @map("super_admin")
+  ativo         Boolean   @default(true)
+  ultimoLoginEm DateTime? @map("ultimo_login_em")
+  criadoEm      DateTime  @default(now()) @map("criado_em")
+  atualizadoEm  DateTime  @updatedAt @map("atualizado_em")
+
+  empresa Empresa?       @relation(fields: [empresaId], references: [id], onDelete: Restrict)
+  perfil  Perfil?        @relation(fields: [perfilId], references: [id], onDelete: SetNull)
+  logs    LogAuditoria[]
+
+  @@index([empresaId])
+  @@map("usuarios")
+}
+
+model Perfil {
+  id           String   @id @default(uuid()) @db.Uuid
+  empresaId    String   @map("empresa_id") @db.Uuid
+  nome         String
+  descricao    String?
+  criadoEm     DateTime @default(now()) @map("criado_em")
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
+
+  empresa    Empresa           @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  permissoes PerfilPermissao[]
+  usuarios   Usuario[]
+
+  @@unique([empresaId, nome])
+  @@map("perfis")
+}
+
+/// Catálogo sincronizado a partir de packages/shared/src/permissoes.ts.
+model Permissao {
+  codigo    String @id
+  grupo     String
+  descricao String
+
+  perfis PerfilPermissao[]
+
+  @@map("permissoes")
+}
+
+model PerfilPermissao {
+  perfilId        String @map("perfil_id") @db.Uuid
+  permissaoCodigo String @map("permissao_codigo")
+
+  perfil    Perfil    @relation(fields: [perfilId], references: [id], onDelete: Cascade)
+  permissao Permissao @relation(fields: [permissaoCodigo], references: [codigo], onDelete: Cascade)
+
+  @@id([perfilId, permissaoCodigo])
+  @@map("perfis_permissoes")
+}
+
+model LogAuditoria {
+  id         String   @id @default(uuid()) @db.Uuid
+  empresaId  String?  @map("empresa_id") @db.Uuid
+  usuarioId  String?  @map("usuario_id") @db.Uuid
+  /// Ex.: usuario.criar, perfil.editar, empresa.criar
+  acao       String
+  entidade   String
+  entidadeId String?  @map("entidade_id")
+  detalhes   Json?
+  criadoEm   DateTime @default(now()) @map("criado_em")
+
+  empresa Empresa? @relation(fields: [empresaId], references: [id], onDelete: SetNull)
+  usuario Usuario? @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+
+  @@index([empresaId, criadoEm])
+  @@map("logs_auditoria")
+}
