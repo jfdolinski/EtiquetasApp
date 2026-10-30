@@ -115,21 +115,17 @@ O build também compila o agente para Windows e Linux. Os arquivos ficam em:
 4. Se for usar, cadastre o **Sistema ERP** e o template de consultas.
 5. Cadastre a primeira **Empresa**, com o administrador dela. Numa janela anônima, entre com esse administrador.
 6. Em **Agentes**, crie o agente e gere o código de ativação. Na máquina da loja:
-   1. baixe o executável pelo link da tela;
-   2. rode `etiquetas-agente instalar` como administrador;
-   3. confira se o agente aparece como **Online**.
+   1. baixe o executável pelo link da tela e abra com dois cliques;
+   2. na janela do agente, informe o CNPJ e o código e confirme a permissão de administrador;
+   3. confira o ícone verde ao lado do relógio e se o agente aparece como **Online**.
 7. Cadastre a conexão de banco, use **Testar** e siga com consultas, modelos e impressoras.
 
 ## 7. Atualizações
 
 - Cada push na `main` com o CI verde pode ser publicado com **Deploy** em cada serviço. Faça primeiro a `api`, por causa das migrações, depois o `web`.
 - Migrações novas em `apps/api/prisma/migrations` são aplicadas na subida da API. Faça backup do Postgres antes de atualizações grandes.
-- Os agentes instalados **não se atualizam sozinhos**. Quando o protocolo mudar, reinstale com o executável novo:
-  1. `etiquetas-agente desinstalar`;
-  2. troque o arquivo;
-  3. `etiquetas-agente instalar`.
-
-  O token continua valendo.
+- Os agentes instalados **não se atualizam sozinhos**. No Windows, baixe o executável novo, abra com dois cliques e use **Instalar o agente** (ou **Reiniciar**, se já estiver instalado). No Linux, rode `etiquetas-agente instalar` com o arquivo novo. O token continua valendo.
+- **Agentes da versão sem painel** (ativados pelo prompt ou abertos pela pasta Inicializar): o executável novo mostra **Falta instalar o agente**. Instale pela janela e, se ela avisar de uma cópia antiga na inicialização, clique em **Remover cópia antiga**.
 
 ## 8. Antes do primeiro cliente
 

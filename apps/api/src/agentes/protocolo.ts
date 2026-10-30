@@ -33,6 +33,8 @@ export interface ConexaoParaAgente {
 export interface DadosConfiguracao {
   agenteNome: string;
   empresaNome: string;
+  /** CNPJ sem máscara, para o painel do agente exibir. */
+  empresaCnpj: string;
   conexoes: ConexaoParaAgente[];
 }
 

@@ -13,12 +13,41 @@ PDF é impresso pelo navegador.
   - Linux como root: `/etc/etiquetas-agente`, com permissão `0600`.
 - Protocolo: [PROTOCOLO.md](PROTOCOLO.md).
 
+## Painel do Windows (ícone ao lado do relógio)
+
+No Windows, o `etiquetas-agente.exe` é um aplicativo gráfico (`-H windowsgui`). Aberto com dois cliques, ele mostra um ícone ao lado do relógio e uma janela com:
+
+- a situação da conexão, com o ícone na mesma cor: verde = conectado, amarelo = conectando ou falta instalar, vermelho = sem conexão/parado/bloqueado, cinza = não ativado;
+- empresa, CNPJ, nome deste computador no sistema e servidor;
+- tempo conectado, conexões de banco, impressões e a atividade recente;
+- botões para abrir o sistema e para reiniciar, iniciar ou instalar o agente.
+
+**Ativar pela janela:** informe o CNPJ e o código de ativação e clique em **Ativar este computador**. O Windows pede permissão de administrador. O agente então:
+
+1. ativa e grava o token;
+2. copia-se para `C:\Program Files\EtiquetasAgente`;
+3. instala ou atualiza o serviço;
+4. registra o painel para abrir com o Windows: só o ícone, sem janela, em `HKLM\...\Run`.
+
+Como funciona por dentro:
+
+- O serviço roda como SYSTEM, sem acesso à área de trabalho. Ele publica a situação em `%ProgramData%\EtiquetasAgenteStatus\status.json` (pacote `internal/estado`, sem token nem senhas). O painel (`internal/painel`) lê esse arquivo e consulta o serviço sem precisar ser administrador.
+- A janela usa o WebView2, que já vem no Windows 11 e no Windows 10 atualizado. Sem ele, o painel avisa e abre a página de download; o agente continua funcionando.
+- Na primeira execução, o painel marca o ícone para ficar visível na barra. O Windows 11 aplica isso no próximo login. Antes disso, o link **Ícone ao lado do relógio** abre a configuração da barra de tarefas.
+- Se houver uma cópia antiga do agente na pasta Inicializar do usuário, o painel avisa e oferece removê-la. Ela disputaria a conexão com o serviço.
+
+O ícone e as informações do executável vêm de `cmd/etiquetas-agente/rsrc_windows_amd64.syso`. Para gerar de novo depois de mudar o desenho (`internal/icone`):
+
+```bash
+cd tools/recursos && go run . ../../cmd/etiquetas-agente/rsrc_windows_amd64.syso
+```
+
 ## Ativação
 
 O executável é compilado no build da imagem do web e fica disponível em `https://<domínio>/downloads/` (links na tela de ativação). O `SERVIDOR_PUBLICO` do build já vem gravado nele.
 
 1. No painel, em **Agentes → Novo agente**, gere o código de ativação. Ele vale por 24 horas e uma única vez.
-2. Na máquina da loja, rode como administrador:
+2. **Windows:** abra o `etiquetas-agente.exe` com dois cliques e ative pela janela (veja acima). **Linha de comando (Linux, ou Windows como administrador):**
 
    ```bash
    etiquetas-agente instalar
@@ -38,13 +67,16 @@ Só o CNPJ não basta para ativar, porque o CNPJ é público. O código de uso �
 
 | Comando | O que faz |
 |---|---|
+| `painel` | Ícone ao lado do relógio e janela de status. É o padrão no Windows (dois cliques); `-oculto` só mostra o ícone |
 | `ativar` | Troca CNPJ + código pelo token e grava `agente.json` |
-| `executar` | Roda em primeiro plano. É o padrão; pede a ativação se ainda não houver token |
-| `instalar` / `desinstalar` | Instala e inicia, ou para e remove, o serviço (requer administrador ou root) |
-| `iniciar` / `parar` / `status` | Controlam o serviço |
+| `executar` | Roda em primeiro plano (é o que o serviço executa). É o padrão no Linux |
+| `instalar` / `desinstalar` | Instala e inicia, ou para e remove, o serviço (requer administrador ou root). No Windows, `instalar` também copia o agente para Arquivos de Programas e põe o painel para abrir com o Windows; com `-codigo`, reativa |
+| `iniciar` / `parar` / `reiniciar` / `status` | Controlam o serviço |
 | `versao` | Mostra a versão |
 
-Opções: `-config <arquivo>`, `-servidor <url>`, `-cnpj`, `-codigo`, `-log <arquivo>`.
+Opções: `-config <arquivo>`, `-servidor <url>`, `-cnpj`, `-codigo`, `-log <arquivo>`, `-oculto` (painel) e `-resultado <arquivo>` (uso interno: o painel lê o resultado dos comandos que roda como administrador).
+
+No Windows, o executável é gráfico: chamado pelo prompt de comando, ele escreve no console de quem chamou, mas o `cmd` não espera ele terminar (use `start /wait etiquetas-agente ...` em scripts). Sem console próprio, a ativação pela linha de comando exige `-cnpj` e `-codigo`.
 
 ## Token
 
@@ -79,7 +111,7 @@ AGENTE_TESTE_PG=localhost:5432:usuario:senha:banco go test ./internal/banco
 Binários de distribuição: `bin/` fica fora do Git.
 
 ```bash
-GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.versao=0.2.0 -X main.servidorPadrao=https://app.seudominio.com.br" -o bin/etiquetas-agente.exe ./cmd/etiquetas-agente
+GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -H windowsgui -X main.versao=0.2.0 -X main.servidorPadrao=https://app.seudominio.com.br" -o bin/etiquetas-agente.exe ./cmd/etiquetas-agente
 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.versao=0.2.0 -X main.servidorPadrao=https://app.seudominio.com.br" -o bin/etiquetas-agente ./cmd/etiquetas-agente
 ```
 

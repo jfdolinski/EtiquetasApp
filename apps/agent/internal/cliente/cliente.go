@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"os"
 	"runtime"
@@ -19,12 +20,33 @@ import (
 
 	"etiquetas/agente/internal/banco"
 	"etiquetas/agente/internal/config"
+	"etiquetas/agente/internal/estado"
 	"etiquetas/agente/internal/impressao"
 	"etiquetas/agente/internal/protocolo"
 )
 
 // ErrPrecisaAtivar: o servidor recusou o token (revogado ou novo código gerado).
 var ErrPrecisaAtivar = errors.New("o token do agente foi recusado pelo servidor; gere um novo código de ativação no painel e ative novamente")
+
+var errBloqueada = errors.New("empresa bloqueada no servidor")
+
+// descreverErro traduz as falhas de rede mais comuns para o painel.
+func descreverErro(err error) string {
+	var dns *net.DNSError
+	switch {
+	case errors.Is(err, errBloqueada):
+		return "A empresa está bloqueada no sistema. Fale com o suporte."
+	case errors.As(err, &dns):
+		return "Não foi possível encontrar o servidor (" + dns.Name + "). Verifique a internet deste computador."
+	case errors.Is(err, context.DeadlineExceeded):
+		return "O servidor não respondeu a tempo. Verifique a internet deste computador."
+	}
+	var op *net.OpError
+	if errors.As(err, &op) {
+		return "Sem conexão com o servidor. Verifique a internet deste computador."
+	}
+	return err.Error()
+}
 
 const (
 	tamanhoMaximoMensagem = 32 << 20
@@ -40,6 +62,8 @@ const (
 type Cliente struct {
 	Versao string
 	Log    *slog.Logger
+	// Estado publicado para o painel da bandeja (pode ser nil).
+	Estado *estado.Estado
 
 	mu            sync.Mutex
 	cfg           config.Config
@@ -72,6 +96,10 @@ func (c *Cliente) Executar(ctx context.Context) error {
 			return nil
 		}
 		if errors.Is(err, ErrPrecisaAtivar) {
+			c.Estado.Atualizar(func(i *estado.Instantaneo) {
+				i.Situacao, i.Detalhe, i.ConectadoDesde, i.ProximaTentativa = estado.Recusado, err.Error(), nil, nil
+			})
+			c.Estado.Evento("erro", "O servidor recusou a chave deste computador. É preciso ativar de novo.")
 			return err
 		}
 		if time.Since(inicio) > time.Minute {
@@ -82,6 +110,15 @@ func (c *Cliente) Executar(ctx context.Context) error {
 		if errors.As(err, &comEspera) {
 			proxima = comEspera.espera
 		}
+		situacao := estado.Desconectado
+		if comEspera != nil && errors.Is(comEspera, errBloqueada) {
+			situacao = estado.Bloqueado
+		}
+		quando := time.Now().Add(proxima)
+		c.Estado.Atualizar(func(i *estado.Instantaneo) {
+			i.Situacao, i.Detalhe, i.ConectadoDesde, i.ProximaTentativa = situacao, descreverErro(err), nil, &quando
+		})
+		c.Estado.Evento("aviso", "Sem conexão: "+descreverErro(err))
 		c.Log.Warn("conexão com o servidor encerrada", "erro", err, "nova_tentativa_em", proxima.Round(time.Second))
 
 		select {
@@ -102,6 +139,9 @@ func (c *Cliente) sessao(ctx context.Context) error {
 	cabecalho.Set("Authorization", "Bearer "+token)
 	cabecalho.Set("User-Agent", "etiquetas-agente/"+c.Versao)
 
+	c.Estado.Atualizar(func(i *estado.Instantaneo) {
+		i.Situacao, i.Detalhe, i.ConectadoDesde, i.ProximaTentativa, i.Servidor = estado.Conectando, "", nil, nil, servidor
+	})
 	ctxDial, cancelarDial := context.WithTimeout(ctx, 30*time.Second)
 	conn, resp, err := websocket.Dial(ctxDial, config.URLWebSocket(servidor, protocolo.Caminho), &websocket.DialOptions{HTTPHeader: cabecalho})
 	cancelarDial()
@@ -111,7 +151,7 @@ func (c *Cliente) sessao(ctx context.Context) error {
 			case http.StatusUnauthorized:
 				return ErrPrecisaAtivar
 			case http.StatusForbidden:
-				return &erroComEspera{errors.New("empresa bloqueada no servidor"), esperaBloqueado}
+				return &erroComEspera{errBloqueada, esperaBloqueado}
 			}
 		}
 		return err
@@ -132,6 +172,11 @@ func (c *Cliente) sessao(ctx context.Context) error {
 		return err
 	}
 	c.Log.Info("conectado ao servidor", "servidor", servidor)
+	agora := time.Now()
+	c.Estado.Atualizar(func(i *estado.Instantaneo) {
+		i.Situacao, i.Detalhe, i.ConectadoDesde, i.ProximaTentativa = estado.Conectado, "", &agora, nil
+	})
+	c.Estado.Evento("info", "Conectado ao servidor.")
 
 	go c.manterVivo(ctx, conn, cancelar)
 
@@ -196,7 +241,7 @@ func (c *Cliente) motivoFechamento(err error) error {
 	case protocolo.FechamentoRevogado:
 		return ErrPrecisaAtivar
 	case protocolo.FechamentoBloqueado:
-		return &erroComEspera{errors.New("empresa bloqueada no servidor"), esperaBloqueado}
+		return &erroComEspera{errBloqueada, esperaBloqueado}
 	case protocolo.FechamentoSubstituido:
 		return &erroComEspera{errors.New("outra instância deste agente conectou com o mesmo token"), esperaMaxima}
 	}
@@ -211,6 +256,34 @@ func (c *Cliente) aplicarConfiguracao(dados json.RawMessage) {
 	}
 	c.executor.Configurar(cfg.Conexoes)
 	c.Log.Info("configuração recebida", "empresa", cfg.EmpresaNome, "agente", cfg.AgenteNome, "conexoes", len(cfg.Conexoes))
+	c.Estado.Atualizar(func(i *estado.Instantaneo) {
+		i.EmpresaNome, i.AgenteNome, i.ConexoesBanco = cfg.EmpresaNome, cfg.AgenteNome, len(cfg.Conexoes)
+		if cfg.EmpresaCNPJ != "" {
+			i.CNPJ = config.FormatarCNPJ(cfg.EmpresaCNPJ)
+		}
+	})
+	c.Estado.Evento("info", fmt.Sprintf("Configuração recebida: %s.", plural(len(cfg.Conexoes), "conexão de banco", "conexões de banco")))
+	c.lembrarEmpresa(cfg)
+}
+
+// lembrarEmpresa grava empresa, agente e CNPJ na configuração local, para o painel
+// mostrá-los mesmo quando o servidor estiver fora do ar.
+func (c *Cliente) lembrarEmpresa(cfg protocolo.Configuracao) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	novo := c.cfg
+	novo.EmpresaNome, novo.AgenteNome = cfg.EmpresaNome, cfg.AgenteNome
+	if cfg.EmpresaCNPJ != "" {
+		novo.CNPJ = config.FormatarCNPJ(cfg.EmpresaCNPJ)
+	}
+	if novo == c.cfg {
+		return
+	}
+	if err := config.Salvar(c.caminhoConfig, &novo); err != nil {
+		c.Log.Debug("não foi possível gravar os dados da empresa", "erro", err)
+		return
+	}
+	c.cfg = novo
 }
 
 func (c *Cliente) atender(ctx context.Context, conn *websocket.Conn, msg protocolo.Mensagem) {
@@ -223,6 +296,9 @@ func (c *Cliente) atender(ctx context.Context, conn *websocket.Conn, msg protoco
 			codigo = ec.Codigo
 		}
 		resposta.Erro = &protocolo.Erro{Codigo: codigo, Mensagem: err.Error()}
+		if msg.Tipo == protocolo.TipoConsultar || msg.Tipo == protocolo.TipoTestarConexao {
+			c.Estado.Evento("aviso", "Consulta ao banco do ERP falhou: "+err.Error())
+		}
 		c.Log.Warn("requisição falhou", "tipo", msg.Tipo, "codigo", codigo, "erro", err)
 	}
 	if msg.ID == "" {
@@ -240,7 +316,11 @@ func (c *Cliente) processar(ctx context.Context, msg protocolo.Mensagem) (any, e
 		if err := decodificar(msg.Dados, &req); err != nil {
 			return nil, err
 		}
-		return c.executor.Consultar(ctx, req)
+		r, err := c.executor.Consultar(ctx, req)
+		if err == nil {
+			c.Estado.Atualizar(func(i *estado.Instantaneo) { i.Consultas++ })
+		}
+		return r, err
 
 	case protocolo.TipoTestarConexao:
 		var req protocolo.TestarConexao
@@ -255,9 +335,22 @@ func (c *Cliente) processar(ctx context.Context, msg protocolo.Mensagem) (any, e
 			return nil, errors.New("trabalho de impressão inválido")
 		}
 		inicio := time.Now()
-		if err := impressao.Imprimir(ctx, req.Metodo, req.Endereco, req.Nome, req.Dados); err != nil {
+		err := impressao.Imprimir(ctx, req.Metodo, req.Endereco, req.Nome, req.Dados)
+		c.Estado.Atualizar(func(i *estado.Instantaneo) {
+			t := &estado.Trabalho{Hora: time.Now(), Impressora: req.Endereco, Nome: req.Nome, OK: err == nil}
+			if err != nil {
+				t.Erro = err.Error()
+				i.ErrosImpressao++
+			} else {
+				i.Impressoes++
+			}
+			i.UltimoTrabalho = t
+		})
+		if err != nil {
+			c.Estado.Evento("erro", "Erro ao imprimir em "+req.Endereco+": "+err.Error())
 			return nil, err
 		}
+		c.Estado.Evento("info", "Etiquetas enviadas para "+req.Endereco+".")
 		c.Log.Info("trabalho impresso", "trabalho", req.TrabalhoID, "impressora", req.Endereco, "bytes", len(req.Dados), "ms", time.Since(inicio).Milliseconds())
 		return struct{}{}, nil
 
@@ -282,6 +375,7 @@ func (c *Cliente) salvarToken(token string) error {
 	}
 	c.cfg = novo
 	c.Log.Info("token do agente rotacionado")
+	c.Estado.Evento("info", "Chave de acesso renovada pelo servidor.")
 	return nil
 }
 
@@ -304,4 +398,11 @@ func decodificar(dados json.RawMessage, destino any) error {
 	d := json.NewDecoder(bytes.NewReader(dados))
 	d.UseNumber()
 	return d.Decode(destino)
+}
+
+func plural(n int, um, varios string) string {
+	if n == 1 {
+		return "1 " + um
+	}
+	return fmt.Sprintf("%d %s", n, varios)
 }

@@ -60,6 +60,7 @@ type Conexao struct {
 type Configuracao struct {
 	AgenteNome  string    `json:"agenteNome"`
 	EmpresaNome string    `json:"empresaNome"`
+	EmpresaCNPJ string    `json:"empresaCnpj"`
 	Conexoes    []Conexao `json:"conexoes"`
 }
 

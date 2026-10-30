@@ -195,25 +195,29 @@ function InstrucoesAtivacao({ resposta, aoFechar }: { resposta: CodigoAtivacaoRe
       <div className="rounded-md bg-slate-100 py-4 text-center font-mono text-3xl tracking-widest select-all">{resposta.codigo}</div>
       <ol className="list-decimal space-y-1.5 pl-5 text-slate-700">
         <li>
-          Na máquina da loja, baixe o agente para{' '}
-          <a href="/downloads/etiquetas-agente.exe" download className="text-blue-700 underline">Windows</a> ou{' '}
-          <a href="/downloads/etiquetas-agente-linux-amd64" download className="text-blue-700 underline">Linux</a> e abra um terminal como
-          administrador na pasta do arquivo.
+          No computador da loja, baixe o{' '}
+          <a href="/downloads/etiquetas-agente.exe" download className="text-blue-700 underline">agente para Windows</a> e abra o arquivo com
+          dois cliques.
         </li>
         <li>
-          Execute <code className="rounded bg-slate-100 px-1">etiquetas-agente instalar</code> e informe:
-          <ul className="mt-1 list-disc pl-5">
-            <li>
-              Servidor: <code className="select-all">{servidor}</code>
-            </li>
-            <li>
-              CNPJ: <code className="select-all">{formatarCnpj(resposta.cnpj)}</code>
-            </li>
-            <li>Código: o código acima</li>
-          </ul>
+          Na janela do agente, informe o CNPJ <code className="select-all">{formatarCnpj(resposta.cnpj)}</code> e o código acima, clique em{' '}
+          <strong>Ativar este computador</strong> e confirme a permissão de administrador.
         </li>
-        <li>O agente fica instalado como serviço e aparece como Online nesta tela.</li>
+        <li>
+          O agente é instalado, inicia junto com o Windows e mostra um ícone ao lado do relógio. Ele aparece como Online nesta tela.
+        </li>
       </ol>
+      <details className="text-slate-600">
+        <summary className="cursor-pointer">Linux ou linha de comando</summary>
+        <p className="mt-1.5">
+          Baixe o{' '}
+          <a href="/downloads/etiquetas-agente-linux-amd64" download className="text-blue-700 underline">agente para Linux</a> e, como root, execute:
+        </p>
+        <code className="mt-1 block rounded bg-slate-100 p-2 select-all">
+          etiquetas-agente instalar -servidor {servidor} -cnpj {resposta.cnpj} -codigo {resposta.codigo}
+        </code>
+        <p className="mt-1">No Windows, o mesmo comando funciona num prompt de comando aberto como administrador.</p>
+      </details>
       <div className="flex justify-end">
         <Botao onClick={aoFechar}>Concluir</Botao>
       </div>

@@ -116,7 +116,7 @@ export class AgentesGateway implements OnApplicationBootstrap, OnModuleDestroy {
       where: { id: agenteId },
       select: {
         nome: true,
-        empresa: { select: { razaoSocial: true, nomeFantasia: true } },
+        empresa: { select: { razaoSocial: true, nomeFantasia: true, cnpj: true } },
         conexoes: { where: { ativo: true }, orderBy: { nome: 'asc' } },
       },
     });
@@ -124,6 +124,7 @@ export class AgentesGateway implements OnApplicationBootstrap, OnModuleDestroy {
     return {
       agenteNome: agente.nome,
       empresaNome: agente.empresa.nomeFantasia || agente.empresa.razaoSocial,
+      empresaCnpj: agente.empresa.cnpj,
       conexoes: agente.conexoes.map((c) => ({
         id: c.id,
         nome: c.nome,

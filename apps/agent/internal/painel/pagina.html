@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Agente de Etiquetas</title>
+<style>
+  :root {
+    --fundo: #f1f5f9; --cartao: #ffffff; --texto: #0f172a; --suave: #64748b; --borda: #e2e8f0;
+    --azul: #2563eb; --azul-escuro: #1d4ed8; --verde: #16a34a; --amarelo: #d97706; --vermelho: #dc2626; --cinza: #64748b;
+    --verde-fundo: #f0fdf4; --amarelo-fundo: #fffbeb; --vermelho-fundo: #fef2f2; --cinza-fundo: #f8fafc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fundo: #0b1220; --cartao: #111a2e; --texto: #e2e8f0; --suave: #94a3b8; --borda: #1e293b;
+      --verde-fundo: #0f2a1b; --amarelo-fundo: #2a1f0a; --vermelho-fundo: #2c1212; --cinza-fundo: #151e31;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font: 14px/1.45 "Segoe UI", system-ui, sans-serif; color: var(--texto); background: var(--fundo); user-select: none; overflow-y: auto; }
+  header { display: flex; align-items: center; gap: 10px; padding: 14px 18px; background: var(--cartao); border-bottom: 1px solid var(--borda); }
+  header img { width: 30px; height: 30px; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .versao { margin-left: auto; font-size: 12px; color: var(--suave); }
+  main { padding: 14px 16px 18px; display: grid; gap: 12px; }
+  .cartao { background: var(--cartao); border: 1px solid var(--borda); border-radius: 10px; padding: 14px 16px; }
+  .status { display: flex; gap: 14px; align-items: flex-start; border-left: 5px solid var(--cor); background: var(--cor-fundo); }
+  .bolinha { flex: none; width: 14px; height: 14px; margin-top: 5px; border-radius: 50%; background: var(--cor); box-shadow: 0 0 0 4px color-mix(in srgb, var(--cor) 22%, transparent); }
+  .status.animado .bolinha { animation: pulso 1.2s ease-in-out infinite; }
+  @keyframes pulso { 50% { opacity: .35; } }
+  .status h2 { margin: 0; font-size: 19px; font-weight: 600; }
+  .status p { margin: 2px 0 0; color: var(--suave); }
+  dl { display: grid; grid-template-columns: 128px 1fr; gap: 7px 10px; margin: 0; }
+  dt { color: var(--suave); }
+  dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; user-select: text; }
+  .cnpj { font-variant-numeric: tabular-nums; letter-spacing: .3px; }
+  .acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { font: inherit; border-radius: 7px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--borda); background: var(--cartao); color: var(--texto); }
+  button:hover:not(:disabled) { border-color: var(--azul); }
+  button.primario { background: var(--azul); border-color: var(--azul); color: #fff; font-weight: 600; }
+  button.primario:hover:not(:disabled) { background: var(--azul-escuro); }
+  button:disabled { opacity: .55; cursor: default; }
+  button.link { border: none; background: none; padding: 0; color: var(--azul); }
+  h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--suave); font-weight: 600; }
+  .eventos { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 132px; overflow-y: auto; }
+  .eventos li { display: grid; grid-template-columns: 54px 1fr; gap: 8px; font-size: 12.5px; }
+  .eventos time { color: var(--suave); font-variant-numeric: tabular-nums; }
+  .eventos .aviso span { color: var(--amarelo); }
+  .eventos .erro span { color: var(--vermelho); }
+  .eventos small { color: var(--suave); }
+  .eventos li.vazio { display: block; }
+  dd.pendente { color: var(--suave); font-weight: 400; font-style: italic; }
+  .alerta { background: var(--amarelo-fundo); border: 1px solid color-mix(in srgb, var(--amarelo) 35%, transparent); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; font-size: 13px; }
+  .alerta code { font-size: 11.5px; overflow-wrap: anywhere; color: var(--suave); }
+  .vazio { color: var(--suave); font-size: 13px; }
+  form { display: grid; gap: 10px; }
+  label { display: grid; gap: 4px; font-size: 13px; color: var(--suave); }
+  input { font: 15px "Segoe UI", system-ui, sans-serif; padding: 8px 10px; border: 1px solid var(--borda); border-radius: 7px; background: var(--fundo); color: var(--texto); user-select: text; }
+  input:focus { outline: 2px solid color-mix(in srgb, var(--azul) 45%, transparent); border-color: var(--azul); }
+  .dica { font-size: 12px; color: var(--suave); margin: 0; }
+  .operacao { border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+  .operacao.andamento { background: var(--amarelo-fundo); }
+  .operacao.ok { background: var(--verde-fundo); color: var(--verde); }
+  .operacao.erro { background: var(--vermelho-fundo); color: var(--vermelho); }
+  footer { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; padding: 0 16px 16px; font-size: 12.5px; color: var(--suave); }
+  footer .links { display: grid; gap: 4px; justify-items: start; }
+  footer button.link { font-size: 12.5px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <img src="data:image/png;base64,{{ICONE}}" alt="">
+  <h1>Agente de Etiquetas</h1>
+  <span class="versao" id="versao"></span>
+</header>
+
+<main>
+  <section class="cartao status" id="status" style="--cor: var(--cinza); --cor-fundo: var(--cinza-fundo)">
+    <span class="bolinha" aria-hidden="true"></span>
+    <div>
+      <h2 id="titulo">Carregando…</h2>
+      <p id="descricao"></p>
+    </div>
+  </section>
+
+  <div class="operacao" id="operacao" hidden></div>
+
+  <section class="alerta" id="copias" hidden>
+    <div><b>Há uma cópia antiga do agente na inicialização do Windows.</b> Com o agente instalado, ela atrapalha: as duas disputam a mesma conexão.</div>
+    <code id="listaCopias"></code>
+    <div><button id="btnRemoverCopias">Remover cópia antiga</button></div>
+  </section>
+
+  <section class="cartao" id="dados" hidden>
+    <dl>
+      <dt>Empresa</dt><dd id="empresa">—</dd>
+      <dt>CNPJ</dt><dd id="cnpj" class="cnpj">—</dd>
+      <dt>Este computador</dt><dd id="agente">—</dd>
+      <dt>Servidor</dt><dd id="servidor">—</dd>
+      <dt id="rotuloTempo">Conectado há</dt><dd id="tempo">—</dd>
+      <dt id="rotuloBancos">Bancos de dados</dt><dd id="bancos">—</dd>
+      <dt id="rotuloImpressoes">Impressões</dt><dd id="impressoes">—</dd>
+    </dl>
+  </section>
+
+  <div class="acoes" id="acoes" hidden>
+    <button class="primario" id="btnSistema">Abrir o sistema</button>
+    <button id="btnServico">Reiniciar o agente</button>
+  </div>
+
+  <section class="cartao" id="ativacao" hidden>
+    <h3 id="tituloAtivacao">Ativar este computador</h3>
+    <form id="form" autocomplete="off">
+      <label id="campoServidor">Endereço do sistema
+        <input id="inServidor" placeholder="https://etiquetas.suaempresa.com.br" spellcheck="false">
+      </label>
+      <label>CNPJ da empresa
+        <input id="inCnpj" placeholder="00.000.000/0000-00" maxlength="18" spellcheck="false">
+      </label>
+      <label>Código de ativação
+        <input id="inCodigo" placeholder="XXXX-XXXX" maxlength="9" spellcheck="false" style="text-transform: uppercase; letter-spacing: 2px">
+      </label>
+      <p class="dica">Gere o código no sistema, em <b>Agentes → Novo agente</b>. Ele vale por 24 horas. O Windows vai pedir permissão de administrador para instalar o agente.</p>
+      <div class="acoes">
+        <button class="primario" type="submit" id="btnAtivar">Ativar este computador</button>
+        <button type="button" id="btnCancelarAtivacao" hidden>Cancelar</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="cartao" id="atividade" hidden>
+    <h3>Atividade recente</h3>
+    <ul class="eventos" id="eventos"></ul>
+  </section>
+</main>
+
+<footer>
+  <span class="links">
+    <button class="link" id="btnOutroCodigo" hidden>Ativar com outro código</button>
+    <button class="link" id="btnIcone" title="Abre as configurações da barra de tarefas: ligue “Agente de Etiquetas” em Outros ícones da bandeja do sistema">Ícone ao lado do relógio</button>
+  </span>
+  <span>Fechar esta janela não desliga o agente.</span>
+</footer>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const CORES = {
+    conectado: ['--verde', '--verde-fundo'],
+    conectando: ['--amarelo', '--amarelo-fundo'],
+    falta_instalar: ['--amarelo', '--amarelo-fundo'],
+    nao_ativado: ['--cinza', '--cinza-fundo'],
+  };
+  let visao = null;
+  let mostrarFormulario = false;
+  let formularioPreenchido = false;
+
+  function hora(iso) {
+    return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  }
+  function duracao(iso) {
+    const s = Math.max(0, Math.round((Date.now() - new Date(iso)) / 1000));
+    if (s < 60) return 'menos de 1 minuto';
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + (m === 1 ? ' minuto' : ' minutos');
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + (h === 1 ? ' hora' : ' horas') + (m % 60 ? ' e ' + (m % 60) + ' min' : '');
+    const d = Math.floor(h / 24);
+    return d + (d === 1 ? ' dia' : ' dias');
+  }
+
+  function render(v) {
+    visao = v;
+    $('versao').textContent = v.versao && v.versao !== 'dev' ? 'versão ' + v.versao : '';
+    const [cor, fundo] = CORES[v.situacao] || ['--vermelho', '--vermelho-fundo'];
+    const status = $('status');
+    status.style.setProperty('--cor', `var(${cor})`);
+    status.style.setProperty('--cor-fundo', `var(${fundo})`);
+    status.classList.toggle('animado', v.situacao === 'conectando');
+    $('titulo').textContent = v.titulo;
+    $('descricao').textContent = v.descricao;
+
+    const st = v.status;
+    const precisaAtivar = v.situacao === 'nao_ativado' || v.situacao === 'recusado';
+    const temDados = !!(st && st.ativado);
+    $('dados').hidden = !temDados;
+    if (temDados) {
+      // Ativações da versão antiga não guardaram estes dados: o servidor manda ao conectar.
+      const ausente = 'aparece quando o agente conectar';
+      for (const [id, valor] of [['empresa', st.empresaNome], ['cnpj', st.cnpj], ['agente', st.agenteNome]]) {
+        $(id).textContent = valor || ausente;
+        $(id).classList.toggle('pendente', !valor);
+      }
+      $('servidor').textContent = (st.servidor || '—').replace(/^https?:\/\//, '');
+      if (v.situacao === 'conectado' && st.conectadoDesde) {
+        $('rotuloTempo').textContent = 'Conectado há';
+        $('tempo').textContent = duracao(st.conectadoDesde);
+      } else {
+        $('rotuloTempo').textContent = 'Agente iniciado';
+        $('tempo').textContent = st.iniciadoEm ? 'às ' + hora(st.iniciadoEm) : '—';
+      }
+      $('bancos').textContent = st.conexoesBanco ? st.conexoesBanco + (st.conexoesBanco === 1 ? ' conexão configurada' : ' conexões configuradas') : 'nenhuma conexão configurada';
+      let imp = (st.impressoes || 0) + (st.impressoes === 1 ? ' trabalho' : ' trabalhos') + ' desde que o agente iniciou';
+      if (st.errosImpressao) imp += `, ${st.errosImpressao} com erro`;
+      if (st.ultimoTrabalho) {
+        const u = st.ultimoTrabalho;
+        imp += `. Último: ${u.nome || 'etiquetas'} em ${u.impressora}, às ${hora(u.hora)}` + (u.ok ? '' : ` (erro: ${u.erro})`);
+      }
+      $('impressoes').textContent = imp;
+      // Parado: os números da última execução não valem mais.
+      for (const id of ['rotuloTempo', 'tempo', 'rotuloBancos', 'bancos', 'rotuloImpressoes', 'impressoes']) $(id).hidden = !v.agenteRodando;
+    }
+
+    $('acoes').hidden = precisaAtivar && !temDados;
+    $('btnSistema').disabled = !(st && st.servidor) && !v.servidorPadrao;
+    const parado = v.situacao === 'parado';
+    const faltaInstalar = v.situacao === 'falta_instalar';
+    $('btnServico').textContent = faltaInstalar ? 'Instalar o agente' : parado ? 'Iniciar o agente' : 'Reiniciar o agente';
+    $('btnServico').classList.toggle('primario', faltaInstalar || parado);
+    $('btnSistema').classList.toggle('primario', !(faltaInstalar || parado));
+    $('btnServico').hidden = v.servico === 'nao_instalado' && !faltaInstalar;
+
+    const copias = v.copiasAntigas || [];
+    $('copias').hidden = !copias.length;
+    $('listaCopias').textContent = copias.join('\n');
+    $('btnServico').disabled = v.operacao.andamento;
+
+    const exibirForm = precisaAtivar || mostrarFormulario;
+    $('ativacao').hidden = !exibirForm;
+    $('btnOutroCodigo').hidden = exibirForm || v.situacao === 'nao_ativado';
+    $('btnCancelarAtivacao').hidden = precisaAtivar;
+    $('tituloAtivacao').textContent = v.situacao === 'recusado' ? 'Ativar de novo' : 'Ativar este computador';
+    $('btnAtivar').disabled = v.operacao.andamento;
+    if (exibirForm && !formularioPreenchido) {
+      formularioPreenchido = true;
+      $('inServidor').value = (st && st.servidor) || v.servidorPadrao || '';
+      $('inCnpj').value = (st && st.cnpj) || '';
+      // Com o endereço gravado no executável, o técnico não precisa vê-lo.
+      $('campoServidor').hidden = !!v.servidorPadrao && !(st && st.servidor && st.servidor !== v.servidorPadrao);
+      setTimeout(() => ($('inCnpj').value ? $('inCodigo') : $('inCnpj')).focus(), 50);
+    }
+
+    const op = v.operacao;
+    const caixa = $('operacao');
+    caixa.hidden = !(op.andamento || op.ok || op.erro);
+    caixa.className = 'operacao ' + (op.andamento ? 'andamento' : op.erro ? 'erro' : 'ok');
+    caixa.textContent = op.andamento ? op.titulo + ' Confirme a permissão de administrador, se o Windows pedir.' : op.erro || op.ok || '';
+
+    const eventos = (st && st.eventos) || [];
+    $('atividade').hidden = !temDados;
+    const lista = $('eventos');
+    lista.replaceChildren(
+      ...(eventos.length
+        ? eventos.slice(0, 10).map((e) => {
+            const li = document.createElement('li');
+            li.className = e.nivel;
+            const t = document.createElement('time');
+            t.textContent = hora(e.hora);
+            const s = document.createElement('span');
+            s.textContent = e.mensagem;
+            if (e.vezes > 1) s.append(Object.assign(document.createElement('small'), { textContent: `  (${e.vezes}×)` }));
+            li.append(t, s);
+            return li;
+          })
+        : [Object.assign(document.createElement('li'), { className: 'vazio', textContent: 'Nada por enquanto.' })]),
+    );
+  }
+
+  async function atualizar() {
+    try {
+      render(await window.estado());
+    } catch (e) {
+      $('titulo').textContent = 'Erro ao ler o status';
+      $('descricao').textContent = String(e);
+    }
+  }
+
+  // Máscaras: CNPJ (aceita alfanumérico) e código XXXX-XXXX.
+  $('inCnpj').addEventListener('input', (e) => {
+    const c = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 14);
+    const partes = [c.slice(0, 2), c.slice(2, 5), c.slice(5, 8), c.slice(8, 12), c.slice(12)];
+    e.target.value = partes[0] + (c.length > 2 ? '.' + partes[1] : '') + (c.length > 5 ? '.' + partes[2] : '') + (c.length > 8 ? '/' + partes[3] : '') + (c.length > 12 ? '-' + partes[4] : '');
+  });
+  $('inCodigo').addEventListener('input', (e) => {
+    const c = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 8);
+    e.target.value = c.length > 4 ? c.slice(0, 4) + '-' + c.slice(4) : c;
+  });
+
+  $('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await window.ativar($('inServidor').value, $('inCnpj').value, $('inCodigo').value);
+      atualizar();
+    } catch (erro) {
+      render({ ...visao, operacao: { erro: String(erro) } });
+    }
+  });
+  $('btnSistema').addEventListener('click', () => window.abrirSistema());
+  $('btnIcone').addEventListener('click', () => window.configurarIcone());
+  $('btnServico').addEventListener('click', () => {
+    const s = visao && visao.situacao;
+    (s === 'falta_instalar' ? window.instalar() : s === 'parado' ? window.iniciar() : window.reiniciar()).then(atualizar);
+  });
+  $('btnRemoverCopias').addEventListener('click', async () => {
+    try {
+      await window.removerCopiasAntigas();
+    } catch (erro) {
+      render({ ...visao, operacao: { erro: String(erro) } });
+      return;
+    }
+    atualizar();
+  });
+  $('btnOutroCodigo').addEventListener('click', () => {
+    mostrarFormulario = true;
+    formularioPreenchido = false;
+    render(visao);
+  });
+  $('btnCancelarAtivacao').addEventListener('click', () => {
+    mostrarFormulario = false;
+    render(visao);
+  });
+  document.addEventListener('keydown', (e) => e.key === 'Escape' && window.fechar());
+
+  atualizar();
+  setInterval(atualizar, 1500);
+</script>
+</body>
+</html>

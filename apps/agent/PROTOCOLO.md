@@ -50,7 +50,7 @@ Códigos de erro: `conexao_desconhecida`, `sql_recusado`, `banco`, `tempo_esgota
 
 | tipo | id | dados | resultado |
 |---|---|---|---|
-| `configuracao` | — | `{ agenteNome, empresaNome, conexoes: [{ id, nome, tipo, host, porta, banco, usuario, senha, opcoes }] }` | — |
+| `configuracao` | — | `{ agenteNome, empresaNome, empresaCnpj, conexoes: [{ id, nome, tipo, host, porta, banco, usuario, senha, opcoes }] }` | — |
 | `testar_conexao` | sim | `{ conexaoId }` | `{ ok, versaoServidor, duracaoMs }` |
 | `consultar` | sim | `{ conexaoId, sql, parametros, limiteLinhas, tempoLimiteSegundos }` | `{ colunas: [{ nome, tipo }], linhas: any[][], truncado, duracaoMs }` |
 | `rotacionar_token` | sim | `{ token }` | `{}`, enviado depois de gravar o token em disco |

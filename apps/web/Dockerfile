@@ -26,7 +26,7 @@ RUN set -e; \
     v="${VERSAO:-$(date -u +%Y.%m.%d)}"; \
     flags="-s -w -X main.versao=${v} -X main.servidorPadrao=${SERVIDOR_PUBLICO}"; \
     mkdir -p /downloads; \
-    CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$flags" -o /downloads/etiquetas-agente.exe ./cmd/etiquetas-agente; \
+    CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$flags -H windowsgui" -o /downloads/etiquetas-agente.exe ./cmd/etiquetas-agente; \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$flags" -o /downloads/etiquetas-agente-linux-amd64 ./cmd/etiquetas-agente; \
     cd /downloads && sha256sum etiquetas-agente.exe etiquetas-agente-linux-amd64 > SHA256SUMS.txt && echo "$v" > versao.txt
 

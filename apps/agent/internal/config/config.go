@@ -17,6 +17,10 @@ type Config struct {
 	Servidor string `json:"servidor"`
 	Token    string `json:"token,omitempty"`
 	AgenteID string `json:"agenteId,omitempty"`
+	// Só para exibir no painel; o servidor reenvia a cada conexão.
+	CNPJ        string `json:"cnpj,omitempty"`
+	EmpresaNome string `json:"empresaNome,omitempty"`
+	AgenteNome  string `json:"agenteNome,omitempty"`
 }
 
 func (c *Config) Ativado() bool { return c.Token != "" }
@@ -38,6 +42,39 @@ func CaminhoPadrao() string {
 		return filepath.Join(dir, "etiquetas-agente", "agente.json")
 	}
 	return "agente.json"
+}
+
+// CaminhoStatus: arquivo que o serviço grava e o painel da bandeja lê. Fica fora do
+// diretório da configuração (restrito a administradores) para qualquer usuário ler.
+// Vazio fora do Windows (não há painel).
+func CaminhoStatus() string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	base := os.Getenv("ProgramData")
+	if base == "" {
+		base = `C:\ProgramData`
+	}
+	return filepath.Join(base, "EtiquetasAgenteStatus", "status.json")
+}
+
+// ExecutavelInstalado: onde `instalar` copia o agente no Windows, para o serviço e o
+// início automático não dependerem da pasta Downloads.
+func ExecutavelInstalado() string {
+	base := os.Getenv("ProgramFiles")
+	if base == "" {
+		base = `C:\Program Files`
+	}
+	return filepath.Join(base, "EtiquetasAgente", "etiquetas-agente.exe")
+}
+
+// FormatarCNPJ aplica a máscara XX.XXX.XXX/XXXX-XX (aceita CNPJ alfanumérico).
+func FormatarCNPJ(cnpj string) string {
+	c := strings.ToUpper(strings.NewReplacer(".", "", "/", "", "-", "", " ", "").Replace(cnpj))
+	if len(c) != 14 {
+		return cnpj
+	}
+	return c[:2] + "." + c[2:5] + "." + c[5:8] + "/" + c[8:12] + "-" + c[12:]
 }
 
 // Carregar devolve configuração vazia se o arquivo ainda não existe.
