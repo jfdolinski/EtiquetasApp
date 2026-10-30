@@ -11,6 +11,8 @@ import {
   type ElementoPosicionado,
   type OpcoesGeracao,
 } from './comum';
+import { paraBase64 } from './escpos';
+import { bitmapNaCaixa } from './imagem';
 import { mmParaPontos } from './valores';
 import type { LayoutEtiqueta, Registro, Rotacao, SaidaEtiquetas } from './tipos';
 
@@ -41,7 +43,10 @@ function aspas(texto: string) {
   return `"${semAcentos(texto).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-function elemento(e: ElementoPosicionado, dpi: number, avisos: Avisos): string[] {
+/** Linha de comando; GW leva bytes crus depois do cabeçalho. */
+type Comando = string | { cabecalho: string; dados: Uint8Array };
+
+function elemento(e: ElementoPosicionado, dpi: number, avisos: Avisos): Comando[] {
   const r = ROTACAO[e.el.rotacao];
   const { comprimento, espessura } = eixos(e);
 
@@ -79,7 +84,29 @@ function elemento(e: ElementoPosicionado, dpi: number, avisos: Avisos): string[]
       const t = Math.max(1, mmParaPontos(e.el.espessuraMm, dpi));
       return [e.largura >= e.altura ? `LO${e.x},${e.y},${e.largura},${t}` : `LO${e.x},${e.y},${t},${e.altura}`];
     }
+    case 'imagem': {
+      const b = bitmapNaCaixa(e.el, e.largura, e.altura);
+      // No GW do EPL/PPLB o bit 0 é que imprime (preto): inverte o bitmap.
+      const dados = b.dados.map((byte) => ~byte & 0xff);
+      return [{ cabecalho: `GW${e.x},${e.y},${b.bytesPorLinha},${b.altura},`, dados }];
+    }
   }
+}
+
+function emBytes(comandos: Comando[]): Uint8Array {
+  const partes: Uint8Array[] = [];
+  const ascii = (s: string) => Uint8Array.from(s, (c) => c.charCodeAt(0) & 0x7f);
+  for (const c of comandos) {
+    if (typeof c === 'string') partes.push(ascii(c + '\n'));
+    else partes.push(ascii(c.cabecalho), c.dados, ascii('\n'));
+  }
+  const total = new Uint8Array(partes.reduce((t, p) => t + p.length, 0));
+  let i = 0;
+  for (const p of partes) {
+    total.set(p, i);
+    i += p.length;
+  }
+  return total;
 }
 
 /** Gera PPLB (compatível com EPL2), um formulário por fileira de etiquetas. */
@@ -87,11 +114,20 @@ export function gerarPplb(layout: LayoutEtiqueta, registros: Registro[], opcoes:
   const avisos = new Avisos();
   const gap = mmParaPontos(layout.papel.tipo === 'rolo' ? layout.espacamentoVerticalMm : 0, opcoes.dpi);
   const paginas = posicionar(layout, registros, opcoes);
-  const formularios = paginas.map((p) =>
-    ['', 'N', `q${p.larguraPontos}`, `Q${p.alturaPontos},${gap}`, ...p.elementos.flatMap((e) => elemento(e, opcoes.dpi, avisos)), 'P1'].join('\n'),
-  );
+  const comandos = paginas.flatMap((p): Comando[] => [
+    '',
+    'N',
+    `q${p.larguraPontos}`,
+    `Q${p.alturaPontos},${gap}`,
+    ...p.elementos.flatMap((e) => elemento(e, opcoes.dpi, avisos)),
+    'P1',
+  ]);
   if (paginas.some((p) => p.elementos.some((e) => e.texto !== semAcentos(e.texto)))) {
     avisos.add('PPLB: acentos e caracteres especiais foram removidos.');
   }
-  return { linguagem: 'PPLB', mime: 'text/plain; charset=us-ascii', codificacao: 'texto', conteudo: formularios.join('\n') + '\n', avisos: avisos.lista() };
+  if (comandos.some((c) => typeof c !== 'string')) {
+    // Imagem (GW) tem bytes binários: a saída deixa de ser texto.
+    return { linguagem: 'PPLB', mime: 'application/octet-stream', codificacao: 'base64', conteudo: paraBase64(emBytes(comandos)), avisos: avisos.lista() };
+  }
+  return { linguagem: 'PPLB', mime: 'text/plain; charset=us-ascii', codificacao: 'texto', conteudo: comandos.join('\n') + '\n', avisos: avisos.lista() };
 }

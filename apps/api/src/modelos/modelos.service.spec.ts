@@ -107,6 +107,24 @@ describe('gerarPdf', () => {
     const r = await gerarPdf(LAYOUT, [{ descricao: 'X', ean: '12' }], '2026-10-29');
     expect(r.avisos[0]).toMatch(/código de barras não impresso/);
   });
+
+  it('embute imagem em tons de cinza, girada', async () => {
+    const cinza = Buffer.from([0, 64, 128, 255, 0, 64, 128, 255]).toString('base64');
+    const layout = {
+      ...LAYOUT,
+      elementos: [
+        { id: 'img', tipo: 'imagem' as const, nome: 'logo.png', x: 1, y: 1, largura: 4, altura: 8, rotacao: 90 as const, larguraPx: 4, alturaPx: 2, cinza, limiar: 128, pontilhado: false },
+      ],
+    };
+    const r = await gerarPdf(layout, [{}, {}], '2026-10-29');
+    expect(r.avisos).toEqual([]);
+    const pdf = Buffer.from(r.conteudo, 'base64');
+    const doc = await PDFDocument.load(pdf);
+    expect(doc.getPageCount()).toBe(1);
+    // Uma única imagem (2 × 4 depois de girada) embutida para as duas etiquetas.
+    expect(pdf.toString('latin1').match(/\/Subtype \/Image/g)).toHaveLength(1);
+    expect(pdf.toString('latin1')).toMatch(/\/Width 2[\s\S]*?\/Height 4|\/Height 4[\s\S]*?\/Width 2/);
+  });
 });
 
 describe('normalizarEndereco', () => {

@@ -1,3 +1,4 @@
+import { LADO_MAXIMO_IMAGEM_PX } from './imagem';
 import { FORMATOS_DATA, SIMBOLOGIAS, type ElementoEtiqueta, type LayoutEtiqueta, type OrigemValor } from './tipos';
 
 export const LIMITES = {
@@ -7,6 +8,8 @@ export const LIMITES = {
   elementos: 300,
   textoFixo: 500,
   tamanhoPt: { min: 4, max: 200 },
+  /** Soma das imagens (base64) de um layout; o corpo da API aceita até 5 MB. */
+  imagensBase64: 2_000_000,
 } as const;
 
 /** Área impressa de uma "página": no rolo, uma fileira de etiquetas; na folha, a folha inteira. */
@@ -108,6 +111,21 @@ function validarElemento(el: ElementoEtiqueta, i: number, l: LayoutEtiqueta, err
       if (!entre(el.espessuraMm, 0.1, 20)) erros.push(`${onde}: espessura inválida.`);
       if (el.tipo === 'retangulo' && typeof el.preenchido !== 'boolean') erros.push(`${onde}: preenchimento inválido.`);
       break;
+    case 'imagem': {
+      const lado = (v: unknown) => Number.isInteger(v) && entre(v, 1, LADO_MAXIMO_IMAGEM_PX);
+      if (!lado(el.larguraPx) || !lado(el.alturaPx)) {
+        erros.push(`${onde}: imagem com tamanho inválido (até ${LADO_MAXIMO_IMAGEM_PX} px).`);
+        break;
+      }
+      const bytes = el.larguraPx * el.alturaPx;
+      if (typeof el.cinza !== 'string' || el.cinza.length !== 4 * Math.ceil(bytes / 3) || !/^[A-Za-z0-9+/]*={0,2}$/.test(el.cinza)) {
+        erros.push(`${onde}: dados da imagem corrompidos.`);
+      }
+      if (!Number.isInteger(el.limiar) || !entre(el.limiar, 0, 255)) erros.push(`${onde}: limiar entre 0 e 255.`);
+      if (typeof el.pontilhado !== 'boolean') erros.push(`${onde}: opção de pontilhado inválida.`);
+      if (typeof el.nome !== 'string' || el.nome.length > 200) erros.push(`${onde}: nome da imagem inválido.`);
+      break;
+    }
     default:
       erros.push(`${onde}: tipo desconhecido.`);
   }
@@ -137,6 +155,8 @@ export function validarLayout(l: LayoutEtiqueta): string[] {
   if (!Array.isArray(l.elementos)) return [...erros, 'Lista de elementos ausente.'];
   if (l.elementos.length > LIMITES.elementos) erros.push(`No máximo ${LIMITES.elementos} elementos.`);
   if (erros.length === 0) l.elementos.forEach((el, i) => validarElemento(el, i, l, erros));
+  const tamanhoImagens = l.elementos.reduce((t, el) => t + (el?.tipo === 'imagem' && typeof el.cinza === 'string' ? el.cinza.length : 0), 0);
+  if (tamanhoImagens > LIMITES.imagensBase64) erros.push('As imagens do modelo passam do limite; use imagens menores ou em menor quantidade.');
   const ids = new Set(l.elementos.map((e) => e.id));
   if (ids.size !== l.elementos.length) erros.push('Há elementos com id repetido.');
   return erros;

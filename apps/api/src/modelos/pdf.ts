@@ -1,7 +1,9 @@
 import {
   Avisos,
   ancora,
+  cinzaDoElemento,
   codigoValido,
+  girarCinza,
   deslocamentoAlinhamento,
   eixos,
   posicionar,
@@ -14,6 +16,7 @@ import {
 } from '@etiquetas/shared';
 import * as bwipjs from 'bwip-js';
 import { degrees, PDFDocument, rgb, StandardFonts, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
+import { pngCinza } from './png';
 
 /** Resolução interna: 720 "pontos" por polegada = décimos de ponto do PDF. */
 const DPI = 720;
@@ -158,6 +161,18 @@ class DesenhoPdf {
           height: horizontal ? espessura : caixa.height,
           color: rgb(0, 0, 0),
         });
+        return;
+      }
+      case 'imagem': {
+        // Girada aqui e embutida uma vez por elemento; o tamanho original basta para a impressão.
+        const chave = `imagem:${e.el.id}:${e.el.rotacao}`;
+        let img = this.imagens.get(chave);
+        if (!img) {
+          const fonte = cinzaDoElemento(e.el);
+          img = await this.doc.embedPng(pngCinza(girarCinza(fonte, e.el.rotacao)));
+          this.imagens.set(chave, img);
+        }
+        pagina.drawImage(img, caixa);
       }
     }
   }

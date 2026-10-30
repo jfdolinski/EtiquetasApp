@@ -8,6 +8,7 @@ import {
   type ElementoPosicionado,
   type OpcoesGeracao,
 } from './comum';
+import { bitmapEmHex, bitmapNaCaixa, type Bitmap } from './imagem';
 import { mmParaPontos } from './valores';
 import type { LayoutEtiqueta, Registro, Rotacao, SaidaEtiquetas } from './tipos';
 
@@ -19,7 +20,10 @@ function campo(texto: string): string {
   return `^FH^FD${texto.replace(/[_^~]/g, (c) => `_${c.charCodeAt(0).toString(16).toUpperCase()}`)}^FS`;
 }
 
-function elemento(e: ElementoPosicionado, dpi: number, avisos: Avisos): string {
+/** Imagens já enviadas à memória da impressora (~DG), por bitmap. */
+type Graficos = Map<Bitmap, string>;
+
+function elemento(e: ElementoPosicionado, dpi: number, avisos: Avisos, graficos: Graficos): string {
   const o = ORIENTACAO[e.el.rotacao];
   const fo = `^FO${e.x},${e.y}`;
   const { comprimento, espessura } = eixos(e);
@@ -69,12 +73,19 @@ function elemento(e: ElementoPosicionado, dpi: number, avisos: Avisos): string {
       const t = Math.max(1, mmParaPontos(e.el.espessuraMm, dpi));
       return e.largura >= e.altura ? `${fo}^GB${e.largura},${t},${t}^FS` : `${fo}^GB${t},${e.altura},${t}^FS`;
     }
+    case 'imagem': {
+      const b = bitmapNaCaixa(e.el, e.largura, e.altura);
+      let nome = graficos.get(b);
+      if (!nome) graficos.set(b, (nome = `R:ETQ${graficos.size + 1}.GRF`));
+      return `${fo}^XG${nome},1,1^FS`;
+    }
   }
 }
 
 /** Gera ZPL II: um formato (^XA…^XZ) por fileira de etiquetas, UTF-8 (^CI28). */
 export function gerarZpl(layout: LayoutEtiqueta, registros: Registro[], opcoes: OpcoesGeracao): SaidaEtiquetas {
   const avisos = new Avisos();
+  const graficos: Graficos = new Map();
   const formatos = posicionar(layout, registros, opcoes).map((p) =>
     [
       '^XA',
@@ -82,10 +93,13 @@ export function gerarZpl(layout: LayoutEtiqueta, registros: Registro[], opcoes: 
       `^PW${p.larguraPontos}`,
       `^LL${p.alturaPontos}`,
       '^LH0,0',
-      ...p.elementos.map((e) => elemento(e, opcoes.dpi, avisos)).filter(Boolean),
+      ...p.elementos.map((e) => elemento(e, opcoes.dpi, avisos, graficos)).filter(Boolean),
       '^PQ1',
       '^XZ',
     ].join('\n'),
   );
-  return { linguagem: 'ZPL', mime: 'text/plain; charset=utf-8', codificacao: 'texto', conteudo: formatos.join('\n'), avisos: avisos.lista() };
+  // Cada imagem vai uma vez para a RAM da impressora, antes dos formatos que a usam.
+  const downloads = [...graficos].map(([b, nome]) => `~DG${nome},${b.dados.length},${b.bytesPorLinha},${bitmapEmHex(b)}`);
+  const conteudo = [...downloads, ...formatos].join('\n');
+  return { linguagem: 'ZPL', mime: 'text/plain; charset=utf-8', codificacao: 'texto', conteudo, avisos: avisos.lista() };
 }

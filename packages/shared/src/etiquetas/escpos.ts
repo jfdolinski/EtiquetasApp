@@ -1,4 +1,5 @@
 import { ampliacaoQr, Avisos, codigoValido, deslocamentoAlinhamento, posicionar, type ElementoPosicionado, type OpcoesGeracao } from './comum';
+import { bitmapNaCaixa } from './imagem';
 import type { LayoutEtiqueta, Registro, SaidaEtiquetas } from './tipos';
 
 /**
@@ -47,7 +48,7 @@ function posicao(b: Bytes, x: number, yBase: number) {
 }
 
 function elemento(b: Bytes, e: ElementoPosicionado, avisos: Avisos) {
-  if (e.el.rotacao !== 0 && e.el.tipo !== 'retangulo' && e.el.tipo !== 'linha') {
+  if (e.el.rotacao !== 0 && e.el.tipo !== 'retangulo' && e.el.tipo !== 'linha' && e.el.tipo !== 'imagem') {
     avisos.add('ESC/POS: rotação não é suportada; os elementos saem sem rotação.');
   }
   switch (e.el.tipo) {
@@ -91,6 +92,25 @@ function elemento(b: Bytes, e: ElementoPosicionado, avisos: Avisos) {
     case 'retangulo':
     case 'linha':
       avisos.add('ESC/POS: linhas e retângulos não são impressos nesta linguagem.');
+      return;
+    case 'imagem': {
+      const bm = bitmapNaCaixa(e.el, e.largura, e.altura);
+      // ESC * modo 33 (24 pontos, densidade dupla): faixas de 24 linhas, 3 bytes por coluna.
+      for (let faixa = 0; faixa < bm.altura; faixa += 24) {
+        posicao(b, e.x, e.y + faixa + 24); // no modo página a faixa fica acima da linha de base
+        b.add(ESC, 0x2a, 33).u16(bm.largura);
+        for (let x = 0; x < bm.largura; x++) {
+          for (let k = 0; k < 3; k++) {
+            let byte = 0;
+            for (let bit = 0; bit < 8; bit++) {
+              const y = faixa + k * 8 + bit;
+              if (y < bm.altura && bm.dados[y * bm.bytesPorLinha + (x >> 3)] & (0x80 >> (x & 7))) byte |= 0x80 >> bit;
+            }
+            b.add(byte);
+          }
+        }
+      }
+    }
   }
 }
 

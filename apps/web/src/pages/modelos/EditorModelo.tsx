@@ -18,6 +18,7 @@ import { useAuth } from '../../auth';
 import { ExigeEmpresa } from '../../components/ExigeEmpresa';
 import { Alerta, Botao, Campo, Selecao } from '../../components/ui';
 import { arredondar, novoElemento, PASSO_MM } from './elementos';
+import { novaImagem } from './imagens';
 import { PreVisualizacao } from './PreVisualizacao';
 import { PropriedadesElemento, PropriedadesLayout } from './Propriedades';
 import { Tela } from './Tela';
@@ -48,7 +49,7 @@ function Carregar() {
   return <Editor key={modelo?.id ?? 'novo'} modelo={modelo ?? null} consultas={consultas} />;
 }
 
-const BOTOES: { tipo: TipoElemento; rotulo: string }[] = [
+const BOTOES: { tipo: Exclude<TipoElemento, 'imagem'>; rotulo: string }[] = [
   { tipo: 'texto', rotulo: 'Texto' },
   { tipo: 'codigo_barras', rotulo: 'Código de barras' },
   { tipo: 'qrcode', rotulo: 'QR code' },
@@ -97,6 +98,20 @@ function Editor({ modelo, consultas }: { modelo: ModeloEtiquetaResumo | null; co
   function adicionar(el: ElementoEtiqueta) {
     mudarLayout({ elementos: [...layout.elementos, el] });
     setSelecionado(el.id);
+  }
+  const [lendoImagem, setLendoImagem] = useState(false);
+  const [erroImagem, setErroImagem] = useState<string | null>(null);
+  async function enviarImagem(arquivo: File | undefined) {
+    if (!arquivo) return;
+    setErroImagem(null);
+    setLendoImagem(true);
+    try {
+      adicionar(await novaImagem(arquivo, layout));
+    } catch (e) {
+      setErroImagem((e as Error).message);
+    } finally {
+      setLendoImagem(false);
+    }
   }
   function excluir(id: string) {
     mudarLayout({ elementos: layout.elementos.filter((e) => e.id !== id) });
@@ -240,7 +255,21 @@ function Editor({ modelo, consultas }: { modelo: ModeloEtiquetaResumo | null; co
                     + {b.rotulo}
                   </button>
                 ))}
+                <label className="cursor-pointer rounded border border-slate-300 bg-white px-2 py-1.5 text-left text-sm hover:bg-slate-50" title="Logotipo, selo ou símbolo (PNG, JPG, SVG…)">
+                  {lendoImagem ? 'Lendo imagem…' : '+ Imagem'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={lendoImagem}
+                    onChange={(e) => {
+                      void enviarImagem(e.target.files?.[0]);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
               </div>
+              {erroImagem && <p className="mt-2 text-xs text-red-700">{erroImagem}</p>}
             </div>
           )}
           <div className="rounded-lg border border-slate-200 bg-white p-3">

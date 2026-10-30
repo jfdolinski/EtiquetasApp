@@ -7,6 +7,7 @@ import type { LayoutEtiqueta, LinguagemImpressora, Registro, SaidaEtiquetas } fr
 
 export * from './comum';
 export * from './escpos';
+export * from './imagem';
 export * from './layout';
 export * from './ppla';
 export * from './pplb';

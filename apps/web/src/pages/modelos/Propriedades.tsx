@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   FORMATOS_DATA,
   ROTULO_CATEGORIA,
@@ -6,6 +6,7 @@ import {
   SIMBOLOGIAS,
   type CampoDinamico,
   type ElementoEtiqueta,
+  type ElementoImagem,
   type FormatoCampo,
   type FormatoData,
   type LayoutEtiqueta,
@@ -13,6 +14,7 @@ import {
   type Rotacao,
   type Simbologia,
 } from '@etiquetas/shared';
+import { lerImagem } from './imagens';
 
 const CLASSE = 'w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm disabled:bg-slate-100';
 
@@ -151,7 +153,70 @@ function EditorFormato({ formato, aoMudar }: { formato: FormatoCampo | undefined
   );
 }
 
-const TITULO = { texto: 'Texto', codigo_barras: 'Código de barras', qrcode: 'QR code', retangulo: 'Retângulo', linha: 'Linha' } as const;
+const TITULO = { texto: 'Texto', codigo_barras: 'Código de barras', qrcode: 'QR code', retangulo: 'Retângulo', linha: 'Linha', imagem: 'Imagem' } as const;
+
+/** Trocar arquivo, ajuste de preto e branco e proporção original. */
+function PropriedadesImagem({ el, layout, aoMudar }: { el: ElementoImagem; layout: LayoutEtiqueta; aoMudar: (m: Partial<ElementoImagem>) => void }) {
+  const [erro, setErro] = useState<string | null>(null);
+  const [lendo, setLendo] = useState(false);
+  const deitado = el.rotacao === 90 || el.rotacao === 270;
+
+  async function trocar(arquivo: File | undefined) {
+    if (!arquivo) return;
+    setErro(null);
+    setLendo(true);
+    try {
+      const dados = await lerImagem(arquivo);
+      // Mantém a largura atual e ajusta a altura à proporção da nova imagem.
+      const altura = Math.min(layout.alturaMm - el.y, Math.max(1, (el.largura * (deitado ? dados.larguraPx : dados.alturaPx)) / (deitado ? dados.alturaPx : dados.larguraPx)));
+      aoMudar({ ...dados, altura: Math.round(altura * 2) / 2 });
+    } catch (e) {
+      setErro((e as Error).message);
+    } finally {
+      setLendo(false);
+    }
+  }
+
+  function proporcaoOriginal() {
+    const [w, h] = deitado ? [el.alturaPx, el.larguraPx] : [el.larguraPx, el.alturaPx];
+    let largura = el.largura;
+    let altura = (largura * h) / w;
+    if (el.y + altura > layout.alturaMm) {
+      altura = layout.alturaMm - el.y;
+      largura = (altura * w) / h;
+    }
+    aoMudar({ largura: Math.max(0.5, Math.round(largura * 2) / 2), altura: Math.max(0.5, Math.round(altura * 2) / 2) });
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="text-xs text-slate-600">
+        <div className="truncate" title={el.nome}>{el.nome || 'imagem'}</div>
+        <div className="text-slate-500">{el.larguraPx} × {el.alturaPx} px guardados</div>
+      </div>
+      <div className="flex flex-wrap gap-2 text-xs">
+        <label className="cursor-pointer rounded border border-slate-300 px-2 py-1 hover:bg-slate-50">
+          {lendo ? 'Lendo…' : 'Trocar imagem'}
+          <input type="file" accept="image/*" className="hidden" onChange={(e) => (void trocar(e.target.files?.[0]), (e.target.value = ''))} />
+        </label>
+        <button type="button" onClick={proporcaoOriginal} className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50">
+          Proporção original
+        </button>
+      </div>
+      {erro && <p className="text-xs text-red-700">{erro}</p>}
+      <Linha rotulo={`Limiar do preto: ${el.limiar}`}>
+        <input type="range" min={1} max={254} value={el.limiar} onChange={(e) => aoMudar({ limiar: Number(e.target.value) })} className="w-full" />
+      </Linha>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={el.pontilhado} onChange={(e) => aoMudar({ pontilhado: e.target.checked })} />
+        Pontilhado (fotos e degradês)
+      </label>
+      <p className="text-xs text-slate-500">
+        A tela mostra como sai numa térmica de 203 dpi. No PDF a imagem sai em tons de cinza. PPLA ainda não imprime imagens.
+      </p>
+    </div>
+  );
+}
 
 export function PropriedadesElemento({
   el,
@@ -261,6 +326,7 @@ export function PropriedadesElemento({
           Preenchido
         </label>
       )}
+      {el.tipo === 'imagem' && <PropriedadesImagem el={el} layout={layout} aoMudar={aoMudar} />}
     </div>
   );
 }

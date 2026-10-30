@@ -12,7 +12,7 @@ function novoId() {
 }
 
 /** Cria um elemento centralizado, no tamanho padrão de cada tipo e limitado à etiqueta. */
-export function novoElemento(tipo: TipoElemento, layout: LayoutEtiqueta, origem?: OrigemValor): ElementoEtiqueta {
+export function novoElemento(tipo: Exclude<TipoElemento, 'imagem'>, layout: LayoutEtiqueta, origem?: OrigemValor): ElementoEtiqueta {
   const valor: OrigemValor = origem ?? { tipo: 'fixo', texto: tipo === 'qrcode' ? 'https://' : tipo === 'codigo_barras' ? '7891000000045' : 'Texto' };
   const caixa = (largura: number, altura: number) => {
     const l = Math.min(largura, layout.larguraMm);

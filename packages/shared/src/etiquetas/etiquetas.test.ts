@@ -1,7 +1,12 @@
 ﻿import { describe, expect, it } from 'vitest';
 import {
+  bitmapNaCaixa,
+  cinzaDoElemento,
   dadosCodigoBarras,
   digitoEan,
+  girarCinza,
+  monocromatico,
+  type ElementoImagem,
   formatarCampo,
   gerarEscpos,
   gerarPpla,
@@ -191,6 +196,78 @@ describe('PPLA', () => {
     expect(r.conteudo).toMatch(/1911A12\d{8}Arroz 5kg/);
     expect(r.conteudo).toMatch(/1F\d{5}\d{8}789100000001/);
     expect(r.conteudo).toContain('Q0001\r\nE');
+  });
+});
+
+describe('imagem', () => {
+  // 4 × 2 px: metade esquerda preta, metade direita branca.
+  const cinza = btoa(String.fromCharCode(0, 0, 255, 255, 0, 0, 255, 255));
+  const imagem = (extra: Partial<ElementoImagem> = {}): ElementoImagem => ({
+    id: 'i1',
+    tipo: 'imagem',
+    nome: 'logo.png',
+    x: 2,
+    y: 2,
+    largura: 8,
+    altura: 4,
+    rotacao: 0,
+    larguraPx: 4,
+    alturaPx: 2,
+    cinza,
+    limiar: 128,
+    pontilhado: false,
+    ...extra,
+  });
+  const comImagem = (el: ElementoImagem) => layout({ elementos: [el] });
+
+  it('valida tamanho e dados', () => {
+    expect(validarLayout(comImagem(imagem()))).toEqual([]);
+    expect(validarLayout(comImagem(imagem({ cinza: cinza.slice(4) }))).join()).toMatch(/corrompidos/);
+    expect(validarLayout(comImagem(imagem({ larguraPx: 5000 }))).join()).toMatch(/tamanho inválido/);
+    expect(validarLayout(comImagem(imagem({ limiar: 300 }))).join()).toMatch(/limiar/);
+  });
+
+  it('redimensiona, gira no sentido horário e converte em preto e branco', () => {
+    const el = imagem();
+    const b = bitmapNaCaixa(el, 8, 2);
+    expect(b.bytesPorLinha).toBe(1);
+    expect([...b.dados]).toEqual([0xf0, 0xf0]); // 4 pontos pretos à esquerda
+    // Girada 90°: o lado preto (esquerda) passa a ficar em cima.
+    const g = girarCinza(cinzaDoElemento(el), 90);
+    expect([g.largura, g.altura]).toEqual([2, 4]);
+    expect([...g.pixels]).toEqual([0, 0, 0, 0, 255, 255, 255, 255]);
+    // Cinza médio: corte no limiar fica todo branco; pontilhado mistura.
+    const meio = { largura: 8, altura: 8, pixels: new Uint8Array(64).fill(160) };
+    expect(monocromatico(meio, 128, false).dados.every((v) => v === 0)).toBe(true);
+    const pontos = [...monocromatico(meio, 128, true).dados].reduce((t, v) => t + v.toString(2).replace(/0/g, '').length, 0);
+    expect(pontos).toBeGreaterThan(10);
+    expect(pontos).toBeLessThan(40);
+  });
+
+  it('ZPL envia a imagem uma vez (~DG) e a chama em cada etiqueta (^XG)', () => {
+    const r = gerarZpl(comImagem(imagem()), REGISTROS, OPCOES);
+    expect(r.conteudo.match(/~DGR:ETQ1\.GRF,/g)).toHaveLength(1);
+    expect(r.conteudo.indexOf('~DG')).toBeLessThan(r.conteudo.indexOf('^XA'));
+    expect(r.conteudo.match(/\^FO16,16\^XGR:ETQ1\.GRF,1,1\^FS/g)).toHaveLength(2);
+  });
+
+  it('PPLB usa GW com bits invertidos e sai em binário', () => {
+    const r = gerarPplb(comImagem(imagem()), [REGISTROS[0]], OPCOES);
+    expect(r.codificacao).toBe('base64');
+    const bin = atob(r.conteudo);
+    const i = bin.indexOf('GW16,16,8,32,');
+    expect(i).toBeGreaterThan(0);
+    // 64 × 32 pontos: metade esquerda preta = bits 0 nos primeiros 4 bytes da linha.
+    const linha = [...bin.slice(i + 'GW16,16,8,32,'.length, i + 'GW16,16,8,32,'.length + 8)].map((c) => c.charCodeAt(0));
+    expect(linha).toEqual([0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff]);
+    expect(bin).toContain('\nP1');
+  });
+
+  it('ESC/POS em faixas ESC *; PPLA avisa que não imprime imagem', () => {
+    const r = gerarEscpos(comImagem(imagem()), [REGISTROS[0]], OPCOES);
+    const hex = Buffer.from(atob(r.conteudo), 'latin1').toString('hex');
+    expect(hex.match(/1b2a214000/g)).toHaveLength(2); // 64 pontos de largura, 32 de altura = 2 faixas
+    expect(gerarPpla(comImagem(imagem()), [REGISTROS[0]], OPCOES).avisos.join()).toMatch(/imagens ainda não/);
   });
 });
 

@@ -28,7 +28,7 @@ function registro(e: ElementoPosicionado, alturaPagina: number, dpi: number, avi
   // Base do campo (linha) e coluna em décimos de mm; rotação gira em torno desse ponto.
   const coluna = (x: number) => d4(emDecimos(x, dpi));
   const linha = (yBase: number) => d4(emDecimos(alturaPagina - yBase, dpi));
-  if (e.el.rotacao !== 0 && e.el.tipo !== 'retangulo' && e.el.tipo !== 'linha') {
+  if (e.el.rotacao !== 0 && e.el.tipo !== 'retangulo' && e.el.tipo !== 'linha' && e.el.tipo !== 'imagem') {
     avisos.add('PPLA: elementos girados podem sair deslocados; confira a primeira impressão.');
   }
 
@@ -56,6 +56,9 @@ function registro(e: ElementoPosicionado, alturaPagina: number, dpi: number, avi
     }
     case 'qrcode':
       avisos.add('PPLA: QR code ainda não é gerado nesta linguagem; use PPLB, ZPL ou PDF.');
+      return [];
+    case 'imagem':
+      avisos.add('PPLA: imagens ainda não são impressas nesta linguagem; use PPLB, ZPL, ESC/POS ou PDF.');
       return [];
     case 'retangulo':
     case 'linha': {

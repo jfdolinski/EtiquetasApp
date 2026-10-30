@@ -3,6 +3,7 @@ import type Konva from 'konva';
 import { Group, Image as KImage, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva';
 import { ptParaMm, textoDoElemento, type ElementoEtiqueta, type LayoutEtiqueta, type Registro } from '@etiquetas/shared';
 import { arredondar, imagemCodigo } from './elementos';
+import { canvasImagem } from './imagens';
 
 interface Props {
   layout: LayoutEtiqueta;
@@ -99,6 +100,8 @@ function Conteudo({ el, escala, registro }: { el: ElementoEtiqueta; escala: numb
       const t = Math.max(1, el.espessuraMm * escala);
       return w >= h ? <Rect width={w} height={t} fill="#111827" /> : <Rect width={t} height={h} fill="#111827" />;
     }
+    case 'imagem':
+      return <KImage image={canvasImagem(el)} width={w} height={h} />;
   }
 }
 
@@ -171,7 +174,11 @@ export function Tela({ layout, escala, registro, selecionado, editavel, aoSeleci
             <Conteudo el={el} escala={escala} registro={registro} />
           </Group>
         ))}
-        <Transformer ref={transformador} rotateEnabled={false} keepRatio={false} ignoreStroke flipEnabled={false} anchorSize={7} borderStroke="#2563eb" anchorStroke="#2563eb" />
+        {/* Imagem mantém a proporção pelos cantos; as alças laterais ainda permitem esticar. */}
+        <Transformer
+          ref={transformador}
+          rotateEnabled={false}
+          keepRatio={layout.elementos.find((e) => e.id === selecionado)?.tipo === 'imagem'} ignoreStroke flipEnabled={false} anchorSize={7} borderStroke="#2563eb" anchorStroke="#2563eb" />
       </Layer>
     </Stage>
   );

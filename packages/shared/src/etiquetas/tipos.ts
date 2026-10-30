@@ -92,7 +92,26 @@ export interface ElementoLinha extends ElementoBase {
   espessuraMm: number;
 }
 
-export type ElementoEtiqueta = ElementoTexto | ElementoCodigoBarras | ElementoQrCode | ElementoRetangulo | ElementoLinha;
+/**
+ * Imagem enviada pelo usuário (logotipo, selo…), guardada em tons de cinza já reduzida
+ * (no máximo 480 px no maior lado). Cada gerador converte para preto e branco na
+ * resolução da impressora, esticando para a caixa do elemento.
+ */
+export interface ElementoImagem extends ElementoBase {
+  tipo: 'imagem';
+  /** Nome do arquivo original, só para exibição. */
+  nome: string;
+  larguraPx: number;
+  alturaPx: number;
+  /** larguraPx × alturaPx bytes em base64, linha a linha; 0 = preto, 255 = branco (transparência vira branco). */
+  cinza: string;
+  /** Tons abaixo deste valor (0–255) imprimem preto nas térmicas. */
+  limiar: number;
+  /** Pontilhado (Floyd–Steinberg) para fotos e degradês nas térmicas, em vez de corte no limiar. */
+  pontilhado: boolean;
+}
+
+export type ElementoEtiqueta = ElementoTexto | ElementoCodigoBarras | ElementoQrCode | ElementoRetangulo | ElementoLinha | ElementoImagem;
 export type TipoElemento = ElementoEtiqueta['tipo'];
 
 export type Papel = { tipo: 'rolo' } | { tipo: 'folha'; larguraMm: number; alturaMm: number };
