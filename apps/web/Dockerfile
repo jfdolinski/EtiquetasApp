@@ -23,7 +23,7 @@ COPY apps/agent/go.mod apps/agent/go.sum ./
 RUN go mod download
 COPY apps/agent/ ./
 RUN set -e; \
-    v="${VERSAO:-$(date -u +%Y.%m.%d)}"; \
+    v="${VERSAO:-$(TZ='<-03>3' date +%Y.%m.%d.%H%M)}"; \
     flags="-s -w -X main.versao=${v} -X main.servidorPadrao=${SERVIDOR_PUBLICO}"; \
     mkdir -p /downloads; \
     CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$flags -H windowsgui" -o /downloads/etiquetas-agente.exe ./cmd/etiquetas-agente; \

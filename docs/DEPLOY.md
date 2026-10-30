@@ -95,7 +95,7 @@ Mudar `SUPERADMIN_SENHA` depois não altera um usuário que já existe. Troque a
 - **Build:** Dockerfile, caminho `apps/web/Dockerfile`.
 - **Build Args:**
   - `SERVIDOR_PUBLICO=https://app.seudominio.com.br`: fica gravado no agente, para o técnico não precisar digitar o endereço.
-  - `VERSAO=1.0.0`: opcional, aparece no painel em Agentes.
+  - `VERSAO=1.0.0`: opcional, aparece no painel em Agentes e no agente. Sem ela, vale data e hora do build (horário de Brasília, ex.: `2026.10.30.1512`).
 - **Environment:** `API_UPSTREAM=http://etiquetas_api:3000`. Ajuste ao nome real do projeto e do serviço.
 - **Domains:** `app.seudominio.com.br`, porta `80`, **HTTPS ligado**. O Easypanel emite o certificado Let's Encrypt.
 
