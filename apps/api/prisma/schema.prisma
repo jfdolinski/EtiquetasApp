@@ -47,6 +47,7 @@ model Empresa {
   parametrosCobranca ParametroCobranca?
   pagamentos         PagamentoAssinatura[]
   avisosCobranca     AvisoCobranca[]
+  agendamentos       AgendamentoModelo[]
 
   @@map("empresas")
 }
@@ -66,11 +67,12 @@ model Usuario {
   criadoEm      DateTime  @default(now()) @map("criado_em")
   atualizadoEm  DateTime  @updatedAt @map("atualizado_em")
 
-  empresa    Empresa?              @relation(fields: [empresaId], references: [id], onDelete: Restrict)
-  perfil     Perfil?               @relation(fields: [perfilId], references: [id], onDelete: SetNull)
-  logs       LogAuditoria[]
-  trabalhos  TrabalhoImpressao[]
-  pagamentos PagamentoAssinatura[]
+  empresa      Empresa?              @relation(fields: [empresaId], references: [id], onDelete: Restrict)
+  perfil       Perfil?               @relation(fields: [perfilId], references: [id], onDelete: SetNull)
+  logs         LogAuditoria[]
+  trabalhos    TrabalhoImpressao[]
+  pagamentos   PagamentoAssinatura[]
+  agendamentos AgendamentoModelo[]
 
   @@index([empresaId])
   @@map("usuarios")
@@ -272,10 +274,11 @@ model ModeloEtiqueta {
   criadoEm      DateTime @default(now()) @map("criado_em")
   atualizadoEm  DateTime @updatedAt @map("atualizado_em")
 
-  empresa    Empresa      @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  consulta   ConsultaSql? @relation(fields: [consultaId], references: [id], onDelete: SetNull)
-  impressora Impressora?  @relation(fields: [impressoraId], references: [id], onDelete: SetNull)
-  itens      ItemLista[]
+  empresa      Empresa             @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  consulta     ConsultaSql?        @relation(fields: [consultaId], references: [id], onDelete: SetNull)
+  agendamentos AgendamentoModelo[]
+  impressora   Impressora?         @relation(fields: [impressoraId], references: [id], onDelete: SetNull)
+  itens        ItemLista[]
 
   @@unique([empresaId, nome])
   @@index([consultaId])
@@ -345,6 +348,7 @@ enum StatusTrabalho {
 enum OrigemTrabalho {
   LISTA
   AVULSA
+  AGENDAMENTO
 }
 
 /// Trabalho de impressão: conteúdo já gerado na linguagem da impressora, entregue pelo agente.
@@ -410,11 +414,12 @@ model Impressora {
   criadoEm        DateTime            @default(now()) @map("criado_em")
   atualizadoEm    DateTime            @updatedAt @map("atualizado_em")
 
-  empresa   Empresa             @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  agente    Agente?             @relation(fields: [agenteId], references: [id], onDelete: SetNull)
-  modelos   ModeloEtiqueta[]
-  itens     ItemLista[]
-  trabalhos TrabalhoImpressao[]
+  empresa      Empresa             @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  agente       Agente?             @relation(fields: [agenteId], references: [id], onDelete: SetNull)
+  modelos      ModeloEtiqueta[]
+  itens        ItemLista[]
+  trabalhos    TrabalhoImpressao[]
+  agendamentos AgendamentoModelo[]
 
   @@unique([empresaId, nome])
   @@index([agenteId])
@@ -545,4 +550,36 @@ model LogAuditoria {
 
   @@index([empresaId, criadoEm])
   @@map("logs_auditoria")
+}
+
+/// Agendamento de um modelo: a cada ciclo executa a consulta do modelo e põe na lista do dia
+/// o que ainda não foi impresso/descartado hoje; com impressão automática, já imprime.
+model AgendamentoModelo {
+  id                 String    @id @default(uuid()) @db.Uuid
+  empresaId          String    @map("empresa_id") @db.Uuid
+  modeloId           String    @map("modelo_id") @db.Uuid
+  /// Nulo = impressora padrão do modelo.
+  impressoraId       String?   @map("impressora_id") @db.Uuid
+  /// Usuário com quem roda (placeholders {usuario.*} e autoria): quem cadastrou ou editou por último.
+  responsavelId      String?   @map("responsavel_id") @db.Uuid
+  intervaloSegundos  Int       @map("intervalo_segundos")
+  /// Referência do ciclo: as execuções caem em inicioEm + n × intervalo.
+  inicioEm           DateTime  @map("inicio_em")
+  imprimirAutomatico Boolean   @default(false) @map("imprimir_automatico")
+  ativo              Boolean   @default(true)
+  proximaExecucaoEm  DateTime? @map("proxima_execucao_em")
+  ultimaExecucaoEm   DateTime? @map("ultima_execucao_em")
+  /// Últimas execuções (mais recente primeiro).
+  historico          Json      @default("[]")
+  criadoEm           DateTime  @default(now()) @map("criado_em")
+  atualizadoEm       DateTime  @updatedAt @map("atualizado_em")
+
+  empresa     Empresa        @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  modelo      ModeloEtiqueta @relation(fields: [modeloId], references: [id], onDelete: Cascade)
+  impressora  Impressora?    @relation(fields: [impressoraId], references: [id], onDelete: SetNull)
+  responsavel Usuario?       @relation(fields: [responsavelId], references: [id], onDelete: SetNull)
+
+  @@index([empresaId])
+  @@index([ativo, proximaExecucaoEm])
+  @@map("agendamentos")
 }

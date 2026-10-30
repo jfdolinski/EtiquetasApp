@@ -17,6 +17,7 @@ const MENU: ItemMenu[] = [
   { para: '/hoje', rotulo: 'Lista do dia', permissao: 'imprimir' },
   { para: '/avulsa', rotulo: 'Etiqueta avulsa', permissao: 'imprimir' },
   { para: '/historico', rotulo: 'Histórico de impressão', permissao: 'imprimir' },
+  { para: '/agendamentos', rotulo: 'Agendamentos', permissao: 'agendamento.ver' },
   { para: '/empresas', rotulo: 'Empresas', superAdmin: true },
   { para: '/erps', rotulo: 'Sistemas ERP', superAdmin: true },
   { para: '/cobranca', rotulo: 'Cobrança', superAdmin: true },

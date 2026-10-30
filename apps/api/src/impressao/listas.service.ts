@@ -44,6 +44,9 @@ const SELECAO_ITEM = {
 
 const SELECAO_IMPRESSORA = { id: true, nome: true, linguagem: true, dpi: true, ativo: true } satisfies Prisma.ImpressoraSelect;
 
+/** Modelo como a lista do dia precisa (consulta e impressora padrão). */
+export type ModeloDaLista = { id: string; nome: string; consultaId: string | null; impressoraId: string | null };
+
 /** AAAA-MM-DD → Date à meia-noite UTC (coluna `date` do Postgres). */
 function dataDoDia(dia: string) {
   return new Date(`${dia}T00:00:00Z`);
@@ -91,6 +94,60 @@ export class ListasService {
    * marcado para a lista do dia. Itens já impressos, na fila ou descartados hoje não voltam.
    */
   async gerar(empresaId: string, usuarioId: string): Promise<ListaDiariaResumo> {
+    const listaId = await this.listaDeHoje(empresaId);
+    const modelos = await this.prisma.modeloEtiqueta.findMany({
+      where: { empresaId, ativo: true, naListaDiaria: true, consultaId: { not: null } },
+      orderBy: { nome: 'asc' },
+      select: { id: true, nome: true, consultaId: true, impressoraId: true },
+    });
+    const { novos, erros } = await this.consultarModelos(empresaId, usuarioId, listaId, modelos);
+
+    // Itens de modelos agendados fora da lista do dia são do agendamento: o botão não os apaga.
+    const agendados = await this.prisma.agendamentoModelo.findMany({ where: { empresaId, ativo: true }, select: { modeloId: true } });
+    const doAgendamento = agendados.map((a) => a.modeloId).filter((id) => !modelos.some((m) => m.id === id));
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.substituirPendentes(tx, listaId, doAgendamento.length ? { modeloId: { notIn: doAgendamento } } : {}, novos);
+      await tx.listaDiaria.update({ where: { id: listaId }, data: { erros: erros as unknown as Prisma.InputJsonArray, atualizadoEm: new Date() } });
+      await this.auditoria.registrar(
+        { empresaId, usuarioId, acao: 'lista.gerar', entidade: 'ListaDiaria', entidadeId: listaId, detalhes: { modelos: modelos.length, itens: novos.length, erros: erros.length } },
+        tx,
+      );
+    });
+
+    return (await this.deHoje(empresaId))!;
+  }
+
+  /**
+   * Agendamento: atualiza na lista de hoje só os itens de um modelo. Se a consulta falhar,
+   * os pendentes anteriores ficam como estavam.
+   */
+  async atualizarModeloNaLista(
+    empresaId: string,
+    usuarioId: string,
+    modelo: ModeloDaLista,
+    impressoraId: string | null,
+  ): Promise<{ pendentes: number; erro?: string; aviso?: string }> {
+    const listaId = await this.listaDeHoje(empresaId);
+    const { novos, erros, falhou } = await this.consultarModelos(empresaId, usuarioId, listaId, [modelo], impressoraId);
+    if (falhou) return { pendentes: 0, erro: erros[0]?.mensagem };
+    const pendentes = await this.prisma.$transaction((tx) => this.substituirPendentes(tx, listaId, { modeloId: modelo.id }, novos));
+    await this.prisma.listaDiaria.update({ where: { id: listaId }, data: { atualizadoEm: new Date() } });
+    return { pendentes, aviso: erros[0]?.mensagem };
+  }
+
+  /** Agendamento com impressão automática: imprime os pendentes do modelo na lista de hoje. */
+  async imprimirPendentesDoModelo(empresaId: string, usuarioId: string, modeloId: string): Promise<ImprimirResposta> {
+    const listaId = await this.listaDeHoje(empresaId);
+    const itens = await this.prisma.itemLista.findMany({
+      where: { listaId, empresaId, modeloId, status: 'PENDENTE', trabalhoId: null, quantidade: { gt: 0 } },
+      select: { id: true, quantidade: true },
+    });
+    if (itens.length === 0) return { trabalhos: [], avisos: [] };
+    return this.imprimirLista(empresaId, listaId, { itens: itens.map((i) => ({ id: i.id, quantidade: i.quantidade })) }, usuarioId, 'AGENDAMENTO');
+  }
+
+  private async listaDeHoje(empresaId: string): Promise<string> {
     const data = dataDoDia(this.hoje());
     const lista = await this.prisma.listaDiaria.upsert({
       where: { empresaId_data: { empresaId, data } },
@@ -98,20 +155,33 @@ export class ListasService {
       update: {},
       select: { id: true },
     });
+    return lista.id;
+  }
 
-    const modelos = await this.prisma.modeloEtiqueta.findMany({
-      where: { empresaId, ativo: true, naListaDiaria: true, consultaId: { not: null } },
-      orderBy: { nome: 'asc' },
-      select: { id: true, nome: true, consultaId: true, impressoraId: true },
-    });
+  /** Troca os pendentes (sem trabalho) do escopo pelos itens novos; devolve quantos ficaram. */
+  private async substituirPendentes(tx: Prisma.TransactionClient, listaId: string, escopo: Prisma.ItemListaWhereInput, novos: Prisma.ItemListaCreateManyInput[]) {
+    await tx.itemLista.deleteMany({ where: { ...escopo, listaId, status: 'PENDENTE', trabalhoId: null } });
+    // Pendentes ligados a um trabalho com erro ficam (podem ser reenviados); não duplica.
+    const restantes = await tx.itemLista.findMany({ where: { listaId, status: 'PENDENTE' }, select: { modeloId: true, chave: true } });
+    const manter = new Set(restantes.map((i) => `${i.modeloId}|${i.chave}`));
+    const criar = novos.filter((n) => !manter.has(`${n.modeloId}|${n.chave}`));
+    await tx.itemLista.createMany({ data: criar });
+    return criar.length;
+  }
 
+  /**
+   * Executa as consultas dos modelos (uma vez por consulta) e monta os itens que ainda não
+   * foram impressos, enviados ou descartados hoje. Não grava nada.
+   */
+  private async consultarModelos(empresaId: string, usuarioId: string, listaId: string, modelos: ModeloDaLista[], impressoraFixa?: string | null) {
     const existentes = await this.prisma.itemLista.findMany({
-      where: { listaId: lista.id, status: { not: 'PENDENTE' } },
+      where: { listaId, status: { not: 'PENDENTE' } },
       select: { modeloId: true, chave: true },
     });
     const jaTratados = new Set(existentes.map((i) => `${i.modeloId}|${i.chave}`));
 
     const erros: ErroLista[] = [];
+    let falhou = false;
     const resultados = new Map<string, Promise<ResultadoConsulta>>();
     const novos: Prisma.ItemListaCreateManyInput[] = [];
 
@@ -126,6 +196,7 @@ export class ListasService {
         resultado = await resultados.get(consultaId)!;
       } catch (e) {
         erros.push({ modeloId: modelo.id, modeloNome: modelo.nome, mensagem: e instanceof HttpException ? e.message : 'Erro inesperado.' });
+        falhou = true;
         continue;
       }
       if (resultado.truncado) {
@@ -139,9 +210,9 @@ export class ListasService {
         vistos.add(k);
         novos.push({
           empresaId,
-          listaId: lista.id,
+          listaId,
           modeloId: modelo.id,
-          impressoraId: modelo.impressoraId,
+          impressoraId: impressoraFixa ?? modelo.impressoraId,
           chave,
           descricao: descricaoDoRegistro(registro),
           registro: registro as Prisma.InputJsonObject,
@@ -149,21 +220,7 @@ export class ListasService {
         });
       }
     }
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.itemLista.deleteMany({ where: { listaId: lista.id, status: 'PENDENTE', trabalhoId: null } });
-      // Pendentes ligados a um trabalho com erro ficam (podem ser reenviados); não duplica.
-      const restantes = await tx.itemLista.findMany({ where: { listaId: lista.id, status: 'PENDENTE' }, select: { modeloId: true, chave: true } });
-      const manter = new Set(restantes.map((i) => `${i.modeloId}|${i.chave}`));
-      await tx.itemLista.createMany({ data: novos.filter((n) => !manter.has(`${n.modeloId}|${n.chave}`)) });
-      await tx.listaDiaria.update({ where: { id: lista.id }, data: { erros: erros as unknown as Prisma.InputJsonArray, atualizadoEm: new Date() } });
-      await this.auditoria.registrar(
-        { empresaId, usuarioId, acao: 'lista.gerar', entidade: 'ListaDiaria', entidadeId: lista.id, detalhes: { modelos: modelos.length, itens: novos.length, erros: erros.length } },
-        tx,
-      );
-    });
-
-    return (await this.deHoje(empresaId))!;
+    return { novos, erros, falhou };
   }
 
   async atualizarItem(empresaId: string, id: string, dto: AtualizarItemDto, usuarioId: string) {
@@ -178,7 +235,13 @@ export class ListasService {
   }
 
   /** Impressão em lote: separa os itens por modelo e impressora e cria um trabalho por grupo. */
-  async imprimirLista(empresaId: string, listaId: string, dto: ImprimirListaDto, usuarioId: string): Promise<ImprimirResposta> {
+  async imprimirLista(
+    empresaId: string,
+    listaId: string,
+    dto: ImprimirListaDto,
+    usuarioId: string,
+    origem: 'LISTA' | 'AGENDAMENTO' = 'LISTA',
+  ): Promise<ImprimirResposta> {
     const quantidades = new Map(dto.itens.map((i) => [i.id, i.quantidade]));
     const total = [...quantidades.values()].reduce((a, b) => a + b, 0);
     if (total > MAXIMO_ETIQUETAS_POR_PEDIDO) throw new BadRequestException(`No máximo ${MAXIMO_ETIQUETAS_POR_PEDIDO} etiquetas por vez.`);
@@ -220,7 +283,7 @@ export class ListasService {
         impressora,
         registros,
         itemIds: grupo.map((i) => i.id),
-        origem: 'LISTA',
+        origem,
       });
       resposta.trabalhos.push(...r.trabalhos);
       resposta.avisos.push(...r.avisos);

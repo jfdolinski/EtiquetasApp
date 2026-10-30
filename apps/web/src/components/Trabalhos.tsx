@@ -104,7 +104,7 @@ export function LinhaHistorico({ t }: { t: TrabalhoResumo }) {
       <td className="px-4 py-2.5 text-slate-500">{formatarData(t.criadoEm)}</td>
       <td className="px-4 py-2.5">
         <div className="font-medium">{t.modeloNome}</div>
-        <div className="text-xs text-slate-500">{t.origem === 'LISTA' ? 'Lista do dia' : 'Avulsa'}</div>
+        <div className="text-xs text-slate-500">{{ LISTA: 'Lista do dia', AVULSA: 'Avulsa', AGENDAMENTO: 'Agendamento' }[t.origem]}</div>
       </td>
       <td className="px-4 py-2.5">
         {t.impressoraNome}

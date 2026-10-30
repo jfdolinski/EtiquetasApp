@@ -14,6 +14,7 @@ import { Cobranca } from './pages/cobranca/Cobranca';
 import { Empresas } from './pages/Empresas';
 import { EditorErp } from './pages/erps/EditorErp';
 import { Erps } from './pages/erps/Erps';
+import { Agendamentos } from './pages/Agendamentos';
 import { Historico } from './pages/Historico';
 import { Hoje } from './pages/Hoje';
 import { Impressoras } from './pages/Impressoras';
@@ -69,6 +70,7 @@ export function App() {
         <Route path="hoje" element={<Protegida permissao="imprimir"><Hoje /></Protegida>} />
         <Route path="avulsa" element={<Protegida permissao="imprimir"><Avulsa /></Protegida>} />
         <Route path="historico" element={<Protegida permissao="imprimir"><Historico /></Protegida>} />
+        <Route path="agendamentos" element={<Protegida permissao="agendamento.ver"><Agendamentos /></Protegida>} />
         <Route path="auditoria" element={<Protegida permissao="auditoria.ver"><Auditoria /></Protegida>} />
         <Route path="minha-conta" element={<MinhaConta />} />
         <Route path="*" element={<Navigate to="/" replace />} />

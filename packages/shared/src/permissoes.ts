@@ -16,13 +16,15 @@ export const PERMISSOES = [
     grupo: 'Agentes e bancos',
     descricao: 'Cadastrar agentes, gerar códigos de ativação e editar conexões de banco',
   },
-  { codigo: 'sql.ver', grupo:'Consultas SQL', descricao: 'Ver consultas SQL' },
+  { codigo: 'sql.ver', grupo: 'Consultas SQL', descricao: 'Ver consultas SQL' },
   { codigo: 'sql.editar', grupo: 'Consultas SQL', descricao: 'Editar e testar consultas SQL' },
   { codigo: 'etiqueta.modelo.ver', grupo: 'Etiquetas', descricao: 'Ver modelos de etiqueta' },
   { codigo: 'etiqueta.modelo.editar', grupo: 'Etiquetas', descricao: 'Criar e editar modelos de etiqueta' },
   { codigo: 'impressora.ver', grupo: 'Impressoras', descricao: 'Ver impressoras' },
   { codigo: 'impressora.editar', grupo: 'Impressoras', descricao: 'Cadastrar e editar impressoras' },
   { codigo: 'imprimir', grupo: 'Impressão', descricao: 'Imprimir etiquetas' },
+  { codigo: 'agendamento.ver', grupo: 'Agendamentos', descricao: 'Ver agendamentos de modelos' },
+  { codigo: 'agendamento.editar', grupo: 'Agendamentos', descricao: 'Criar, editar, executar e excluir agendamentos (inclusive com impressão automática)' },
   { codigo: 'auditoria.ver', grupo: 'Auditoria', descricao: 'Consultar o registro de auditoria da empresa' },
 ] as const;
 

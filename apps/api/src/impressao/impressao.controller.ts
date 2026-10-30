@@ -1,8 +1,9 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
-import { AtualizarItemDto, BuscarAvulsaDto, ImprimirAvulsaDto, ImprimirListaDto } from './dto';
+import { AgendamentosService } from './agendamentos.service';
+import { AtualizarAgendamentoDto, AtualizarItemDto, BuscarAvulsaDto, CriarAgendamentoDto, ImprimirAvulsaDto, ImprimirListaDto } from './dto';
 import { ListasService } from './listas.service';
 import { TrabalhosService } from './trabalhos.service';
 
@@ -109,5 +110,53 @@ export class TrabalhosController {
   @RequerPermissao('imprimir')
   cancelar(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() usuario: UsuarioRequisicao) {
     return this.trabalhos.cancelar(empresaId, id, usuario.id);
+  }
+}
+
+@Controller('agendamentos')
+export class AgendamentosController {
+  constructor(private readonly agendamentos: AgendamentosService) {}
+
+  @Get()
+  @RequerPermissao('agendamento.ver')
+  listar(@EmpresaAtual() empresaId: string) {
+    return this.agendamentos.listar(empresaId);
+  }
+
+  @Get('opcoes')
+  @RequerPermissao('agendamento.ver')
+  opcoes(@EmpresaAtual() empresaId: string) {
+    return this.agendamentos.opcoes(empresaId);
+  }
+
+  @Post()
+  @RequerPermissao('agendamento.editar')
+  criar(@EmpresaAtual() empresaId: string, @Body() dto: CriarAgendamentoDto, @UsuarioAtual() autor: UsuarioRequisicao) {
+    return this.agendamentos.criar(empresaId, dto, autor.id);
+  }
+
+  @Patch(':id')
+  @RequerPermissao('agendamento.editar')
+  atualizar(
+    @EmpresaAtual() empresaId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AtualizarAgendamentoDto,
+    @UsuarioAtual() autor: UsuarioRequisicao,
+  ) {
+    return this.agendamentos.atualizar(empresaId, id, dto, autor.id);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  @RequerPermissao('agendamento.editar')
+  async excluir(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() autor: UsuarioRequisicao) {
+    await this.agendamentos.excluir(empresaId, id, autor.id);
+  }
+
+  @Post(':id/executar')
+  @HttpCode(200)
+  @RequerPermissao('agendamento.editar')
+  executar(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() autor: UsuarioRequisicao) {
+    return this.agendamentos.executarAgora(empresaId, id, autor.id);
   }
 }

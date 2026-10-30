@@ -41,6 +41,7 @@ function montar() {
       findFirst: jest.fn(async (_: unknown) => null as unknown),
     },
     impressora: { findMany: jest.fn(async () => []), findFirst: jest.fn(async (_: unknown) => null as unknown) },
+    agendamentoModelo: { findMany: jest.fn(async (_: unknown) => [] as { modeloId: string }[]) },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
   const consultas = {
@@ -92,6 +93,15 @@ describe('ListasService.gerar', () => {
     await servico.gerar(EMPRESA, 'u1');
     const { data } = (tx.listaDiaria.update.mock.calls[0] as unknown as [{ data: { erros: { modeloNome: string; mensagem: string }[] } }])[0];
     expect(data.erros).toEqual([{ modeloId: 'm3', modeloNome: 'Açougue', mensagem: 'O agente desta conexão está offline.' }]);
+  });
+});
+
+describe('ListasService com agendamentos', () => {
+  it('Atualizar a lista não apaga os pendentes de modelo agendado fora da lista do dia', async () => {
+    const { servico, prisma, tx } = montar();
+    prisma.agendamentoModelo.findMany.mockResolvedValueOnce([{ modeloId: 'm9' }, { modeloId: 'm1' }]);
+    await servico.gerar(EMPRESA, 'u1');
+    expect(tx.itemLista.deleteMany).toHaveBeenCalledWith({ where: { modeloId: { notIn: ['m9'] }, listaId: 'l1', status: 'PENDENTE', trabalhoId: null } });
   });
 });
 
