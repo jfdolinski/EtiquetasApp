@@ -111,6 +111,8 @@ export interface ModeloAvulso {
   nome: string;
   impressoraId: string | null;
   parametros: string[];
+  /** Campos do modelo: colunas da consulta e campos usados no layout (para incluir linhas à mão). */
+  campos: string[];
 }
 
 export interface BuscaAvulsaResposta {

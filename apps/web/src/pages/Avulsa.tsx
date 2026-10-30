@@ -1,18 +1,24 @@
-import { useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
-  QUANTIDADE_MAXIMA_ITEM,
+  somarResultados,
   type BuscaAvulsaResposta,
   type ImpressoraResumo,
   type ImprimirResposta,
+  type LinhaAvulsa,
   type ModeloAvulso,
-  type Registro,
 } from '@etiquetas/shared';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { ExigeEmpresa } from '../components/ExigeEmpresa';
 import { AcompanharTrabalhos } from '../components/Trabalhos';
 import { Alerta, Botao, Cabecalho, Selecao } from '../components/ui';
+import { Grade } from './avulsa/Grade';
+
+/** Limites do pedido de impressão avulsa (iguais aos da API). */
+const MAXIMO_LINHAS = 200;
+const MAXIMO_ETIQUETAS = 20_000;
+const LIMITE_HISTORICO = 30;
 
 export function Avulsa() {
   return (
@@ -20,6 +26,52 @@ export function Avulsa() {
       <EtiquetaAvulsa />
     </ExigeEmpresa>
   );
+}
+
+function carregar(chave: string): LinhaAvulsa[] {
+  try {
+    const dados = JSON.parse(localStorage.getItem(chave) ?? '[]');
+    return Array.isArray(dados) ? dados : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Lista do modelo, guardada no navegador: recarregar a página ou trocar de modelo e voltar
+ * não perde o que foi montado. Inclui o histórico para desfazer.
+ */
+function useListaDoModelo(chave: string) {
+  const [estado, setEstado] = useState(() => ({ chave, linhas: carregar(chave), historico: [] as LinhaAvulsa[][] }));
+  const atual = estado.chave === chave ? estado : { chave, linhas: carregar(chave), historico: [] };
+  if (atual !== estado) setEstado(atual);
+  const ref = useRef(atual);
+  ref.current = atual;
+
+  useEffect(() => {
+    try {
+      if (atual.linhas.length) localStorage.setItem(atual.chave, JSON.stringify(atual.linhas));
+      else localStorage.removeItem(atual.chave);
+    } catch {
+      // Navegador sem armazenamento: a lista vale só nesta tela.
+    }
+  }, [atual.chave, atual.linhas]);
+
+  const trocar = useCallback((linhas: LinhaAvulsa[], historico: LinhaAvulsa[][]) => {
+    ref.current = { ...ref.current, linhas, historico };
+    setEstado(ref.current);
+  }, []);
+  return {
+    linhas: atual.linhas,
+    podeDesfazer: atual.historico.length > 0,
+    alterar: (novas: LinhaAvulsa[]) => trocar(novas, [...ref.current.historico.slice(-(LIMITE_HISTORICO - 1)), ref.current.linhas]),
+    substituir: (novas: LinhaAvulsa[]) => trocar(novas, ref.current.historico),
+    lembrar: (antes: LinhaAvulsa[]) => trocar(ref.current.linhas, [...ref.current.historico.slice(-(LIMITE_HISTORICO - 1)), antes]),
+    desfazer: () => {
+      const h = ref.current.historico;
+      if (h.length) trocar(h[h.length - 1], h.slice(0, -1));
+    },
+  };
 }
 
 function EtiquetaAvulsa() {
@@ -37,30 +89,66 @@ function EtiquetaAvulsa() {
   const [modeloId, setModeloId] = useState('');
   const [impressoraId, setImpressoraId] = useState('');
   const [valores, setValores] = useState<Record<string, string>>({});
-  const [resultado, setResultado] = useState<BuscaAvulsaResposta | null>(null);
-  const [quantidades, setQuantidades] = useState<Record<number, number>>({});
+  const [somar, setSomar] = useState(true);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [focarId, setFocarId] = useState<string | null>(null);
   const [envio, setEnvio] = useState<ImprimirResposta | null>(null);
+  const primeiroParametro = useRef<HTMLInputElement>(null);
 
   const modelo = modelos.find((m) => m.id === modeloId) ?? modelos[0] ?? null;
+  const lista = useListaDoModelo(`etiquetas.avulsa.${empresaId}.${modelo?.id ?? ''}`);
+  const { linhas } = lista;
+
+  // Colunas: campos do modelo primeiro, depois as que vieram das buscas.
+  const colunas = [...new Set([...(modelo?.campos ?? []), ...linhas.flatMap((l) => Object.keys(l.registro))])];
 
   const buscar = useMutation({
     mutationFn: () => api<BuscaAvulsaResposta>('/avulsa/buscar', { metodo: 'POST', corpo: { modeloId: modelo!.id, parametros: valores } }),
     onSuccess: (r) => {
-      setResultado(r);
-      setQuantidades(r.registros.length === 1 ? { 0: 1 } : {});
       setEnvio(null);
+      if (r.registros.length === 0) return setAviso('Nenhum produto encontrado.');
+      const umSo = r.registros.length === 1;
+      if (somar && umSo) {
+        // Leitor de código de barras: o mesmo produto de novo soma uma etiqueta.
+        const igual = linhas.find((l) => JSON.stringify(l.registro) === JSON.stringify(r.registros[0]));
+        if (igual) {
+          lista.alterar(linhas.map((l) => (l === igual ? { ...l, quantidade: l.quantidade + 1 } : l)));
+          setAviso(`Produto já estava na lista: agora com ${igual.quantidade + 1} etiqueta(s).`);
+          return limparBusca();
+        }
+      }
+      const base = somar ? linhas : [];
+      const { linhas: novas, novas: quantas } = somarResultados(base, r.registros, () => crypto.randomUUID(), umSo ? 1 : 0);
+      lista.alterar(novas);
+      const repetidos = r.registros.length - quantas;
+      setAviso(
+        `${quantas} produto(s) ${somar ? 'adicionado(s) à lista' : 'na lista'}` +
+          (repetidos ? `, ${repetidos} já estava(m) nela` : '') +
+          (umSo ? '.' : '. Informe a quantidade de etiquetas de cada um (ou use “Alterar em massa”).'),
+      );
+      limparBusca();
     },
   });
 
-  const escolhidos = Object.entries(quantidades).filter(([, q]) => q > 0);
+  function limparBusca() {
+    setValores({});
+    primeiroParametro.current?.focus();
+  }
+
+  function novaLinha() {
+    const id = crypto.randomUUID();
+    lista.alterar([{ id, quantidade: 1, registro: Object.fromEntries(colunas.map((c) => [c, ''])) }, ...linhas]);
+    setFocarId(id);
+  }
+
   const imprimir = useMutation({
-    mutationFn: () =>
+    mutationFn: (itens: LinhaAvulsa[]) =>
       api<ImprimirResposta>('/avulsa/imprimir', {
         metodo: 'POST',
         corpo: {
           modeloId: modelo!.id,
           impressoraId: impressoraId || undefined,
-          itens: escolhidos.map(([i, q]) => ({ registro: resultado!.registros[Number(i)] as Registro, quantidade: q })),
+          itens: itens.map((l) => ({ registro: l.registro, quantidade: l.quantidade })),
         },
       }),
     onSuccess: setEnvio,
@@ -75,7 +163,10 @@ function EtiquetaAvulsa() {
 
   return (
     <>
-      <Cabecalho titulo="Etiqueta avulsa" descricao="Busca o produto direto no banco do ERP e imprime na hora." />
+      <Cabecalho
+        titulo="Etiqueta avulsa"
+        descricao="Monte a lista buscando no ERP ou digitando, ajuste os dados e imprima. A lista fica guardada neste navegador."
+      />
       {modelos.length === 0 ? (
         <Alerta tipo="info">
           Nenhum modelo pronto para etiqueta avulsa. Crie uma consulta com finalidade “Busca de produto” usando {'{param.busca}'} e vincule-a a um modelo.
@@ -89,7 +180,8 @@ function EtiquetaAvulsa() {
                 value={modelo?.id ?? ''}
                 onChange={(e) => {
                   setModeloId(e.target.value);
-                  setResultado(null);
+                  setAviso(null);
+                  setEnvio(null);
                 }}
               >
                 {modelos.map((m) => (
@@ -97,11 +189,12 @@ function EtiquetaAvulsa() {
                 ))}
               </Selecao>
             </div>
-            {modelo?.parametros.map((p) => (
+            {modelo?.parametros.map((p, i) => (
               <label key={p} className="block">
                 <span className="mb-1 block text-sm font-medium text-slate-700">{p === 'busca' ? 'Código, EAN ou nome' : p}</span>
                 <input
-                  autoFocus
+                  ref={i === 0 ? primeiroParametro : undefined}
+                  autoFocus={i === 0}
                   value={valores[p] ?? ''}
                   onChange={(e) => setValores({ ...valores, [p]: e.target.value })}
                   className="w-64 rounded-md border border-slate-300 px-3 py-2 text-sm"
@@ -109,62 +202,69 @@ function EtiquetaAvulsa() {
               </label>
             ))}
             <Botao type="submit" disabled={buscar.isPending || !modelo}>{buscar.isPending ? 'Buscando…' : 'Buscar'}</Botao>
+            <label className="flex items-center gap-2 pb-2 text-sm text-slate-700" title="Desmarcado, cada busca substitui a lista">
+              <input type="checkbox" checked={somar} onChange={(e) => setSomar(e.target.checked)} />
+              Somar à lista
+            </label>
+            {linhas.length > 0 && (
+              <button
+                type="button"
+                className="ml-auto pb-2 text-sm text-red-700 hover:underline"
+                onClick={() => window.confirm(`Apagar as ${linhas.length} linha(s) da lista?`) && (lista.alterar([]), setAviso(null), setEnvio(null))}
+              >
+                Limpar lista
+              </button>
+            )}
           </form>
           {buscar.error && <Alerta>{buscar.error.message}</Alerta>}
+          {aviso && <Alerta tipo="info">{aviso}</Alerta>}
 
-          {resultado && resultado.registros.length === 0 && <Alerta tipo="info">Nenhum produto encontrado.</Alerta>}
-          {resultado && resultado.registros.length > 0 && (
-            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="px-4 py-2 text-left font-medium text-slate-600">Etiquetas</th>
-                    {resultado.colunas.map((c) => (
-                      <th key={c} className="px-4 py-2 text-left font-medium text-slate-600">{c}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {resultado.registros.map((r, i) => (
-                    <tr key={i}>
-                      <td className="px-4 py-2">
-                        <input
-                          type="number"
-                          min={0}
-                          max={QUANTIDADE_MAXIMA_ITEM}
-                          value={quantidades[i] ?? 0}
-                          onChange={(e) => setQuantidades({ ...quantidades, [i]: Math.max(0, Math.min(QUANTIDADE_MAXIMA_ITEM, Math.floor(e.target.valueAsNumber || 0))) })}
-                          className="w-20 rounded border border-slate-300 px-2 py-1"
-                          aria-label="Quantidade de etiquetas"
-                        />
-                      </td>
-                      {resultado.colunas.map((c) => (
-                        <td key={c} className="px-4 py-2 whitespace-nowrap">{r[c] === null || r[c] === undefined ? '' : String(r[c])}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {resultado && resultado.registros.length > 0 && (
-            <div className="flex flex-wrap items-end justify-end gap-3">
-              {impressoras.length > 0 && (
-                <div className="w-72">
-                  <Selecao rotulo="Impressora" value={impressoraId} onChange={(e) => setImpressoraId(e.target.value)}>
-                    <option value="">Padrão do modelo</option>
-                    {impressoras.filter((i) => i.ativo).map((i) => (
-                      <option key={i.id} value={i.id}>{i.nome} ({i.linguagem})</option>
-                    ))}
-                  </Selecao>
+          <Grade
+            linhas={linhas}
+            colunas={colunas}
+            alterar={lista.alterar}
+            substituir={lista.substituir}
+            lembrar={lista.lembrar}
+            podeDesfazer={lista.podeDesfazer}
+            desfazer={lista.desfazer}
+            novaLinha={novaLinha}
+            focarId={focarId}
+            rodape={(visiveis) => {
+              const itens = visiveis.filter((l) => l.quantidade > 0);
+              const total = itens.reduce((s, l) => s + l.quantidade, 0);
+              const ocultas = linhas.filter((l) => l.quantidade > 0).length - itens.length;
+              const problema =
+                itens.length > MAXIMO_LINHAS
+                  ? `No máximo ${MAXIMO_LINHAS} linhas por impressão; filtre ou imprima em partes.`
+                  : total > MAXIMO_ETIQUETAS
+                    ? `No máximo ${MAXIMO_ETIQUETAS.toLocaleString('pt-BR')} etiquetas por vez.`
+                    : null;
+              return (
+                <div className="flex flex-wrap items-end justify-end gap-3 pt-2">
+                  {ocultas > 0 && (
+                    <p className="mr-auto self-center text-xs text-amber-700">
+                      {ocultas} linha(s) com etiquetas estão ocultas pelo filtro e não serão impressas.
+                    </p>
+                  )}
+                  {problema && <p className="mr-auto self-center text-xs text-red-700">{problema}</p>}
+                  {impressoras.length > 0 && (
+                    <div className="w-72">
+                      <Selecao rotulo="Impressora" value={impressoraId} onChange={(e) => setImpressoraId(e.target.value)}>
+                        <option value="">Padrão do modelo</option>
+                        {impressoras.filter((i) => i.ativo).map((i) => (
+                          <option key={i.id} value={i.id}>{i.nome} ({i.linguagem})</option>
+                        ))}
+                      </Selecao>
+                    </div>
+                  )}
+                  <Botao disabled={imprimir.isPending || itens.length === 0 || problema !== null} onClick={() => imprimir.mutate(itens)}>
+                    {imprimir.isPending ? 'Gerando…' : `Imprimir ${total} etiqueta(s)`}
+                  </Botao>
                 </div>
-              )}
-              <Botao disabled={imprimir.isPending || escolhidos.length === 0} onClick={() => imprimir.mutate()}>
-                {imprimir.isPending ? 'Gerando…' : `Imprimir ${escolhidos.reduce((s, [, q]) => s + q, 0)} etiqueta(s)`}
-              </Botao>
-            </div>
-          )}
+              );
+            }}
+          />
+
           {imprimir.error && <Alerta>{imprimir.error.message}</Alerta>}
           {envio && (
             <div className="space-y-2">

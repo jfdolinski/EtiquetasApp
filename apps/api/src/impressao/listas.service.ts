@@ -1,6 +1,7 @@
 import { BadRequestException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
+  camposUsados,
   chaveDoRegistro,
   descricaoDoRegistro,
   ehParametro,
@@ -232,7 +233,13 @@ export class ListasService {
     const modelos = await this.prisma.modeloEtiqueta.findMany({
       where: { empresaId, ativo: true, consulta: { ativo: true, finalidade: 'BUSCA_PRODUTO' } },
       orderBy: { nome: 'asc' },
-      select: { id: true, nome: true, impressoraId: true, consulta: { select: { sql: true, conexao: { select: { tipo: true } } } } },
+      select: {
+        id: true,
+        nome: true,
+        impressoraId: true,
+        layout: true,
+        consulta: { select: { sql: true, campos: true, conexao: { select: { tipo: true } } } },
+      },
     });
     return modelos.map((m) => {
       let parametros: string[] = [];
@@ -243,7 +250,10 @@ export class ListasService {
       } catch {
         // SQL inválido aparece como erro na busca.
       }
-      return { id: m.id, nome: m.nome, impressoraId: m.impressoraId, parametros };
+      // Campos da consulta (na ordem dela) e os que o layout usa: o operador pode digitar qualquer um.
+      const daConsulta = Array.isArray(m.consulta!.campos) ? (m.consulta!.campos as { nome?: unknown }[]).map((c) => String(c?.nome ?? '')) : [];
+      const campos = [...new Set([...daConsulta, ...camposUsados(m.layout as unknown as LayoutEtiqueta)].filter(Boolean))];
+      return { id: m.id, nome: m.nome, impressoraId: m.impressoraId, parametros, campos };
     });
   }
 

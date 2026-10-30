@@ -119,4 +119,20 @@ describe('ListasService (isolamento e validação)', () => {
     ).rejects.toThrow(/Impressora inválida/);
     expect(prisma.impressora.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'i-alheia', empresaId: EMPRESA } }));
   });
+
+  it('avulsa: modelos da empresa trazem parâmetros e campos (consulta + layout, sem repetir)', async () => {
+    const { servico, prisma } = montar();
+    prisma.modeloEtiqueta.findMany.mockResolvedValueOnce([
+      {
+        id: 'm1',
+        nome: 'Busca',
+        impressoraId: null,
+        layout: { elementos: [{ tipo: 'texto', valor: { tipo: 'campo', campo: 'preco' } }, { tipo: 'texto', valor: { tipo: 'campo', campo: 'validade' } }] },
+        consulta: { sql: 'select * from p where c = {param.busca}', campos: [{ nome: 'codigo' }, { nome: 'preco' }], conexao: { tipo: 'POSTGRES' } },
+      },
+    ] as never);
+    const [m] = await servico.modelosAvulsos(EMPRESA);
+    expect(prisma.modeloEtiqueta.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ empresaId: EMPRESA }) }));
+    expect(m).toMatchObject({ parametros: ['busca'], campos: ['codigo', 'preco', 'validade'] });
+  });
 });
