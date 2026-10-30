@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
-import { formatarCnpj, STATUS_ASSINATURA, type EmpresaResumo, type SistemaErpResumo, type StatusAssinatura } from '@etiquetas/shared';
+import { formatarCnpj, normalizarCnpj, STATUS_ASSINATURA, validarCnpj, type DadosCnpj, type EmpresaResumo, type SistemaErpResumo, type StatusAssinatura } from '@etiquetas/shared';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Alerta, Botao, Cabecalho, Campo, Modal, Selecao, Selo, Tabela, formatarData } from '../components/ui';
@@ -95,6 +95,75 @@ function SelecaoErp({ valor, aoMudar }: { valor: string; aoMudar: (v: string) =>
   );
 }
 
+/**
+ * CNPJ com busca dos dados públicos (BrasilAPI, CNPJ.ws ou ReceitaWS, consultados pela API).
+ * Preenche razão social e nome fantasia; busca sozinho ao sair do campo se a razão social estiver vazia.
+ */
+function CampoCnpj({
+  valor,
+  aoMudar,
+  aoEncontrar,
+  buscarAoSair,
+  empresaAtualId,
+  ajuda,
+}: {
+  valor: string;
+  aoMudar: (cnpj: string) => void;
+  aoEncontrar: (dados: DadosCnpj) => void;
+  buscarAoSair: boolean;
+  empresaAtualId?: string;
+  ajuda?: string;
+}) {
+  const busca = useMutation({
+    mutationFn: (cnpj: string) => api<DadosCnpj>(`/empresas/consulta-cnpj/${encodeURIComponent(normalizarCnpj(cnpj))}`),
+    onSuccess: (dados) => {
+      aoMudar(formatarCnpj(dados.cnpj));
+      aoEncontrar(dados);
+    },
+  });
+  const dados = busca.data;
+  const valido = validarCnpj(valor);
+
+  function buscar() {
+    if (valido && !busca.isPending) busca.mutate(valor);
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <div className="flex-1">
+          <Campo
+            rotulo="CNPJ"
+            required
+            placeholder="00.000.000/0000-00"
+            value={valor}
+            onChange={(e) => {
+              aoMudar(e.target.value);
+              busca.reset();
+            }}
+            onBlur={() => buscarAoSair && buscar()}
+            ajuda={ajuda}
+          />
+        </div>
+        <Botao variante="secundario" className="mt-6 self-start" onClick={buscar} disabled={!valido || busca.isPending} title="Buscar razão social e nome fantasia na Receita Federal">
+          {busca.isPending ? 'Buscando…' : 'Buscar dados'}
+        </Botao>
+      </div>
+      {busca.error && <Alerta tipo="aviso">{busca.error.message}</Alerta>}
+      {dados && (
+        <Alerta tipo={dados.situacao && !/^ativa$/i.test(dados.situacao) ? 'aviso' : 'info'}>
+          Dados preenchidos a partir da {dados.fonte}
+          {dados.situacao && <> · situação <strong>{dados.situacao}</strong></>}
+          {dados.municipio && <> · {dados.municipio}{dados.uf && `/${dados.uf}`}</>}
+          {dados.empresaExistenteId && dados.empresaExistenteId !== empresaAtualId && (
+            <div className="mt-1 font-medium text-amber-900">Já existe uma empresa cadastrada com este CNPJ.</div>
+          )}
+        </Alerta>
+      )}
+    </div>
+  );
+}
+
 function FormNovaEmpresa({ aoConcluir }: { aoConcluir: () => void }) {
   const cliente = useQueryClient();
   const [f, setF] = useState({ razaoSocial: '', nomeFantasia: '', cnpj: '', codigoErp: '', sistemaErpId: '', adminNome: '', adminEmail: '', adminSenha: '' });
@@ -126,12 +195,16 @@ function FormNovaEmpresa({ aoConcluir }: { aoConcluir: () => void }) {
   return (
     <form onSubmit={enviar} className="space-y-3">
       {mutacao.error && <Alerta>{mutacao.error.message}</Alerta>}
+      <CampoCnpj
+        valor={f.cnpj}
+        aoMudar={(cnpj) => setF((a) => ({ ...a, cnpj }))}
+        aoEncontrar={(d) => setF((a) => ({ ...a, razaoSocial: d.razaoSocial, nomeFantasia: d.nomeFantasia ?? a.nomeFantasia }))}
+        buscarAoSair={!f.razaoSocial}
+        ajuda="Aceita CNPJ alfanumérico. A busca preenche razão social e nome fantasia."
+      />
       <Campo rotulo="Razão social" required {...campo('razaoSocial')} />
       <Campo rotulo="Nome fantasia" {...campo('nomeFantasia')} />
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Campo rotulo="CNPJ" required placeholder="00.000.000/0000-00" {...campo('cnpj')} ajuda="Aceita CNPJ alfanumérico." />
-        <Campo rotulo="Código no ERP" {...campo('codigoErp')} />
-      </div>
+      <Campo rotulo="Código no ERP" {...campo('codigoErp')} />
       <SelecaoErp valor={f.sistemaErpId} aoMudar={(sistemaErpId) => setF({ ...f, sistemaErpId })} />
       <fieldset className="space-y-3 rounded-md border border-slate-200 p-3">
         <legend className="px-1 text-sm font-medium text-slate-700">Administrador da empresa</legend>
@@ -175,10 +248,16 @@ function FormEditarEmpresa({ empresa, aoConcluir }: { empresa: EmpresaResumo; ao
   return (
     <form onSubmit={enviar} className="space-y-3">
       {mutacao.error && <Alerta>{mutacao.error.message}</Alerta>}
+      <CampoCnpj
+        valor={f.cnpj}
+        aoMudar={(cnpj) => setF((a) => ({ ...a, cnpj }))}
+        aoEncontrar={(d) => setF((a) => ({ ...a, razaoSocial: d.razaoSocial, nomeFantasia: d.nomeFantasia ?? a.nomeFantasia }))}
+        buscarAoSair={false}
+        empresaAtualId={empresa.id}
+      />
       <Campo rotulo="Razão social" required value={f.razaoSocial} onChange={(e) => setF({ ...f, razaoSocial: e.target.value })} />
       <Campo rotulo="Nome fantasia" value={f.nomeFantasia} onChange={(e) => setF({ ...f, nomeFantasia: e.target.value })} />
       <div className="grid gap-3 sm:grid-cols-2">
-        <Campo rotulo="CNPJ" required value={f.cnpj} onChange={(e) => setF({ ...f, cnpj: e.target.value })} />
         <Campo rotulo="Código no ERP" value={f.codigoErp} onChange={(e) => setF({ ...f, codigoErp: e.target.value })} />
         <Campo rotulo="Plano" required value={f.plano} onChange={(e) => setF({ ...f, plano: e.target.value })} />
         <Selecao

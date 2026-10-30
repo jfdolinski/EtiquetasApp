@@ -1,17 +1,31 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { normalizarCnpj, validarCnpj, type DadosCnpj } from '@etiquetas/shared';
 import { ApenasSuperAdmin, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
+import { ConsultaCnpjService } from './consulta-cnpj';
 import { AtualizarEmpresaDto, CriarEmpresaDto } from './dto';
 import { EmpresasService } from './empresas.service';
 
 @Controller('empresas')
 @ApenasSuperAdmin()
 export class EmpresasController {
-  constructor(private readonly empresas: EmpresasService) {}
+  constructor(
+    private readonly empresas: EmpresasService,
+    private readonly consultaCnpj: ConsultaCnpjService,
+  ) {}
 
   @Get()
   listar() {
     return this.empresas.listar();
+  }
+
+  /** Dados públicos do CNPJ (razão social, nome fantasia…) para preencher o cadastro. Antes de `:id`. */
+  @Get('consulta-cnpj/:cnpj')
+  async consultarCnpj(@Param('cnpj') valor: string): Promise<DadosCnpj> {
+    if (!validarCnpj(valor)) throw new BadRequestException('CNPJ inválido.');
+    const cnpj = normalizarCnpj(valor);
+    const [dados, empresaExistenteId] = await Promise.all([this.consultaCnpj.consultar(cnpj), this.empresas.idPorCnpj(cnpj)]);
+    return { ...dados, empresaExistenteId };
   }
 
   @Get(':id')

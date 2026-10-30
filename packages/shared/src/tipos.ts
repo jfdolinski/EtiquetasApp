@@ -20,6 +20,21 @@ export interface EmpresaResumo {
   totalUsuarios?: number;
 }
 
+/** Dados públicos do CNPJ na Receita Federal, consultados em uma API gratuita para preencher o cadastro. */
+export interface DadosCnpj {
+  cnpj: string;
+  razaoSocial: string;
+  nomeFantasia: string | null;
+  /** Situação cadastral, por exemplo "ATIVA" ou "BAIXADA". */
+  situacao: string | null;
+  municipio: string | null;
+  uf: string | null;
+  /** Provedor que respondeu (BrasilAPI, CNPJ.ws ou ReceitaWS). */
+  fonte: string;
+  /** Id da empresa da plataforma que já usa este CNPJ, se houver. */
+  empresaExistenteId: string | null;
+}
+
 export interface UsuarioLogado {
   id: string;
   nome: string;

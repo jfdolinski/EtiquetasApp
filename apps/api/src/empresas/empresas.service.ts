@@ -45,6 +45,12 @@ export class EmpresasService {
     return paraResumo(empresa);
   }
 
+  /** Id da empresa que já usa o CNPJ (normalizado), para avisar antes de cadastrar de novo. */
+  async idPorCnpj(cnpj: string): Promise<string | null> {
+    const empresa = await this.prisma.empresa.findUnique({ where: { cnpj }, select: { id: true } });
+    return empresa?.id ?? null;
+  }
+
   /** Cria a empresa com o perfil "Administrador" (todas as permissões) e o primeiro usuário. */
   async criar(dto: CriarEmpresaDto, autorId: string) {
     const cnpj = cnpjValido(dto.cnpj);
