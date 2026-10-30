@@ -1,10 +1,12 @@
 import {
   ampliacaoQr,
   ancora,
+  avisarRecursosDesign,
   Avisos,
   codigoValido,
   deslocamentoAlinhamento,
   eixos,
+  formaTermica,
   larguraModulo,
   posicionar,
   semAcentos,
@@ -51,7 +53,8 @@ function elemento(e: ElementoPosicionado, dpi: number, avisos: Avisos): Comando[
   const { comprimento, espessura } = eixos(e);
 
   switch (e.el.tipo) {
-    case 'texto': {
+    case 'texto':
+    case 'preco': {
       if (!e.texto) return [];
       const f = escolherFontePplb((e.el.tamanhoPt * dpi) / 72, dpi);
       const ocupado = (f.largura + 2 * f.mult) * e.texto.length;
@@ -76,10 +79,15 @@ function elemento(e: ElementoPosicionado, dpi: number, avisos: Avisos): Comando[
       return [`b${e.x},${e.y},Q,m2,s${amp},eM,iA,${aspas(e.texto)}`];
     }
     case 'retangulo': {
-      const t = Math.max(1, mmParaPontos(e.el.espessuraMm, dpi));
-      if (e.el.preenchido) return [`LO${e.x},${e.y},${e.largura},${e.altura}`];
-      return [`X${e.x},${e.y},${t},${e.x + e.largura},${e.y + e.altura}`];
+      const f = formaTermica(e.el);
+      if (!f) return [];
+      if (f.preenchido) return [`LO${e.x},${e.y},${e.largura},${e.altura}`];
+      return [`X${e.x},${e.y},${Math.max(1, mmParaPontos(f.bordaMm, dpi))},${e.x + e.largura},${e.y + e.altura}`];
     }
+    case 'elipse':
+    case 'estrela':
+      avisos.add('PPLB: elipses e estrelas não são impressas nesta linguagem.');
+      return [];
     case 'linha': {
       const t = Math.max(1, mmParaPontos(e.el.espessuraMm, dpi));
       return [e.largura >= e.altura ? `LO${e.x},${e.y},${e.largura},${t}` : `LO${e.x},${e.y},${t},${e.altura}`];
@@ -112,6 +120,7 @@ function emBytes(comandos: Comando[]): Uint8Array {
 /** Gera PPLB (compatível com EPL2), um formulário por fileira de etiquetas. */
 export function gerarPplb(layout: LayoutEtiqueta, registros: Registro[], opcoes: OpcoesGeracao): SaidaEtiquetas {
   const avisos = new Avisos();
+  avisarRecursosDesign(layout, 'PPLB', avisos);
   const gap = mmParaPontos(layout.papel.tipo === 'rolo' ? layout.espacamentoVerticalMm : 0, opcoes.dpi);
   const paginas = posicionar(layout, registros, opcoes);
   const comandos = paginas.flatMap((p): Comando[] => [

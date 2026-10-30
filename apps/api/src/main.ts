@@ -22,7 +22,7 @@ async function iniciar() {
   app.setGlobalPrefix('api');
   app.useGlobalPipes(criarValidationPipe());
   // Layouts grandes e lotes de até 500 etiquetas passam do limite padrão de 100 KB.
-  app.useBodyParser('json', { limit: '5mb' });
+  app.useBodyParser('json', { limit: '20mb' });
   if (cfg.corsOrigem) app.enableCors({ origin: cfg.corsOrigem.split(',').map((o) => o.trim()) });
   app.enableShutdownHooks();
 

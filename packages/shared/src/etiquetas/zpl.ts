@@ -1,8 +1,10 @@
 import {
   ampliacaoQr,
+  avisarRecursosDesign,
   Avisos,
   codigoValido,
   eixos,
+  formaTermica,
   larguraModulo,
   posicionar,
   type ElementoPosicionado,
@@ -29,7 +31,8 @@ function elemento(e: ElementoPosicionado, dpi: number, avisos: Avisos, graficos:
   const { comprimento, espessura } = eixos(e);
 
   switch (e.el.tipo) {
-    case 'texto': {
+    case 'texto':
+    case 'preco': {
       if (!e.texto) return '';
       const altura = Math.max(10, Math.round((e.el.tamanhoPt * dpi) / 72));
       const linhas = Math.max(1, Math.floor(espessura / altura));
@@ -65,10 +68,20 @@ function elemento(e: ElementoPosicionado, dpi: number, avisos: Avisos, graficos:
       // ^BQ desenha ~10 pontos abaixo do ^FO; MA = correção M, entrada automática.
       return `^FO${e.x},${Math.max(0, e.y - 10)}^BQN,2,${amp}^FH^FDMA,${e.texto.replace(/[_^~]/g, (ch) => `_${ch.charCodeAt(0).toString(16).toUpperCase()}`)}^FS`;
     }
-    case 'retangulo': {
-      const t = Math.max(1, mmParaPontos(e.el.espessuraMm, dpi));
-      return `${fo}^GB${e.largura},${e.altura},${e.el.preenchido ? Math.min(e.largura, e.altura) : t}^FS`;
+    case 'retangulo':
+    case 'elipse': {
+      const f = formaTermica(e.el);
+      if (!f) return '';
+      const t = f.preenchido ? Math.min(e.largura, e.altura) : Math.max(1, mmParaPontos(f.bordaMm, dpi));
+      if (e.el.tipo === 'elipse') return `${fo}^GE${e.largura},${e.altura},${t}^FS`;
+      // ^GB arredonda de 0 a 8 (fração do lado menor).
+      const menor = Math.min(e.largura, e.altura);
+      const arredonda = Math.max(0, Math.min(8, Math.round(((mmParaPontos(e.el.raioMm ?? 0, dpi) * 2) / Math.max(1, menor)) * 8)));
+      return `${fo}^GB${e.largura},${e.altura},${t},B,${arredonda}^FS`;
     }
+    case 'estrela':
+      avisos.add('ZPL: estrelas não são impressas nesta linguagem.');
+      return '';
     case 'linha': {
       const t = Math.max(1, mmParaPontos(e.el.espessuraMm, dpi));
       return e.largura >= e.altura ? `${fo}^GB${e.largura},${t},${t}^FS` : `${fo}^GB${t},${e.altura},${t}^FS`;
@@ -85,6 +98,7 @@ function elemento(e: ElementoPosicionado, dpi: number, avisos: Avisos, graficos:
 /** Gera ZPL II: um formato (^XA…^XZ) por fileira de etiquetas, UTF-8 (^CI28). */
 export function gerarZpl(layout: LayoutEtiqueta, registros: Registro[], opcoes: OpcoesGeracao): SaidaEtiquetas {
   const avisos = new Avisos();
+  avisarRecursosDesign(layout, 'ZPL', avisos);
   const graficos: Graficos = new Map();
   const formatos = posicionar(layout, registros, opcoes).map((p) =>
     [

@@ -1,3 +1,4 @@
+import { corEscura, FONTE_PADRAO } from './design';
 import { emPaginas, paginar } from './layout';
 import { dadosCodigoBarras, mmParaPontos, textoDoElemento, type ContextoValor } from './valores';
 import type { ElementoEtiqueta, LayoutEtiqueta, Registro, Rotacao, Simbologia } from './tipos';
@@ -150,6 +151,39 @@ export function codigoValido(e: ElementoPosicionado, avisos: Avisos) {
     return null;
   }
   return r;
+}
+
+/**
+ * Forma vista por uma térmica (só preto): preenchimento/borda claros não são impressos,
+ * senão um fundo amarelo de cartaz viraria um bloco preto cobrindo o texto.
+ */
+export function formaTermica(el: ElementoEtiqueta): { preenchido: boolean; bordaMm: number } | null {
+  if (el.tipo !== 'retangulo' && el.tipo !== 'elipse' && el.tipo !== 'estrela') return null;
+  const preenchido = el.preenchido && corEscura(el.corPreenchimento);
+  const bordaMm = el.espessuraMm > 0 && corEscura(el.corBorda) ? el.espessuraMm : 0;
+  return preenchido || bordaMm > 0 ? { preenchido, bordaMm } : null;
+}
+
+/** Avisa uma vez quando o layout usa recursos de design que a térmica não reproduz. */
+export function avisarRecursosDesign(layout: LayoutEtiqueta, linguagem: string, avisos: Avisos) {
+  const usa = (el: ElementoEtiqueta) => {
+    if (el.opacidade !== undefined && el.opacidade < 1) return true;
+    if (el.tipo === 'texto' || el.tipo === 'preco') {
+      return Boolean(
+        (el.fonte && el.fonte !== FONTE_PADRAO) || el.italico || el.contorno || el.corFundo || (el.cor && el.cor.toLowerCase() !== '#000000') ||
+          (el.tipo === 'texto' && (el.sublinhado || el.tachado || el.espacamentoLetras)) ||
+          (el.tipo === 'preco' && el.centavosSobrescritos),
+      );
+    }
+    if (el.tipo === 'retangulo' || el.tipo === 'elipse' || el.tipo === 'estrela') {
+      return Boolean(el.tracejado || (el.tipo === 'retangulo' && el.raioMm) || (el.preenchido && el.corPreenchimento && el.corPreenchimento !== '#000000'));
+    }
+    if (el.tipo === 'imagem') return Boolean(el.original);
+    return el.tipo === 'linha' && Boolean(el.tracejado || (el.cor && el.cor !== '#000000'));
+  };
+  if (layout.corFundo || layout.elementos.some(usa)) {
+    avisos.add(`${linguagem}: fontes, cores, fundos, transparência e efeitos só aparecem no PDF; aqui sai tudo em preto, na fonte da impressora.`);
+  }
 }
 
 /** Remove acentos para impressoras sem página de código configurada (PPLA/PPLB). */

@@ -1,3 +1,4 @@
+import { aplicarCaixa, formatarPreco } from './design';
 import type { ElementoEtiqueta, FormatoCampo, FormatoData, OrigemValor, Registro, Simbologia } from './tipos';
 
 /** Contexto de uma etiqueta no lote. `hoje` é AAAA-MM-DD no fuso da empresa. */
@@ -103,7 +104,13 @@ export function textoDoElemento(el: ElementoEtiqueta, ctx: ContextoValor): strin
   switch (el.tipo) {
     case 'texto': {
       const v = resolverOrigem(el.valor, ctx);
-      return v === '' ? '' : `${el.prefixo}${v}${el.sufixo}`;
+      return v === '' ? '' : aplicarCaixa(`${el.prefixo}${v}${el.sufixo}`, el.caixa);
+    }
+    case 'preco': {
+      const bruto = resolverOrigem(el.valor, ctx);
+      if (!bruto) return '';
+      const v = formatarPreco(bruto) ?? bruto;
+      return el.simbolo ? `${el.simbolo} ${v}` : v;
     }
     case 'codigo_barras':
     case 'qrcode':

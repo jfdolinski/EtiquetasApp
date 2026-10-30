@@ -47,6 +47,10 @@ export type FormatoCampo =
   | { tipo: 'moeda'; casas: number }
   | { tipo: 'data'; formato: FormatoData };
 
+/**
+ * Campos opcionais (`?`) vieram com o editor de design (cartazes em jato de tinta). Layouts
+ * antigos não os têm: valem os padrões indicados. As térmicas ignoram a maioria (com aviso).
+ */
 interface ElementoBase {
   id: string;
   x: number;
@@ -54,17 +58,67 @@ interface ElementoBase {
   largura: number;
   altura: number;
   rotacao: Rotacao;
+  /** 0 (invisível) a 1 (padrão). Só no PDF. */
+  opacidade?: number;
+  /** Travado no editor (não arrasta nem redimensiona). */
+  travado?: boolean;
 }
 
-export interface ElementoTexto extends ElementoBase {
-  tipo: 'texto';
-  valor: OrigemValor;
-  prefixo: string;
-  sufixo: string;
+/** Cor em hexadecimal, `#rrggbb`. */
+export type Cor = string;
+
+export type AlinhamentoVertical = 'topo' | 'meio' | 'base';
+export type CaixaTexto = 'normal' | 'maiusculas' | 'minusculas';
+
+export interface Contorno {
+  cor: Cor;
+  espessuraPt: number;
+}
+
+/** Estilo de fonte comum a texto e preço. */
+interface EstiloFonte {
   /** Altura da fonte em pontos tipográficos (1 pt = 0,3528 mm). */
   tamanhoPt: number;
   negrito: boolean;
   alinhamento: Alinhamento;
+  /** Id do catálogo `FONTES` (padrão: helvetica). */
+  fonte?: string;
+  italico?: boolean;
+  /** Padrão: preto. */
+  cor?: Cor;
+  alinhamentoVertical?: AlinhamentoVertical;
+  contorno?: Contorno | null;
+  /** Cor de fundo da caixa do elemento (null/ausente = transparente). */
+  corFundo?: Cor | null;
+  /** Diminui a fonte até o conteúdo caber na caixa. */
+  ajustar?: boolean;
+}
+
+export interface ElementoTexto extends ElementoBase, EstiloFonte {
+  tipo: 'texto';
+  valor: OrigemValor;
+  prefixo: string;
+  sufixo: string;
+  sublinhado?: boolean;
+  tachado?: boolean;
+  /** Espaço extra entre letras, em pt (pode ser negativo). */
+  espacamentoLetras?: number;
+  /** Múltiplo do tamanho da fonte (padrão 1,15). */
+  alturaLinha?: number;
+  caixa?: CaixaTexto;
+}
+
+/**
+ * Preço de cartaz: símbolo pequeno, reais grandes e centavos sobrescritos ("R$ 9,⁹⁹").
+ * O valor vem de um número (campo ou fixo) e é formatado com 2 casas.
+ */
+export interface ElementoPreco extends ElementoBase, EstiloFonte {
+  tipo: 'preco';
+  valor: OrigemValor;
+  /** Ex.: "R$"; vazio = sem símbolo. */
+  simbolo: string;
+  /** Centavos menores e alinhados ao topo; desligado = tudo no mesmo tamanho. */
+  centavosSobrescritos: boolean;
 }
 
 export interface ElementoCodigoBarras extends ElementoBase {
@@ -80,16 +134,41 @@ export interface ElementoQrCode extends ElementoBase {
   valor: OrigemValor;
 }
 
-export interface ElementoRetangulo extends ElementoBase {
-  tipo: 'retangulo';
+/** Preenchimento e borda das formas. Borda com espessura 0 = sem borda. */
+interface EstiloForma {
   espessuraMm: number;
   preenchido: boolean;
+  /** Padrão: preto. */
+  corPreenchimento?: Cor;
+  /** Padrão: preto. */
+  corBorda?: Cor;
+  tracejado?: boolean;
+}
+
+export interface ElementoRetangulo extends ElementoBase, EstiloForma {
+  tipo: 'retangulo';
+  /** Raio dos cantos arredondados. */
+  raioMm?: number;
+}
+
+export interface ElementoElipse extends ElementoBase, EstiloForma {
+  tipo: 'elipse';
+}
+
+/** Estrela ou "explosão" de oferta, inscrita na caixa. */
+export interface ElementoEstrela extends ElementoBase, EstiloForma {
+  tipo: 'estrela';
+  pontas: number;
+  /** Raio interno como fração do externo (0,1 a 0,95). */
+  raioInterno: number;
 }
 
 export interface ElementoLinha extends ElementoBase {
   tipo: 'linha';
   /** Linha horizontal ocupando a largura (ou vertical, se altura > largura). */
   espessuraMm: number;
+  cor?: Cor;
+  tracejado?: boolean;
 }
 
 /**
@@ -109,9 +188,20 @@ export interface ElementoImagem extends ElementoBase {
   limiar: number;
   /** Pontilhado (Floyd–Steinberg) para fotos e degradês nas térmicas, em vez de corte no limiar. */
   pontilhado: boolean;
+  /** Imagem colorida (data URL PNG ou JPEG, até 1600 px) usada no PDF e no editor. Sem ela, vale o cinza. */
+  original?: string;
 }
 
-export type ElementoEtiqueta = ElementoTexto | ElementoCodigoBarras | ElementoQrCode | ElementoRetangulo | ElementoLinha | ElementoImagem;
+export type ElementoEtiqueta =
+  | ElementoTexto
+  | ElementoPreco
+  | ElementoCodigoBarras
+  | ElementoQrCode
+  | ElementoRetangulo
+  | ElementoElipse
+  | ElementoEstrela
+  | ElementoLinha
+  | ElementoImagem;
 export type TipoElemento = ElementoEtiqueta['tipo'];
 
 export type Papel = { tipo: 'rolo' } | { tipo: 'folha'; larguraMm: number; alturaMm: number };
@@ -125,6 +215,8 @@ export interface LayoutEtiqueta {
   espacamentoVerticalMm: number;
   margens: { superior: number; inferior: number; esquerda: number; direita: number };
   papel: Papel;
+  /** Cor de fundo de cada etiqueta (padrão: branco/sem fundo). Só no PDF. */
+  corFundo?: Cor | null;
   elementos: ElementoEtiqueta[];
 }
 

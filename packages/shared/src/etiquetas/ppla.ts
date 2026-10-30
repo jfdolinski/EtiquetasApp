@@ -1,4 +1,4 @@
-import { Avisos, codigoValido, deslocamentoAlinhamento, eixos, larguraModulo, posicionar, semAcentos, type ElementoPosicionado, type OpcoesGeracao } from './comum';
+import { avisarRecursosDesign, Avisos, codigoValido, deslocamentoAlinhamento, eixos, formaTermica, larguraModulo, posicionar, semAcentos, type ElementoPosicionado, type OpcoesGeracao } from './comum';
 import { mmParaPontos } from './valores';
 import type { LayoutEtiqueta, Registro, Rotacao, SaidaEtiquetas } from './tipos';
 
@@ -28,12 +28,13 @@ function registro(e: ElementoPosicionado, alturaPagina: number, dpi: number, avi
   // Base do campo (linha) e coluna em décimos de mm; rotação gira em torno desse ponto.
   const coluna = (x: number) => d4(emDecimos(x, dpi));
   const linha = (yBase: number) => d4(emDecimos(alturaPagina - yBase, dpi));
-  if (e.el.rotacao !== 0 && e.el.tipo !== 'retangulo' && e.el.tipo !== 'linha' && e.el.tipo !== 'imagem') {
+  if (e.el.rotacao !== 0 && (e.el.tipo === 'texto' || e.el.tipo === 'preco' || e.el.tipo === 'codigo_barras')) {
     avisos.add('PPLA: elementos girados podem sair deslocados; confira a primeira impressão.');
   }
 
   switch (e.el.tipo) {
-    case 'texto': {
+    case 'texto':
+    case 'preco': {
       if (!e.texto) return [];
       const pt = tamanhoAsd(e.el.tamanhoPt);
       const alturaPontos = (pt * dpi) / 72;
@@ -60,13 +61,19 @@ function registro(e: ElementoPosicionado, alturaPagina: number, dpi: number, avi
     case 'imagem':
       avisos.add('PPLA: imagens ainda não são impressas nesta linguagem; use PPLB, ZPL, ESC/POS ou PDF.');
       return [];
+    case 'elipse':
+    case 'estrela':
+      avisos.add('PPLA: elipses e estrelas não são impressas nesta linguagem.');
+      return [];
     case 'retangulo':
     case 'linha': {
+      const f = e.el.tipo === 'retangulo' ? formaTermica(e.el) : { preenchido: true, bordaMm: e.el.espessuraMm };
+      if (!f) return [];
       // Comando de linha/caixa: 1X11000 linha coluna l (linha) ou b (caixa) largura altura espessura.
-      const t = d3(emDecimos(Math.max(1, mmParaPontos(e.el.espessuraMm, dpi)), dpi));
+      const t = d3(emDecimos(Math.max(1, mmParaPontos(f.bordaMm, dpi)), dpi));
       const larg = d4(emDecimos(e.largura, dpi));
       const alt = d4(emDecimos(e.altura, dpi));
-      if (e.el.tipo === 'retangulo' && !e.el.preenchido) {
+      if (e.el.tipo === 'retangulo' && !f.preenchido) {
         return [`1X1100${linha(e.y + e.altura)}${coluna(e.x)}b${larg}${alt}${t}${t}`];
       }
       return [`1X1100${linha(e.y + e.altura)}${coluna(e.x)}l${larg}${alt}`];
@@ -77,6 +84,7 @@ function registro(e: ElementoPosicionado, alturaPagina: number, dpi: number, avi
 /** Gera PPLA: um formato (<STX>L … E) por fileira de etiquetas. */
 export function gerarPpla(layout: LayoutEtiqueta, registros: Registro[], opcoes: OpcoesGeracao): SaidaEtiquetas {
   const avisos = new Avisos();
+  avisarRecursosDesign(layout, 'PPLA', avisos);
   const paginas = posicionar(layout, registros, opcoes);
   const formatos = paginas.map((p) =>
     [`${STX}L`, 'D11', 'm', ...p.elementos.flatMap((e) => registro(e, p.alturaPontos, opcoes.dpi, avisos)), 'Q0001', 'E'].join('\r\n'),

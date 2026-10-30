@@ -6,6 +6,7 @@ import type { OpcoesGeracao } from './comum';
 import type { LayoutEtiqueta, LinguagemImpressora, Registro, SaidaEtiquetas } from './tipos';
 
 export * from './comum';
+export * from './design';
 export * from './escpos';
 export * from './imagem';
 export * from './layout';

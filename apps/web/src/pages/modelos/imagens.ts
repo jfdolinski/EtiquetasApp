@@ -1,4 +1,4 @@
-import { bitmapNaCaixa, LADO_MAXIMO_IMAGEM_PX, type ElementoImagem, type LayoutEtiqueta } from '@etiquetas/shared';
+import { bitmapNaCaixa, LADO_MAXIMO_IMAGEM_PX, LIMITES, type ElementoImagem, type LayoutEtiqueta } from '@etiquetas/shared';
 import { arredondar } from './elementos';
 
 /** Tamanho máximo do arquivo aceito antes da redução (a imagem guardada é bem menor). */
@@ -20,8 +20,35 @@ function carregar(arquivo: File): Promise<HTMLImageElement> {
   });
 }
 
-/** Lê o arquivo, reduz para no máximo 480 px, põe fundo branco e converte em tons de cinza. */
-export async function lerImagem(arquivo: File): Promise<Pick<ElementoImagem, 'nome' | 'larguraPx' | 'alturaPx' | 'cinza'>> {
+/** Maior lado da versão colorida (PDF): ~200 dpi numa área de 20 cm. */
+const LADO_MAXIMO_ORIGINAL_PX = 1600;
+
+/** Versão colorida para o PDF: PNG se tiver transparência, senão JPEG (bem menor). */
+function original(img: HTMLImageElement, lado = LADO_MAXIMO_ORIGINAL_PX): string {
+  const w0 = img.naturalWidth || 300;
+  const h0 = img.naturalHeight || 300;
+  const fator = Math.min(1, lado / Math.max(w0, h0));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(w0 * fator));
+  canvas.height = Math.max(1, Math.round(h0 * fator));
+  const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  let transparente = false;
+  for (let i = 3; i < rgba.length; i += 4) {
+    if (rgba[i] < 255) {
+      transparente = true;
+      break;
+    }
+  }
+  const url = transparente ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.9);
+  // PNG grande demais para o limite por imagem: reduz até caber.
+  return url.length > LIMITES.imagemOriginal && lado > 300 ? original(img, Math.round(lado * 0.75)) : url;
+}
+
+/** Lê o arquivo: versão colorida (PDF/editor) e cinza reduzido a 480 px com fundo branco (térmicas). */
+export async function lerImagem(arquivo: File): Promise<Pick<ElementoImagem, 'nome' | 'larguraPx' | 'alturaPx' | 'cinza' | 'original'>> {
   if (arquivo.size > TAMANHO_MAXIMO_ARQUIVO) throw new Error('Imagem muito grande (máximo 15 MB).');
   const img = await carregar(arquivo);
   const w0 = img.naturalWidth || 300;
@@ -43,7 +70,7 @@ export async function lerImagem(arquivo: File): Promise<Pick<ElementoImagem, 'no
     // Luminância (Rec. 601).
     binario += String.fromCharCode(Math.round(0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2]));
   }
-  return { nome: arquivo.name.slice(0, 200), larguraPx, alturaPx, cinza: btoa(binario) };
+  return { nome: arquivo.name.slice(0, 200), larguraPx, alturaPx, cinza: btoa(binario), original: original(img) };
 }
 
 /** Caixa (mm) com a proporção da imagem, ocupando até 60% da etiqueta. */

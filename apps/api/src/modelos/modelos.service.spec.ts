@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { LAYOUT_PADRAO, type LayoutEtiqueta } from '@etiquetas/shared';
-import { PDFDocument } from 'pdf-lib';
+import { LAYOUT_PADRAO, validarLayout, type LayoutEtiqueta } from '@etiquetas/shared';
+import { PDFDict, PDFDocument, PDFName } from 'pdf-lib';
 import type { AuditoriaService } from '../auditoria/auditoria.service';
 import type { ConsultasService } from '../consultas/consultas.service';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -108,6 +108,46 @@ describe('gerarPdf', () => {
     expect(r.avisos[0]).toMatch(/código de barras não impresso/);
   });
 
+  it('cartaz: fontes do catálogo, cores, preço, formas e fundo', async () => {
+    const layout: LayoutEtiqueta = {
+      ...LAYOUT_PADRAO,
+      larguraMm: 210,
+      alturaMm: 297,
+      colunas: 1,
+      papel: { tipo: 'folha', larguraMm: 210, alturaMm: 297 },
+      espacamentoVerticalMm: 0,
+      corFundo: '#fff3e0',
+      elementos: [
+        { id: 'f', tipo: 'estrela', x: 10, y: 10, largura: 80, altura: 80, rotacao: 0, pontas: 16, raioInterno: 0.75, espessuraMm: 0, preenchido: true, corPreenchimento: '#d32f2f' },
+        { id: 'r', tipo: 'retangulo', x: 10, y: 200, largura: 190, altura: 80, rotacao: 0, espessuraMm: 1, preenchido: true, corPreenchimento: '#ffd600', corBorda: '#d32f2f', raioMm: 8, tracejado: true },
+        { id: 'e', tipo: 'elipse', x: 120, y: 20, largura: 60, altura: 40, rotacao: 0, espessuraMm: 0.5, preenchido: false, opacidade: 0.5 },
+        { id: 'l', tipo: 'linha', x: 10, y: 190, largura: 190, altura: 1, rotacao: 0, espessuraMm: 1, cor: '#1565c0', tracejado: true },
+        {
+          id: 't', tipo: 'texto', x: 10, y: 100, largura: 190, altura: 40, rotacao: 0, valor: { tipo: 'campo', campo: 'descricao' }, prefixo: '', sufixo: '',
+          tamanhoPt: 200, negrito: true, italico: true, alinhamento: 'centro', fonte: 'bebas-neue', cor: '#d32f2f', ajustar: true, caixa: 'maiusculas',
+          contorno: { cor: '#ffffff', espessuraPt: 2 }, sublinhado: true, espacamentoLetras: 2, alinhamentoVertical: 'meio', corFundo: '#ffffff',
+        },
+        {
+          id: 'p', tipo: 'preco', x: 10, y: 205, largura: 190, altura: 70, rotacao: 0, valor: { tipo: 'campo', campo: 'preco' }, simbolo: 'R$',
+          tamanhoPt: 300, negrito: true, alinhamento: 'centro', fonte: 'anton', ajustar: true, centavosSobrescritos: true,
+        },
+      ],
+    };
+    expect(validarLayout(layout)).toEqual([]);
+    const r = await gerarPdf(layout, [{ descricao: 'Picanha bovina', preco: '59.9' }], '2026-10-29');
+    expect(r.avisos).toEqual([]);
+    const pdf = Buffer.from(r.conteudo, 'base64');
+    const doc = await PDFDocument.load(pdf);
+    expect(doc.getPageCount()).toBe(1);
+    const fontes = doc.context
+      .enumerateIndirectObjects()
+      .map(([, obj]) => (obj instanceof PDFDict ? obj.get(PDFName.of('BaseFont'))?.toString() : undefined))
+      .filter(Boolean)
+      .join();
+    expect(fontes).toMatch(/BebasNeue/);
+    expect(fontes).toMatch(/Anton/);
+  });
+
   it('embute imagem em tons de cinza, girada', async () => {
     const cinza = Buffer.from([0, 64, 128, 255, 0, 64, 128, 255]).toString('base64');
     const layout = {
@@ -121,9 +161,9 @@ describe('gerarPdf', () => {
     const pdf = Buffer.from(r.conteudo, 'base64');
     const doc = await PDFDocument.load(pdf);
     expect(doc.getPageCount()).toBe(1);
-    // Uma única imagem (2 × 4 depois de girada) embutida para as duas etiquetas.
+    // Uma única imagem (4 × 2; o giro é feito no desenho) embutida para as duas etiquetas.
     expect(pdf.toString('latin1').match(/\/Subtype \/Image/g)).toHaveLength(1);
-    expect(pdf.toString('latin1')).toMatch(/\/Width 2[\s\S]*?\/Height 4|\/Height 4[\s\S]*?\/Width 2/);
+    expect(pdf.toString('latin1')).toMatch(/\/Width 4[\s\S]*?\/Height 2|\/Height 2[\s\S]*?\/Width 4/);
   });
 });
 

@@ -33,8 +33,8 @@ server {
     # Acrescenta o IP do Traefik: a API confia em 2 proxies (PROXIES_CONFIAVEIS=2).
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $proto_original;
-    # Layouts e lotes de etiquetas (a API aceita até 5 MB).
-    client_max_body_size 6m;
+    # Layouts com imagens coloridas e lotes de etiquetas (a API aceita até 20 MB).
+    client_max_body_size 21m;
     # Consultas no banco do cliente podem levar até 10 min; o WebSocket tem ping a cada 30 s.
     proxy_read_timeout 700s;
     proxy_send_timeout 700s;

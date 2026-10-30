@@ -13,7 +13,10 @@ function novoId() {
 
 /** Cria um elemento centralizado, no tamanho padrão de cada tipo e limitado à etiqueta. */
 export function novoElemento(tipo: Exclude<TipoElemento, 'imagem'>, layout: LayoutEtiqueta, origem?: OrigemValor): ElementoEtiqueta {
-  const valor: OrigemValor = origem ?? { tipo: 'fixo', texto: tipo === 'qrcode' ? 'https://' : tipo === 'codigo_barras' ? '7891000000045' : 'Texto' };
+  const valor: OrigemValor =
+    origem ?? { tipo: 'fixo', texto: tipo === 'qrcode' ? 'https://' : tipo === 'codigo_barras' ? '7891000000045' : tipo === 'preco' ? '9.99' : 'Texto' };
+  // Tamanhos iniciais proporcionais à etiqueta: num cartaz A4 o texto já nasce legível.
+  const fator = Math.max(1, Math.min(layout.larguraMm, layout.alturaMm) / 40);
   const caixa = (largura: number, altura: number) => {
     const l = Math.min(largura, layout.larguraMm);
     const a = Math.min(altura, layout.alturaMm);
@@ -22,13 +25,25 @@ export function novoElemento(tipo: Exclude<TipoElemento, 'imagem'>, layout: Layo
   const id = novoId();
   switch (tipo) {
     case 'texto':
-      return { id, tipo, ...caixa(Math.min(40, layout.larguraMm - 4), 6), valor, prefixo: '', sufixo: '', tamanhoPt: 10, negrito: false, alinhamento: 'esquerda' };
+      return {
+        id, tipo, ...caixa(Math.min(40 * fator, layout.larguraMm - 4), arredondar(6 * fator)), valor, prefixo: '', sufixo: '',
+        tamanhoPt: Math.round(10 * fator), negrito: false, alinhamento: 'esquerda',
+      };
+    case 'preco':
+      return {
+        id, tipo, ...caixa(Math.min(40 * fator, layout.larguraMm - 4), arredondar(16 * fator)), valor, simbolo: 'R$', centavosSobrescritos: true,
+        tamanhoPt: Math.round(40 * fator), negrito: true, alinhamento: 'centro', alinhamentoVertical: 'meio', ajustar: true, fonte: 'anton', cor: '#d32f2f',
+      };
     case 'codigo_barras':
       return { id, tipo, ...caixa(Math.min(36, layout.larguraMm - 4), 14), valor, simbologia: 'EAN13', mostrarTexto: true };
     case 'qrcode':
       return { id, tipo, ...caixa(14, 14), valor };
     case 'retangulo':
-      return { id, tipo, ...caixa(20, 10), espessuraMm: 0.3, preenchido: false };
+      return { id, tipo, ...caixa(20 * fator, 10 * fator), espessuraMm: 0.3, preenchido: false };
+    case 'elipse':
+      return { id, tipo, ...caixa(20 * fator, 14 * fator), espessuraMm: 0.3, preenchido: false };
+    case 'estrela':
+      return { id, tipo, ...caixa(20 * fator, 20 * fator), pontas: 16, raioInterno: 0.75, espessuraMm: 0, preenchido: true, corPreenchimento: '#ffd600' };
     case 'linha':
       return { id, tipo, ...caixa(layout.larguraMm - 4, 0.5), espessuraMm: 0.3 };
   }

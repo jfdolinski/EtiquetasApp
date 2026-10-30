@@ -1,4 +1,4 @@
-import { ampliacaoQr, Avisos, codigoValido, deslocamentoAlinhamento, posicionar, type ElementoPosicionado, type OpcoesGeracao } from './comum';
+import { ampliacaoQr, avisarRecursosDesign, Avisos, codigoValido, deslocamentoAlinhamento, posicionar, type ElementoPosicionado, type OpcoesGeracao } from './comum';
 import { bitmapNaCaixa } from './imagem';
 import type { LayoutEtiqueta, Registro, SaidaEtiquetas } from './tipos';
 
@@ -48,11 +48,12 @@ function posicao(b: Bytes, x: number, yBase: number) {
 }
 
 function elemento(b: Bytes, e: ElementoPosicionado, avisos: Avisos) {
-  if (e.el.rotacao !== 0 && e.el.tipo !== 'retangulo' && e.el.tipo !== 'linha' && e.el.tipo !== 'imagem') {
+  if (e.el.rotacao !== 0 && (e.el.tipo === 'texto' || e.el.tipo === 'preco' || e.el.tipo === 'codigo_barras' || e.el.tipo === 'qrcode')) {
     avisos.add('ESC/POS: rotação não é suportada; os elementos saem sem rotação.');
   }
   switch (e.el.tipo) {
-    case 'texto': {
+    case 'texto':
+    case 'preco': {
       if (!e.texto) return;
       const mult = Math.max(1, Math.min(8, Math.round(((e.el.tamanhoPt * 203) / 72) / 24)));
       const ocupado = 12 * mult * e.texto.length;
@@ -91,7 +92,9 @@ function elemento(b: Bytes, e: ElementoPosicionado, avisos: Avisos) {
     }
     case 'retangulo':
     case 'linha':
-      avisos.add('ESC/POS: linhas e retângulos não são impressos nesta linguagem.');
+    case 'elipse':
+    case 'estrela':
+      avisos.add('ESC/POS: linhas e formas não são impressas nesta linguagem.');
       return;
     case 'imagem': {
       const bm = bitmapNaCaixa(e.el, e.largura, e.altura);
@@ -116,6 +119,7 @@ function elemento(b: Bytes, e: ElementoPosicionado, avisos: Avisos) {
 
 export function gerarEscpos(layout: LayoutEtiqueta, registros: Registro[], opcoes: OpcoesGeracao): SaidaEtiquetas {
   const avisos = new Avisos();
+  avisarRecursosDesign(layout, 'ESC/POS', avisos);
   const b = new Bytes();
   b.add(ESC, 0x40, ESC, 0x74, 16); // inicializa, página de código WPC1252
   if (opcoes.dpi > 255) avisos.add('ESC/POS: DPI acima de 255 não é suportado; usando 203.');

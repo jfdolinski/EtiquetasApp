@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router';
 import {
@@ -51,11 +51,32 @@ function Carregar() {
 
 const BOTOES: { tipo: Exclude<TipoElemento, 'imagem'>; rotulo: string }[] = [
   { tipo: 'texto', rotulo: 'Texto' },
+  { tipo: 'preco', rotulo: 'Preço' },
   { tipo: 'codigo_barras', rotulo: 'Código de barras' },
   { tipo: 'qrcode', rotulo: 'QR code' },
   { tipo: 'retangulo', rotulo: 'Retângulo' },
+  { tipo: 'elipse', rotulo: 'Círculo' },
+  { tipo: 'estrela', rotulo: 'Estrela' },
   { tipo: 'linha', rotulo: 'Linha' },
 ];
+
+/** Histórico de desfazer: guarda layouts inteiros (são pequenos, salvo imagens, que são compartilhadas por referência). */
+const LIMITE_HISTORICO = 100;
+
+function BotaoBarra({ titulo, onClick, disabled, children }: { titulo: string; onClick: () => void; disabled?: boolean; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      title={titulo}
+      aria-label={titulo}
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded border border-slate-300 bg-white px-2 py-1 text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {children}
+    </button>
+  );
+}
 
 function Editor({ modelo, consultas }: { modelo: ModeloEtiquetaResumo | null; consultas: ConsultaParaModelo[] }) {
   const { empresaId, pode } = useAuth();
@@ -75,7 +96,7 @@ function Editor({ modelo, consultas }: { modelo: ModeloEtiquetaResumo | null; co
   });
   const [layout, setLayout] = useState<LayoutEtiqueta>(modelo?.layout ?? LAYOUT_PADRAO);
   const [selecionado, setSelecionado] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(() => Math.max(2, Math.min(10, Math.floor(640 / (modelo?.layout.larguraMm ?? 60)))));
+  const [zoom, setZoom] = useState(() => Math.max(0.5, Math.min(10, Math.floor((640 / (modelo?.layout.larguraMm ?? 60)) * 2) / 2)));
   const [amostra, setAmostra] = useState<AmostraModelo | null>(null);
   const [indice, setIndice] = useState(0);
   const [parametros, setParametros] = useState<Record<string, string>>({});
@@ -87,16 +108,85 @@ function Editor({ modelo, consultas }: { modelo: ModeloEtiquetaResumo | null; co
   const erros = useMemo(() => validarLayout(layout), [layout]);
   const registro = amostra?.registros[indice] ?? null;
 
-  const mudarLayout = useCallback((mudancas: Partial<LayoutEtiqueta>) => {
-    setLayout((l) => ({ ...l, ...mudancas }));
+  // Desfazer/refazer: cada alteração guarda o layout anterior.
+  const historico = useRef<{ antes: LayoutEtiqueta[]; depois: LayoutEtiqueta[] }>({ antes: [], depois: [] });
+  const [, setVersaoHistorico] = useState(0);
+  // Layout atual fora do ciclo de render: duas alterações seguidas no mesmo evento se somam.
+  const atual = useRef(layout);
+  const trocarLayout = useCallback((novo: LayoutEtiqueta) => {
+    atual.current = novo;
+    setLayout(novo);
+    setVersaoHistorico((v) => v + 1);
     setAlterado(true);
   }, []);
-  const mudarElemento = useCallback((id: string, mudancas: Partial<ElementoEtiqueta>) => {
-    setLayout((l) => ({ ...l, elementos: l.elementos.map((e) => (e.id === id ? ({ ...e, ...mudancas } as ElementoEtiqueta) : e)) }));
-    setAlterado(true);
-  }, []);
+  const alterarLayout = useCallback(
+    (f: (l: LayoutEtiqueta) => LayoutEtiqueta) => {
+      const l = atual.current;
+      const novo = f(l);
+      if (novo === l) return;
+      historico.current.antes = [...historico.current.antes.slice(-(LIMITE_HISTORICO - 1)), l];
+      historico.current.depois = [];
+      trocarLayout(novo);
+    },
+    [trocarLayout],
+  );
+  function desfazer() {
+    const anterior = historico.current.antes.pop();
+    if (!anterior) return;
+    historico.current.depois.push(atual.current);
+    trocarLayout(anterior);
+  }
+  function refazer() {
+    const proximo = historico.current.depois.pop();
+    if (!proximo) return;
+    historico.current.antes.push(atual.current);
+    trocarLayout(proximo);
+  }
+
+  const mudarLayout = useCallback((mudancas: Partial<LayoutEtiqueta>) => alterarLayout((l) => ({ ...l, ...mudancas })), [alterarLayout]);
+  const mudarElemento = useCallback(
+    (id: string, mudancas: Partial<ElementoEtiqueta>) =>
+      alterarLayout((l) => ({ ...l, elementos: l.elementos.map((e) => (e.id === id ? ({ ...e, ...mudancas } as ElementoEtiqueta) : e)) })),
+    [alterarLayout],
+  );
+
+  /** Camadas: o último da lista fica por cima. */
+  function moverCamada(id: string, destino: 'frente' | 'tras' | 'acima' | 'abaixo') {
+    alterarLayout((l) => {
+      const i = l.elementos.findIndex((e) => e.id === id);
+      if (i < 0) return l;
+      const lista = [...l.elementos];
+      const [el] = lista.splice(i, 1);
+      const j = destino === 'frente' ? lista.length : destino === 'tras' ? 0 : destino === 'acima' ? Math.min(lista.length, i + 1) : Math.max(0, i - 1);
+      lista.splice(j, 0, el);
+      return { ...l, elementos: lista };
+    });
+  }
+
+  /** Alinha o elemento à etiqueta. */
+  function alinhar(el: ElementoEtiqueta, onde: 'esquerda' | 'centroH' | 'direita' | 'topo' | 'centroV' | 'base') {
+    const mudancas: Partial<ElementoEtiqueta> = {
+      esquerda: { x: 0 },
+      centroH: { x: arredondar((layout.larguraMm - el.largura) / 2, 0.1) },
+      direita: { x: arredondar(layout.larguraMm - el.largura, 0.1) },
+      topo: { y: 0 },
+      centroV: { y: arredondar((layout.alturaMm - el.altura) / 2, 0.1) },
+      base: { y: arredondar(layout.alturaMm - el.altura, 0.1) },
+    }[onde];
+    mudarElemento(el.id, mudancas);
+  }
+
+  function duplicar(el: ElementoEtiqueta) {
+    adicionar({
+      ...el,
+      id: Math.random().toString(36).slice(2, 10),
+      travado: false,
+      x: Math.min(layout.larguraMm - el.largura, el.x + 2),
+      y: Math.min(layout.alturaMm - el.altura, el.y + 2),
+    });
+  }
   function adicionar(el: ElementoEtiqueta) {
-    mudarLayout({ elementos: [...layout.elementos, el] });
+    alterarLayout((l) => ({ ...l, elementos: [...l.elementos, el] }));
     setSelecionado(el.id);
   }
   const [lendoImagem, setLendoImagem] = useState(false);
@@ -114,7 +204,7 @@ function Editor({ modelo, consultas }: { modelo: ModeloEtiquetaResumo | null; co
     }
   }
   function excluir(id: string) {
-    mudarLayout({ elementos: layout.elementos.filter((e) => e.id !== id) });
+    alterarLayout((l) => ({ ...l, elementos: l.elementos.filter((e) => e.id !== id) }));
     setSelecionado(null);
   }
 
@@ -127,7 +217,22 @@ function Editor({ modelo, consultas }: { modelo: ModeloEtiquetaResumo | null; co
   }, [alterado]);
 
   function teclas(e: KeyboardEvent) {
-    if (!elemento || !editavel || (e.target as HTMLElement).closest('input, select, textarea')) return;
+    if (!editavel || (e.target as HTMLElement).closest('input, select, textarea')) return;
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      return desfazer();
+    }
+    if (ctrl && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
+      e.preventDefault();
+      return refazer();
+    }
+    if (!elemento) return;
+    if (ctrl && e.key.toLowerCase() === 'd') {
+      e.preventDefault();
+      return duplicar(elemento);
+    }
+    if (elemento.travado) return;
     const passo = e.shiftKey ? 5 : PASSO_MM;
     const mover: Record<string, [number, number]> = { ArrowLeft: [-passo, 0], ArrowRight: [passo, 0], ArrowUp: [0, -passo], ArrowDown: [0, passo] };
     if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -183,7 +288,7 @@ function Editor({ modelo, consultas }: { modelo: ModeloEtiquetaResumo | null; co
   });
 
   // A amostra usa a consulta gravada no modelo; mudanças só de layout não afetam.
-  const amostraDesatualizada = modelo && consultaId !== modelo.consultaId;
+  const amostraDesatualizada = modelo && (consultaId || null) !== modelo.consultaId;
 
   return (
     <div className="space-y-4" onKeyDown={teclas}>
@@ -308,7 +413,7 @@ function Editor({ modelo, consultas }: { modelo: ModeloEtiquetaResumo | null; co
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <div className="flex items-center gap-2">
               <span className="text-slate-600">Zoom</span>
-              <input type="range" min={2} max={14} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} aria-label="Zoom" />
+              <input type="range" min={0.5} max={14} step={0.5} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} aria-label="Zoom" />
               <span className="text-xs text-slate-500">
                 {layout.larguraMm} × {layout.alturaMm} mm
                 {layout.colunas > 1 && ` · ${layout.colunas} colunas`}
@@ -338,6 +443,24 @@ function Editor({ modelo, consultas }: { modelo: ModeloEtiquetaResumo | null; co
               </div>
             )}
           </div>
+          {editavel && (
+            <div className="flex flex-wrap items-center gap-1" role="toolbar" aria-label="Ferramentas de edição">
+              <BotaoBarra titulo="Desfazer (Ctrl+Z)" onClick={desfazer} disabled={historico.current.antes.length === 0}>↶</BotaoBarra>
+              <BotaoBarra titulo="Refazer (Ctrl+Y)" onClick={refazer} disabled={historico.current.depois.length === 0}>↷</BotaoBarra>
+              <span className="mx-1 h-5 w-px bg-slate-300" />
+              <BotaoBarra titulo="Trazer para a frente" onClick={() => elemento && moverCamada(elemento.id, 'frente')} disabled={!elemento}>⇈</BotaoBarra>
+              <BotaoBarra titulo="Avançar uma camada" onClick={() => elemento && moverCamada(elemento.id, 'acima')} disabled={!elemento}>↑</BotaoBarra>
+              <BotaoBarra titulo="Recuar uma camada" onClick={() => elemento && moverCamada(elemento.id, 'abaixo')} disabled={!elemento}>↓</BotaoBarra>
+              <BotaoBarra titulo="Enviar para trás" onClick={() => elemento && moverCamada(elemento.id, 'tras')} disabled={!elemento}>⇊</BotaoBarra>
+              <span className="mx-1 h-5 w-px bg-slate-300" />
+              <BotaoBarra titulo="Alinhar à esquerda da etiqueta" onClick={() => elemento && alinhar(elemento, 'esquerda')} disabled={!elemento || elemento.travado}>⇤</BotaoBarra>
+              <BotaoBarra titulo="Centralizar na horizontal" onClick={() => elemento && alinhar(elemento, 'centroH')} disabled={!elemento || elemento.travado}>↔</BotaoBarra>
+              <BotaoBarra titulo="Alinhar à direita da etiqueta" onClick={() => elemento && alinhar(elemento, 'direita')} disabled={!elemento || elemento.travado}>⇥</BotaoBarra>
+              <BotaoBarra titulo="Alinhar ao topo" onClick={() => elemento && alinhar(elemento, 'topo')} disabled={!elemento || elemento.travado}>⤒</BotaoBarra>
+              <BotaoBarra titulo="Centralizar na vertical" onClick={() => elemento && alinhar(elemento, 'centroV')} disabled={!elemento || elemento.travado}>↕</BotaoBarra>
+              <BotaoBarra titulo="Alinhar à base" onClick={() => elemento && alinhar(elemento, 'base')} disabled={!elemento || elemento.travado}>⤓</BotaoBarra>
+            </div>
+          )}
           {amostraDesatualizada && <p className="text-xs text-slate-500">Salve o modelo para buscar dados reais da nova consulta.</p>}
           {carregarAmostra.error && <Alerta>{carregarAmostra.error.message}</Alerta>}
           {amostra && amostra.registros.length === 0 && <Alerta tipo="info">A consulta não devolveu linhas.</Alerta>}
@@ -367,14 +490,7 @@ function Editor({ modelo, consultas }: { modelo: ModeloEtiquetaResumo | null; co
                 campos={campos}
                 aoMudar={(m) => mudarElemento(elemento.id, m)}
                 aoExcluir={() => excluir(elemento.id)}
-                aoDuplicar={() =>
-                  adicionar({
-                    ...elemento,
-                    id: Math.random().toString(36).slice(2, 10),
-                    x: Math.min(layout.larguraMm - elemento.largura, elemento.x + 2),
-                    y: Math.min(layout.alturaMm - elemento.altura, elemento.y + 2),
-                  })
-                }
+                aoDuplicar={() => duplicar(elemento)}
               />
             ) : (
               <PropriedadesLayout layout={layout} aoMudar={mudarLayout} />

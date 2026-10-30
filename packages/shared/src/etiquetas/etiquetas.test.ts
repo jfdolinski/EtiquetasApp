@@ -6,7 +6,14 @@ import {
   digitoEan,
   girarCinza,
   monocromatico,
+  diagramarPreco,
+  formatarPreco,
+  planejarTexto,
+  quebrarLinhas,
+  textoDoElemento,
   type ElementoImagem,
+  type ElementoPreco,
+  type ElementoTexto,
   formatarCampo,
   gerarEscpos,
   gerarPpla,
@@ -268,6 +275,67 @@ describe('imagem', () => {
     const hex = Buffer.from(atob(r.conteudo), 'latin1').toString('hex');
     expect(hex.match(/1b2a214000/g)).toHaveLength(2); // 64 pontos de largura, 32 de altura = 2 faixas
     expect(gerarPpla(comImagem(imagem()), [REGISTROS[0]], OPCOES).avisos.join()).toMatch(/imagens ainda não/);
+  });
+});
+
+describe('design (cartazes)', () => {
+  // Medidor fictício: cada caractere ocupa 0,5 × o tamanho.
+  const medir = (t: string, tamanho: number) => [...t].length * tamanho * 0.5;
+
+  it('quebra por palavra, respeita Enter e corta palavra longa', () => {
+    expect(quebrarLinhas('aa bb cc', 25, 10, medir)).toEqual(['aa bb', 'cc']);
+    expect(quebrarLinhas('aa\nbb', 100, 10, medir)).toEqual(['aa', 'bb']);
+    expect(quebrarLinhas('abcdefgh', 20, 10, medir)).toEqual(['abcd', 'efgh']);
+  });
+
+  it('ajustar reduz a fonte até caber; sem ajustar, corta linhas', () => {
+    const base = { tamanhoPt: 40, alinhamento: 'centro' as const };
+    const ajustado = planejarTexto({ ...base, ajustar: true }, 'Picanha bovina', 100, 30, medir);
+    expect(ajustado.tamanhoPt).toBeLessThan(40);
+    expect(ajustado.linhas.every((l) => l.largura <= 100.01)).toBe(true);
+    const cortado = planejarTexto(base, 'Picanha bovina maturada especial', 100, 45, medir);
+    expect(cortado.tamanhoPt).toBe(40);
+    expect(cortado.linhas).toHaveLength(1);
+    expect(cortado.linhas[0].u).toBeCloseTo((100 - cortado.linhas[0].largura) / 2);
+  });
+
+  it('preço: formata número e separa símbolo, reais e centavos', () => {
+    expect(formatarPreco('59.9')).toBe('59,90');
+    expect(formatarPreco('1.234,5')).toBe('1.234,50');
+    expect(formatarPreco('abc')).toBeNull();
+    const el: ElementoPreco = {
+      id: 'p', tipo: 'preco', x: 0, y: 0, largura: 50, altura: 20, rotacao: 0, valor: { tipo: 'campo', campo: 'preco' },
+      simbolo: 'R$', centavosSobrescritos: true, tamanhoPt: 40, negrito: true, alinhamento: 'esquerda',
+    };
+    const texto = textoDoElemento(el, { registro: { preco: 59.9 }, indice: 0, hoje: '2026-10-29' });
+    expect(texto).toBe('R$ 59,90');
+    const pedacos = diagramarPreco(el, texto, 200, 60, medir);
+    expect(pedacos.map((p) => p.texto)).toEqual(['R$ ', '59', ',90']);
+    expect(pedacos[1].tamanhoPt).toBe(40);
+    expect(pedacos[2].tamanhoPt).toBeCloseTo(18);
+    expect(pedacos[2].v).toBeLessThan(pedacos[1].v); // centavos no alto
+  });
+
+  it('valida cores, fontes e formas; térmicas avisam e não imprimem fundo claro', () => {
+    const l = layout({
+      corFundo: '#fff3e0',
+      elementos: [
+        { id: 'r', tipo: 'retangulo', x: 0, y: 0, largura: 50, altura: 30, rotacao: 0, espessuraMm: 0, preenchido: true, corPreenchimento: '#ffd600' },
+        { id: 'e', tipo: 'elipse', x: 5, y: 5, largura: 20, altura: 10, rotacao: 0, espessuraMm: 0.5, preenchido: false },
+        {
+          id: 't', tipo: 'texto', x: 2, y: 2, largura: 40, altura: 8, rotacao: 0, valor: { tipo: 'fixo', texto: 'Oferta' }, prefixo: '', sufixo: '',
+          tamanhoPt: 12, negrito: true, alinhamento: 'centro', fonte: 'bebas-neue', cor: '#d32f2f', caixa: 'maiusculas',
+        },
+      ],
+    });
+    expect(validarLayout(l)).toEqual([]);
+    expect(validarLayout({ ...l, corFundo: 'vermelho' }).join()).toMatch(/Cor de fundo/);
+    expect(validarLayout({ ...l, elementos: [{ ...l.elementos[2], fonte: 'comic-sans' } as ElementoTexto] }).join()).toMatch(/fonte desconhecida/);
+    const zpl = gerarZpl(l, [{}], OPCOES);
+    expect(zpl.avisos.join()).toMatch(/só aparecem no PDF/);
+    expect(zpl.conteudo).not.toMatch(/\^GB406,240/); // fundo amarelo não vira bloco preto
+    expect(zpl.conteudo).toMatch(/\^GE160,80,4\^FS/); // elipse com borda
+    expect(zpl.conteudo).toContain('^FDOFERTA^FS'); // maiúsculas aplicadas em todas as saídas
   });
 });
 

@@ -1,15 +1,20 @@
 import { LADO_MAXIMO_IMAGEM_PX } from './imagem';
-import { FORMATOS_DATA, SIMBOLOGIAS, type ElementoEtiqueta, type LayoutEtiqueta, type OrigemValor } from './tipos';
+import { COR_HEX, FONTES } from './design';
+import { FORMATOS_DATA, SIMBOLOGIAS, type ElementoEtiqueta, type ElementoPreco, type ElementoTexto, type LayoutEtiqueta, type OrigemValor } from './tipos';
 
 export const LIMITES = {
-  tamanhoMm: { min: 5, max: 400 },
+  /** Até A0 (cartazes). */
+  tamanhoMm: { min: 5, max: 1200 },
   papelMm: { min: 20, max: 1200 },
   colunas: { min: 1, max: 20 },
   elementos: 300,
   textoFixo: 500,
-  tamanhoPt: { min: 4, max: 200 },
-  /** Soma das imagens (base64) de um layout; o corpo da API aceita até 5 MB. */
-  imagensBase64: 2_000_000,
+  /** Até ~70 cm de altura de letra (preço em cartaz grande). */
+  tamanhoPt: { min: 4, max: 2000 },
+  /** Soma das imagens (base64 e data URLs) de um layout; o corpo da API aceita até 20 MB. */
+  imagensBase64: 12_000_000,
+  /** Cada imagem colorida (data URL). */
+  imagemOriginal: 4_000_000,
 } as const;
 
 /** Área impressa de uma "página": no rolo, uma fileira de etiquetas; na folha, a folha inteira. */
@@ -79,6 +84,20 @@ function validarOrigem(o: OrigemValor | undefined, onde: string, erros: string[]
   }
 }
 
+const corOpcional = (c: unknown) => c === undefined || c === null || (typeof c === 'string' && COR_HEX.test(c));
+
+function validarEstiloFonte(el: ElementoTexto | ElementoPreco, onde: string, erros: string[]) {
+  if (!entre(el.tamanhoPt, LIMITES.tamanhoPt.min, LIMITES.tamanhoPt.max)) erros.push(`${onde}: tamanho da fonte inválido.`);
+  if (!['esquerda', 'centro', 'direita'].includes(el.alinhamento)) erros.push(`${onde}: alinhamento inválido.`);
+  if (typeof el.negrito !== 'boolean') erros.push(`${onde}: negrito inválido.`);
+  if (el.fonte !== undefined && !FONTES.some((f) => f.id === el.fonte)) erros.push(`${onde}: fonte desconhecida.`);
+  if (el.italico !== undefined && typeof el.italico !== 'boolean') erros.push(`${onde}: itálico inválido.`);
+  if (!corOpcional(el.cor) || !corOpcional(el.corFundo)) erros.push(`${onde}: cor inválida.`);
+  if (el.alinhamentoVertical !== undefined && !['topo', 'meio', 'base'].includes(el.alinhamentoVertical)) erros.push(`${onde}: alinhamento vertical inválido.`);
+  if (el.contorno != null && (!corOpcional(el.contorno.cor) || !entre(el.contorno.espessuraPt, 0.1, 20))) erros.push(`${onde}: contorno inválido.`);
+  if (el.ajustar !== undefined && typeof el.ajustar !== 'boolean') erros.push(`${onde}: opção de ajustar inválida.`);
+}
+
 function validarElemento(el: ElementoEtiqueta, i: number, l: LayoutEtiqueta, erros: string[]) {
   const onde = `Elemento ${i + 1}`;
   if (typeof el.id !== 'string' || !el.id) erros.push(`${onde}: id ausente.`);
@@ -89,14 +108,24 @@ function validarElemento(el: ElementoEtiqueta, i: number, l: LayoutEtiqueta, err
   if (!entre(el.x, -0.01, l.larguraMm) || !entre(el.y, -0.01, l.alturaMm) || el.x + el.largura > l.larguraMm + 0.05 || el.y + el.altura > l.alturaMm + 0.05) {
     erros.push(`${onde}: posição fora da etiqueta.`);
   }
+  if (el.opacidade !== undefined && !entre(el.opacidade, 0, 1)) erros.push(`${onde}: opacidade entre 0 e 1.`);
+  if (el.travado !== undefined && typeof el.travado !== 'boolean') erros.push(`${onde}: opção de travar inválida.`);
   switch (el.tipo) {
     case 'texto':
+    case 'preco':
       validarOrigem(el.valor, onde, erros);
-      if (!entre(el.tamanhoPt, LIMITES.tamanhoPt.min, LIMITES.tamanhoPt.max)) erros.push(`${onde}: tamanho da fonte inválido.`);
-      if (!['esquerda', 'centro', 'direita'].includes(el.alinhamento)) erros.push(`${onde}: alinhamento inválido.`);
-      if (typeof el.prefixo !== 'string' || typeof el.sufixo !== 'string' || el.prefixo.length > 50 || el.sufixo.length > 50)
-        erros.push(`${onde}: prefixo/sufixo inválido.`);
-      if (typeof el.negrito !== 'boolean') erros.push(`${onde}: negrito inválido.`);
+      validarEstiloFonte(el, onde, erros);
+      if (el.tipo === 'texto') {
+        if (typeof el.prefixo !== 'string' || typeof el.sufixo !== 'string' || el.prefixo.length > 50 || el.sufixo.length > 50)
+          erros.push(`${onde}: prefixo/sufixo inválido.`);
+        if (el.espacamentoLetras !== undefined && !entre(el.espacamentoLetras, -10, 100)) erros.push(`${onde}: espaçamento entre letras inválido.`);
+        if (el.alturaLinha !== undefined && !entre(el.alturaLinha, 0.5, 4)) erros.push(`${onde}: altura da linha entre 0,5 e 4.`);
+        if (el.caixa !== undefined && !['normal', 'maiusculas', 'minusculas'].includes(el.caixa)) erros.push(`${onde}: maiúsculas/minúsculas inválido.`);
+        for (const k of ['sublinhado', 'tachado'] as const) if (el[k] !== undefined && typeof el[k] !== 'boolean') erros.push(`${onde}: ${k} inválido.`);
+      } else {
+        if (typeof el.simbolo !== 'string' || el.simbolo.length > 10) erros.push(`${onde}: símbolo da moeda inválido.`);
+        if (typeof el.centavosSobrescritos !== 'boolean') erros.push(`${onde}: opção dos centavos inválida.`);
+      }
       break;
     case 'codigo_barras':
       validarOrigem(el.valor, onde, erros);
@@ -106,10 +135,22 @@ function validarElemento(el: ElementoEtiqueta, i: number, l: LayoutEtiqueta, err
     case 'qrcode':
       validarOrigem(el.valor, onde, erros);
       break;
-    case 'retangulo':
     case 'linha':
-      if (!entre(el.espessuraMm, 0.1, 20)) erros.push(`${onde}: espessura inválida.`);
-      if (el.tipo === 'retangulo' && typeof el.preenchido !== 'boolean') erros.push(`${onde}: preenchimento inválido.`);
+      if (!entre(el.espessuraMm, 0.1, 50)) erros.push(`${onde}: espessura inválida.`);
+      if (!corOpcional(el.cor)) erros.push(`${onde}: cor inválida.`);
+      if (el.tracejado !== undefined && typeof el.tracejado !== 'boolean') erros.push(`${onde}: tracejado inválido.`);
+      break;
+    case 'retangulo':
+    case 'elipse':
+    case 'estrela':
+      if (!entre(el.espessuraMm, 0, 50)) erros.push(`${onde}: espessura da borda inválida.`);
+      if (typeof el.preenchido !== 'boolean') erros.push(`${onde}: preenchimento inválido.`);
+      if (!el.preenchido && el.espessuraMm < 0.1) erros.push(`${onde}: forma sem preenchimento precisa de borda.`);
+      if (!corOpcional(el.corPreenchimento) || !corOpcional(el.corBorda)) erros.push(`${onde}: cor inválida.`);
+      if (el.tracejado !== undefined && typeof el.tracejado !== 'boolean') erros.push(`${onde}: tracejado inválido.`);
+      if (el.tipo === 'retangulo' && el.raioMm !== undefined && !entre(el.raioMm, 0, 600)) erros.push(`${onde}: raio dos cantos inválido.`);
+      if (el.tipo === 'estrela' && (!Number.isInteger(el.pontas) || !entre(el.pontas, 3, 40) || !entre(el.raioInterno, 0.1, 0.95)))
+        erros.push(`${onde}: estrela com pontas (3–40) ou raio interno (0,1–0,95) inválido.`);
       break;
     case 'imagem': {
       const lado = (v: unknown) => Number.isInteger(v) && entre(v, 1, LADO_MAXIMO_IMAGEM_PX);
@@ -124,6 +165,12 @@ function validarElemento(el: ElementoEtiqueta, i: number, l: LayoutEtiqueta, err
       if (!Number.isInteger(el.limiar) || !entre(el.limiar, 0, 255)) erros.push(`${onde}: limiar entre 0 e 255.`);
       if (typeof el.pontilhado !== 'boolean') erros.push(`${onde}: opção de pontilhado inválida.`);
       if (typeof el.nome !== 'string' || el.nome.length > 200) erros.push(`${onde}: nome da imagem inválido.`);
+      if (
+        el.original !== undefined &&
+        (typeof el.original !== 'string' || el.original.length > LIMITES.imagemOriginal || !/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/.test(el.original))
+      ) {
+        erros.push(`${onde}: imagem colorida inválida ou grande demais.`);
+      }
       break;
     }
     default:
@@ -155,7 +202,11 @@ export function validarLayout(l: LayoutEtiqueta): string[] {
   if (!Array.isArray(l.elementos)) return [...erros, 'Lista de elementos ausente.'];
   if (l.elementos.length > LIMITES.elementos) erros.push(`No máximo ${LIMITES.elementos} elementos.`);
   if (erros.length === 0) l.elementos.forEach((el, i) => validarElemento(el, i, l, erros));
-  const tamanhoImagens = l.elementos.reduce((t, el) => t + (el?.tipo === 'imagem' && typeof el.cinza === 'string' ? el.cinza.length : 0), 0);
+  if (!corOpcional(l.corFundo)) erros.push('Cor de fundo inválida.');
+  const tamanhoImagens = l.elementos.reduce(
+    (t, el) => t + (el?.tipo === 'imagem' ? (typeof el.cinza === 'string' ? el.cinza.length : 0) + (typeof el.original === 'string' ? el.original.length : 0) : 0),
+    0,
+  );
   if (tamanhoImagens > LIMITES.imagensBase64) erros.push('As imagens do modelo passam do limite; use imagens menores ou em menor quantidade.');
   const ids = new Set(l.elementos.map((e) => e.id));
   if (ids.size !== l.elementos.length) erros.push('Há elementos com id repetido.');
