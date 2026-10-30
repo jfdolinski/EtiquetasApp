@@ -55,6 +55,9 @@ type Visao struct {
 	CopiasAntigas []string `json:"copiasAntigas,omitempty"`
 	// O agente está publicando o status agora (os números de execução valem).
 	AgenteRodando bool `json:"agenteRodando"`
+	// Este painel é uma versão aberta fora de Arquivos de Programas e o agente já está
+	// instalado: "Atualizar" copia esta versão e reinicia o serviço.
+	PodeAtualizar bool `json:"podeAtualizar"`
 	// Aba que a página deve abrir (pedido do menu do ícone), entregue uma vez.
 	Aba string `json:"aba,omitempty"`
 }

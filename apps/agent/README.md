@@ -35,6 +35,7 @@ Como funciona por dentro:
 - A janela usa o WebView2, que já vem no Windows 11 e no Windows 10 atualizado. Sem ele, o painel avisa e abre a página de download; o agente continua funcionando.
 - Na primeira execução, o painel marca o ícone para ficar visível na barra. O Windows 11 aplica isso no próximo login. Antes disso, o link **Ícone ao lado do relógio** abre a configuração da barra de tarefas.
 - Se houver uma cópia antiga do agente na pasta Inicializar do usuário, o painel avisa e oferece removê-la. Ela disputaria a conexão com o serviço.
+- **Atualizar:** abra o `.exe` novo (baixado do sistema) com dois cliques. Fora de Arquivos de Programas, ele fecha o painel aberto (inclusive de versões antigas) e mostra **Atualizar o agente**, que roda `instalar` como administrador: para o serviço, troca o executável e inicia de novo. **Reiniciar** não troca a versão.
 
 **Aba Impressoras** (também no menu do ícone: **Impressoras…**):
 

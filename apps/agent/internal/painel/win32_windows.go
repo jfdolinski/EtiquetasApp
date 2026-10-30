@@ -279,7 +279,7 @@ func promoverIcone(executavel string) {
 
 // instanciaUnica: a segunda execução só pede à primeira para mostrar a janela.
 type instanciaUnica struct {
-	mutex, evento windows.Handle
+	mutex, evento, sair windows.Handle
 }
 
 const (
@@ -287,23 +287,93 @@ const (
 	nomeEvento = `Local\EtiquetasAgentePainelMostrar`
 )
 
-// adquirirInstancia devolve nil se outra instância já está aberta (e a avisa).
-func adquirirInstancia() *instanciaUnica {
+const nomeEventoSair = `Local\EtiquetasAgentePainelSair`
+
+func avisar(nome string) {
+	n, _ := windows.UTF16PtrFromString(nome)
+	if ev, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, n); err == nil {
+		_ = windows.SetEvent(ev)
+		windows.CloseHandle(ev)
+	}
+}
+
+// adquirirInstancia devolve nil se outra instância já está aberta (e pede a ela para
+// mostrar a janela). Com `assumir` (versão nova aberta fora de Arquivos de Programas),
+// fecha o painel aberto e fica no lugar dele, para o usuário poder atualizar.
+func adquirirInstancia(assumir bool) *instanciaUnica {
 	nm, _ := windows.UTF16PtrFromString(nomeMutex)
-	ne, _ := windows.UTF16PtrFromString(nomeEvento)
 	m, err := windows.CreateMutex(nil, false, nm)
 	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
 		if m != 0 {
 			windows.CloseHandle(m)
 		}
-		if ev, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, ne); err == nil {
-			_ = windows.SetEvent(ev)
-			windows.CloseHandle(ev)
+		if !assumir {
+			avisar(nomeEvento)
+			return nil
 		}
-		return nil
+		avisar(nomeEventoSair)
+		m = 0
+		for tentativa := 0; tentativa < 25 && m == 0; tentativa++ {
+			if tentativa == 10 {
+				encerrarPaineisDaSessao() // versão antiga não conhece o pedido de sair
+			}
+			time.Sleep(200 * time.Millisecond)
+			if h, err := windows.CreateMutex(nil, false, nm); errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+				windows.CloseHandle(h)
+			} else if err == nil {
+				m = h
+			}
+		}
+		if m == 0 {
+			avisar(nomeEvento)
+			return nil
+		}
 	}
+	ne, _ := windows.UTF16PtrFromString(nomeEvento)
 	ev, _ := windows.CreateEvent(nil, 0, 0, ne)
-	return &instanciaUnica{mutex: m, evento: ev}
+	ns, _ := windows.UTF16PtrFromString(nomeEventoSair)
+	sair, _ := windows.CreateEvent(nil, 0, 0, ns)
+	return &instanciaUnica{mutex: m, evento: ev, sair: sair}
+}
+
+// encerrarPaineisDaSessao fecha outros etiquetas-agente.exe desta sessão do Windows (o
+// painel). O serviço roda na sessão 0, como SYSTEM, e não é afetado.
+func encerrarPaineisDaSessao() {
+	var minhaSessao uint32
+	meu := windows.GetCurrentProcessId()
+	if windows.ProcessIdToSessionId(meu, &minhaSessao) != nil {
+		return
+	}
+	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return
+	}
+	defer windows.CloseHandle(snap)
+	var e windows.ProcessEntry32
+	e.Size = uint32(unsafe.Sizeof(e))
+	for err = windows.Process32First(snap, &e); err == nil; err = windows.Process32Next(snap, &e) {
+		if e.ProcessID == meu || !strings.EqualFold(windows.UTF16ToString(e.ExeFile[:]), "etiquetas-agente.exe") {
+			continue
+		}
+		var sessao uint32
+		if windows.ProcessIdToSessionId(e.ProcessID, &sessao) != nil || sessao != minhaSessao {
+			continue
+		}
+		if h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, e.ProcessID); err == nil {
+			_ = windows.TerminateProcess(h, 0)
+			windows.CloseHandle(h)
+		}
+	}
+}
+
+// aguardarSaida fecha o painel quando uma versão nova pede o lugar.
+func (i *instanciaUnica) aguardarSaida(sair func()) {
+	if i.sair == 0 {
+		return
+	}
+	if r, err := windows.WaitForSingleObject(i.sair, windows.INFINITE); err == nil && r == windows.WAIT_OBJECT_0 {
+		sair()
+	}
 }
 
 // aguardarPedidos chama mostrar sempre que outra instância pede.
@@ -328,5 +398,9 @@ func (i *instanciaUnica) liberar() {
 	if i.evento != 0 {
 		windows.CloseHandle(i.evento)
 		i.evento = 0
+	}
+	if i.sair != 0 {
+		windows.CloseHandle(i.sair)
+		i.sair = 0
 	}
 }

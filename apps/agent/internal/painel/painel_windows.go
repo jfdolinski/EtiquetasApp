@@ -48,16 +48,17 @@ type Painel struct {
 
 // Executar mostra o ícone na bandeja e só volta quando o usuário fechar o ícone.
 func Executar(op Opcoes) error {
-	inst := adquirirInstancia()
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	// Aberto pelo usuário fora de Arquivos de Programas (ex.: versão nova em Downloads):
+	// toma o lugar do painel aberto, para mostrar "Atualizar o agente".
+	inst := adquirirInstancia(!op.Oculto && !ehInstalado(exe))
 	if inst == nil {
 		return nil // já aberto: a outra instância mostra a janela
 	}
 	ajustarDPI()
-	exe, err := os.Executable()
-	if err != nil {
-		inst.liberar()
-		return err
-	}
 	p := &Painel{op: op, executavel: exe, instancia: inst, icones: map[color.RGBA][]byte{}}
 	systray.Run(p.aoIniciar, inst.liberar)
 	return nil
@@ -126,6 +127,15 @@ func (p *Painel) aoIniciar() {
 		}
 	}()
 	go p.instancia.aguardarPedidos(p.abrirJanela)
+	go p.instancia.aguardarSaida(func() {
+		p.mu.Lock()
+		h := p.janela
+		p.mu.Unlock()
+		if h != 0 {
+			fecharJanela(h)
+		}
+		systray.Quit()
+	})
 	go promoverIcone(p.executavel)
 
 	v := p.visao()
@@ -196,6 +206,7 @@ func (p *Painel) visao() Visao {
 		Versao:         p.op.Versao,
 		Operacao:       op,
 		AgenteRodando:  rodando,
+		PodeAtualizar:  servico != ServicoNaoInstalado && !ehInstalado(p.executavel),
 	}
 	// Com o serviço instalado, uma cópia antiga na pasta Inicializar disputa o token com ele.
 	if servico != ServicoNaoInstalado {
@@ -374,4 +385,19 @@ func (p *Painel) visaoDaPagina() Visao {
 	v.Aba, p.abaPedida = p.abaPedida, ""
 	p.mu.Unlock()
 	return v
+}
+
+// ehInstalado: este executável é a cópia instalada em Arquivos de Programas.
+func ehInstalado(exe string) bool {
+	return strings.EqualFold(filepath.Clean(exe), filepath.Clean(config.ExecutavelInstalado()))
+}
+
+// atualizar: versão nova aberta fora da instalação copia a si mesma por cima da instalada
+// (o comando instalar para o serviço, troca o executável e inicia de novo).
+func (p *Painel) atualizar() {
+	go func() {
+		if p.acaoAdmin("Atualizando o agente…", "Agente atualizado.", "instalar") {
+			p.relancarInstalado()
+		}
+	}()
 }

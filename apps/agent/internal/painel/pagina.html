@@ -119,6 +119,11 @@
 
   <div class="operacao" id="operacao" hidden></div>
 
+  <section class="alerta" id="atualizacao" hidden>
+    <div><b>Este arquivo é outra versão do agente.</b> <span id="textoAtualizacao"></span></div>
+    <div><button class="primario" id="btnAtualizar">Atualizar o agente</button></div>
+  </section>
+
   <section class="alerta" id="copias" hidden>
     <div><b>Há uma cópia antiga do agente na inicialização do Windows.</b> Com o agente instalado, ela atrapalha: as duas disputam a mesma conexão.</div>
     <code id="listaCopias"></code>
@@ -253,6 +258,13 @@
     $('btnSistema').classList.toggle('primario', !(faltaInstalar || parado));
     $('btnServico').hidden = v.servico === 'nao_instalado' && !faltaInstalar;
 
+    $('atualizacao').hidden = !v.podeAtualizar;
+    if (v.podeAtualizar) {
+      const instalada = st && st.versao ? `A instalada é a ${st.versao}` : 'A instalada continua rodando';
+      $('textoAtualizacao').textContent = `${instalada}; esta é a ${v.versao}. Atualizar troca o agente instalado por esta versão (pede permissão de administrador).`;
+      $('btnAtualizar').disabled = v.operacao.andamento;
+    }
+
     const copias = v.copiasAntigas || [];
     $('copias').hidden = !copias.length;
     $('listaCopias').textContent = copias.join('\n');
@@ -334,6 +346,7 @@
     const s = visao && visao.situacao;
     (s === 'falta_instalar' ? window.instalar() : s === 'parado' ? window.iniciar() : window.reiniciar()).then(atualizar);
   });
+  $('btnAtualizar').addEventListener('click', () => window.atualizar().then(atualizar));
   $('btnRemoverCopias').addEventListener('click', async () => {
     try {
       await window.removerCopiasAntigas();

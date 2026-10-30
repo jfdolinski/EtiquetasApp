@@ -124,7 +124,7 @@ O build também compila o agente para Windows e Linux. Os arquivos ficam em:
 
 - Cada push na `main` com o CI verde pode ser publicado com **Deploy** em cada serviço. Faça primeiro a `api`, por causa das migrações, depois o `web`.
 - Migrações novas em `apps/api/prisma/migrations` são aplicadas na subida da API. Faça backup do Postgres antes de atualizações grandes.
-- Os agentes instalados **não se atualizam sozinhos**. No Windows, baixe o executável novo, abra com dois cliques e use **Instalar o agente** (ou **Reiniciar**, se já estiver instalado). No Linux, rode `etiquetas-agente instalar` com o arquivo novo. O token continua valendo.
+- Os agentes instalados **não se atualizam sozinhos**. No Windows, baixe o executável novo, abra com dois cliques: ele fecha o painel aberto e mostra **Atualizar o agente**, que troca a versão instalada e reinicia o serviço (pede permissão de administrador). **Reiniciar** não atualiza. No Linux, rode `etiquetas-agente instalar` com o arquivo novo. O token continua valendo.
 - **Agentes da versão sem painel** (ativados pelo prompt ou abertos pela pasta Inicializar): o executável novo mostra **Falta instalar o agente**. Instale pela janela e, se ela avisar de uma cópia antiga na inicialização, clique em **Remover cópia antiga**.
 
 ## 8. Antes do primeiro cliente
