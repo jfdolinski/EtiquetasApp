@@ -55,6 +55,8 @@ type Visao struct {
 	CopiasAntigas []string `json:"copiasAntigas,omitempty"`
 	// O agente está publicando o status agora (os números de execução valem).
 	AgenteRodando bool `json:"agenteRodando"`
+	// Aba que a página deve abrir (pedido do menu do ícone), entregue uma vez.
+	Aba string `json:"aba,omitempty"`
 }
 
 // StatusRecente: o agente atualizou o status há pouco e não está parado.

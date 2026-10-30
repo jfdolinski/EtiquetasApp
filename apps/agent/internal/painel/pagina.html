@@ -65,6 +65,19 @@
   footer { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; padding: 0 16px 16px; font-size: 12.5px; color: var(--suave); }
   footer .links { display: grid; gap: 4px; justify-items: start; }
   footer button.link { font-size: 12.5px; }
+  .abas { display: flex; gap: 4px; padding: 8px 16px 0; background: var(--cartao); border-bottom: 1px solid var(--borda); }
+  .abas button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--suave); font-weight: 600; }
+  .abas button[aria-selected="true"] { color: var(--azul); border-bottom-color: var(--azul); }
+  .impressora { border-top: 1px solid var(--borda); padding: 10px 0; display: grid; gap: 6px; }
+  .impressora:first-of-type { border-top: none; padding-top: 2px; }
+  .impressora .nome { font-weight: 600; overflow-wrap: anywhere; }
+  .impressora .detalhe { font-size: 12px; color: var(--suave); overflow-wrap: anywhere; }
+  .impressora .linha { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .impressora select, .impressora input { font: 13px "Segoe UI", system-ui, sans-serif; padding: 5px 6px; border: 1px solid var(--borda); border-radius: 6px; background: var(--fundo); color: var(--texto); }
+  .impressora input { flex: 1; min-width: 140px; user-select: text; }
+  .impressora button { padding: 5px 10px; font-size: 13px; }
+  .selo-ok { font-size: 12.5px; color: var(--verde); font-weight: 600; }
+  .padrao { font-size: 11px; color: var(--azul); border: 1px solid var(--azul); border-radius: 4px; padding: 0 4px; margin-left: 6px; font-weight: 600; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -74,8 +87,28 @@
   <h1>Agente de Etiquetas</h1>
   <span class="versao" id="versao"></span>
 </header>
+<nav class="abas" role="tablist">
+  <button role="tab" id="abaBtnSituacao" aria-selected="true" data-aba="situacao">Situação</button>
+  <button role="tab" id="abaBtnImpressoras" aria-selected="false" data-aba="impressoras">Impressoras</button>
+</nav>
 
-<main>
+<main id="abaImpressoras" hidden>
+  <div class="operacao" id="operacaoImp" hidden></div>
+  <section class="cartao">
+    <h3>Instaladas neste computador</h3>
+    <div id="listaSistema"></div>
+  </section>
+  <section class="cartao">
+    <h3>Na rede (impressoras de etiqueta)</h3>
+    <p class="dica" id="dicaRede">Procura impressoras que recebem impressão direta pela rede (porta 9100) na rede local deste computador.</p>
+    <div class="acoes" style="margin: 8px 0"><button id="btnProcurarRede">Procurar na rede</button></div>
+    <div id="listaRede"></div>
+  </section>
+  <p class="dica" id="dicaCadastro">Teste antes de cadastrar: se a etiqueta sair em branco ou com símbolos, troque a linguagem. Depois de cadastrar, escolha a impressora no modelo de etiqueta, em <b>Impressora padrão</b>.</p>
+  <p class="dica" id="erroCadastradas" hidden></p>
+</main>
+
+<main id="abaSituacao">
   <section class="cartao status" id="status" style="--cor: var(--cinza); --cor-fundo: var(--cinza-fundo)">
     <span class="bolinha" aria-hidden="true"></span>
     <div>
@@ -321,8 +354,143 @@
   });
   document.addEventListener('keydown', (e) => e.key === 'Escape' && window.fechar());
 
-  atualizar();
-  setInterval(atualizar, 1500);
+  // ---- Aba Impressoras ----
+  const LINGUAGENS = [
+    ['ZPL', 'Zebra (ZPL)'],
+    ['PPLB', 'Argox PPLB / Zebra EPL'],
+    ['PPLA', 'Argox PPLA / Datamax'],
+    ['ESCPOS', 'Cupom 80 mm (ESC/POS)'],
+    ['PDF', 'Impressora comum (PDF)'],
+  ];
+  let aba = 'situacao';
+  let assinaturaImp = '';
+  // O que o técnico mudou em cada impressora (nome, linguagem, DPI) sobrevive às atualizações.
+  const ajustes = {};
+
+  function mostrarAba(nova) {
+    aba = nova;
+    $('abaSituacao').hidden = aba !== 'situacao';
+    document.querySelector('footer').hidden = aba !== 'situacao';
+    $('abaImpressoras').hidden = aba !== 'impressoras';
+    $('abaBtnSituacao').setAttribute('aria-selected', String(aba === 'situacao'));
+    $('abaBtnImpressoras').setAttribute('aria-selected', String(aba === 'impressoras'));
+    if (aba === 'impressoras') {
+      assinaturaImp = '';
+      window.atualizarCadastradas();
+      atualizarImpressoras();
+    }
+  }
+  document.querySelectorAll('.abas button').forEach((b) => b.addEventListener('click', () => mostrarAba(b.dataset.aba)));
+
+  const chave = (metodo, endereco) => metodo + '|' + String(endereco).toLowerCase();
+
+  function itemImpressora(e, cadastradas, cadastroDireto) {
+    const k = chave(e.metodo, e.endereco);
+    const aj = (ajustes[k] = ajustes[k] || { nome: e.nome, linguagem: e.linguagem, dpi: e.dpi });
+    const ja = cadastradas.find((c) => chave(c.metodo, c.endereco) === k);
+    const div = document.createElement('div');
+    div.className = 'impressora';
+
+    const titulo = document.createElement('div');
+    titulo.className = 'nome';
+    titulo.textContent = e.metodo === 'REDE' ? e.endereco.replace(/:9100$/, '') : e.nome;
+    if (e.padrao) titulo.append(Object.assign(document.createElement('span'), { className: 'padrao', textContent: 'padrão do Windows' }));
+    const detalhe = document.createElement('div');
+    detalhe.className = 'detalhe';
+    detalhe.textContent = e.metodo === 'REDE' ? 'Rede, porta 9100' : [e.driver, e.porta].filter(Boolean).join(' · ');
+    div.append(titulo, detalhe);
+
+    if (ja) {
+      div.append(Object.assign(document.createElement('div'), { className: 'selo-ok', textContent: `✓ Cadastrada no sistema como “${ja.nome}” (${ja.linguagem}, ${ja.dpi} dpi)` }));
+    } else {
+      const linha1 = document.createElement('div');
+      linha1.className = 'linha';
+      const nome = Object.assign(document.createElement('input'), { value: aj.nome, title: 'Nome da impressora no sistema' });
+      nome.addEventListener('input', () => (aj.nome = nome.value));
+      linha1.append(nome);
+      const linha2 = document.createElement('div');
+      linha2.className = 'linha';
+      const ling = document.createElement('select');
+      for (const [v, r] of LINGUAGENS) ling.append(new Option(r, v, false, v === aj.linguagem));
+      ling.addEventListener('change', () => ((aj.linguagem = ling.value), (btnTestar.disabled = ling.value === 'PDF')));
+      const dpi = document.createElement('select');
+      for (const d of [203, 300, 600, 152]) dpi.append(new Option(d + ' dpi', d, false, d === aj.dpi));
+      dpi.addEventListener('change', () => (aj.dpi = Number(dpi.value)));
+      const btnTestar = Object.assign(document.createElement('button'), { textContent: 'Testar', title: 'Imprime uma etiqueta de teste', disabled: aj.linguagem === 'PDF' });
+      btnTestar.addEventListener('click', () =>
+        window.testarImpressora(e.metodo, e.endereco, aj.nome, aj.linguagem, aj.dpi).then(atualizarImpressoras).catch(mostrarErroImp),
+      );
+      const btnCadastrar = Object.assign(document.createElement('button'), {
+        className: 'primario',
+        textContent: 'Cadastrar',
+        title: cadastroDireto ? 'Cria a impressora no sistema, ligada a este agente' : 'O Windows vai pedir permissão de administrador',
+      });
+      btnCadastrar.addEventListener('click', () =>
+        window.cadastrarImpressora(aj.nome, aj.linguagem, aj.dpi, e.metodo, e.endereco, e.driver || '').then(atualizarImpressoras).catch(mostrarErroImp),
+      );
+      linha2.append(ling, dpi, btnTestar, btnCadastrar);
+      div.append(linha1, linha2);
+    }
+    return div;
+  }
+
+  function mostrarErroImp(erro) {
+    const c = $('operacaoImp');
+    c.hidden = false;
+    c.className = 'operacao erro';
+    c.textContent = String(erro);
+  }
+
+  function renderImpressoras(v) {
+    const op = v.operacao;
+    const caixa = $('operacaoImp');
+    caixa.hidden = !(op.andamento || op.ok || op.erro);
+    caixa.className = 'operacao ' + (op.andamento ? 'andamento' : op.erro ? 'erro' : 'ok');
+    caixa.textContent = op.andamento ? op.titulo : op.erro || op.ok || '';
+    $('btnProcurarRede').disabled = v.procurandoRede;
+    $('btnProcurarRede').textContent = v.procurandoRede ? 'Procurando… (alguns segundos)' : v.redeProcurada ? 'Procurar de novo' : 'Procurar na rede';
+    $('erroCadastradas').hidden = !v.erroCadastradas;
+    $('erroCadastradas').textContent = v.erroCadastradas || '';
+
+    // Só redesenha as listas quando elas mudam: não perde o que está sendo digitado.
+    const assinatura = JSON.stringify([v.sistema, v.rede, v.cadastradas, v.erroSistema, v.erroRede, v.redeProcurada]);
+    if (assinatura === assinaturaImp) return;
+    assinaturaImp = assinatura;
+    const cad = v.cadastradas || [];
+    const sistema = $('listaSistema');
+    sistema.replaceChildren(...(v.sistema || []).map((e) => itemImpressora(e, cad, v.cadastroDireto)));
+    if (!sistema.children.length) {
+      sistema.append(
+        Object.assign(document.createElement('p'), {
+          className: 'vazio',
+          textContent: v.erroSistema || 'Nenhuma impressora instalada no Windows (as virtuais, como “Microsoft Print to PDF”, não aparecem).',
+        }),
+      );
+    }
+    const rede = $('listaRede');
+    rede.replaceChildren(...(v.rede || []).map((e) => itemImpressora(e, cad, v.cadastroDireto)));
+    if (v.redeProcurada && !rede.children.length) {
+      rede.append(Object.assign(document.createElement('p'), { className: 'vazio', textContent: v.erroRede || 'Nenhuma impressora respondeu na porta 9100.' }));
+    }
+  }
+
+  async function atualizarImpressoras() {
+    if (aba !== 'impressoras') return;
+    try {
+      renderImpressoras(await window.impressoras());
+    } catch (e) {
+      mostrarErroImp(e);
+    }
+  }
+  $('btnProcurarRede').addEventListener('click', () => window.procurarNaRede().then(atualizarImpressoras));
+
+  async function ciclo() {
+    await atualizar();
+    if (visao && visao.aba && visao.aba !== aba) mostrarAba(visao.aba);
+    await atualizarImpressoras();
+  }
+  ciclo();
+  setInterval(ciclo, 1500);
 </script>
 </body>
 </html>

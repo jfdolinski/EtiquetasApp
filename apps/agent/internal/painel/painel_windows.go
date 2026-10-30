@@ -25,6 +25,8 @@ type Opcoes struct {
 	ServidorPadrao string
 	// Oculto: iniciado com o Windows; só abre a janela se o agente precisar de atenção.
 	Oculto bool
+	// Config: arquivo de configuração do agente (o mesmo do serviço).
+	Config string
 }
 
 type Painel struct {
@@ -39,6 +41,9 @@ type Painel struct {
 	abrindo  bool
 	corAtual color.RGBA
 	dica     string
+
+	imp       impressorasPainel
+	abaPedida string
 }
 
 // Executar mostra o ícone na bandeja e só volta quando o usuário fechar o ícone.
@@ -87,6 +92,7 @@ func (p *Painel) aoIniciar() {
 	systray.SetOnTapped(p.abrirJanela) // clique simples abre a janela; o direito, o menu
 
 	mAbrir := systray.AddMenuItem("Abrir o painel", "Mostra a situação do agente")
+	mImpressoras := systray.AddMenuItem("Impressoras…", "Procurar, testar e cadastrar impressoras deste computador")
 	mSistema := systray.AddMenuItem("Abrir o sistema no navegador", "")
 	systray.AddSeparator()
 	mReiniciar := systray.AddMenuItem("Reiniciar o agente", "Pede permissão de administrador")
@@ -97,6 +103,11 @@ func (p *Painel) aoIniciar() {
 		for {
 			select {
 			case <-mAbrir.ClickedCh:
+				p.abrirJanela()
+			case <-mImpressoras.ClickedCh:
+				p.mu.Lock()
+				p.abaPedida = "impressoras"
+				p.mu.Unlock()
 				p.abrirJanela()
 			case <-mSistema.ClickedCh:
 				p.abrirSistema()
@@ -157,7 +168,7 @@ func (p *Painel) visao() Visao {
 		st = nil
 	}
 	// A configuração só é legível para quem ativou e para administradores.
-	cfg, err := config.Carregar(config.CaminhoPadrao())
+	cfg, err := config.Carregar(p.op.Config)
 	configAtivada := err == nil && cfg.Ativado()
 	servico := estadoServico()
 	agora := time.Now()
@@ -353,4 +364,14 @@ func (p *Painel) relancarInstalado() {
 		return
 	}
 	systray.Quit()
+}
+
+// visaoDaPagina: a da janela entrega, uma vez, a aba pedida pelo menu do ícone (o ícone
+// também consulta a visão e não pode consumir o pedido).
+func (p *Painel) visaoDaPagina() Visao {
+	v := p.visao()
+	p.mu.Lock()
+	v.Aba, p.abaPedida = p.abaPedida, ""
+	p.mu.Unlock()
+	return v
 }

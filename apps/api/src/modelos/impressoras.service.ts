@@ -4,7 +4,10 @@ import type { ImpressoraResumo, MetodoImpressora } from '@etiquetas/shared';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ehViolacaoUnica } from '../prisma/erros';
 import { PrismaService } from '../prisma/prisma.service';
-import type { AtualizarImpressoraDto, CriarImpressoraDto } from './dto';
+import type { AtualizarImpressoraDto, CadastrarImpressoraAgenteDto, CriarImpressoraDto } from './dto';
+
+/** Limite de impressoras cadastradas pelo painel de um agente. */
+const MAXIMO_POR_AGENTE = 50;
 
 const SELECAO = {
   id: true,
@@ -126,6 +129,50 @@ export class ImpressorasService {
       entidadeId: id,
       detalhes: { nome: atual.nome },
     });
+  }
+
+  /** Impressoras que o próprio agente entrega (painel do agente no Windows). */
+  async listarDoAgente(empresaId: string, agenteId: string): Promise<ImpressoraResumo[]> {
+    const lista = await this.prisma.impressora.findMany({ where: { empresaId, agenteId }, orderBy: { nome: 'asc' }, select: SELECAO });
+    return lista.map(resumo);
+  }
+
+  /**
+   * Cadastro pelo painel do agente: a impressora fica ligada a ele. Repetir o cadastro da
+   * mesma impressora (mesmo método e endereço) devolve a existente; nome em uso ganha sufixo.
+   */
+  async cadastrarPeloAgente(empresaId: string, agenteId: string, dto: CadastrarImpressoraAgenteDto): Promise<ImpressoraResumo & { jaExistia: boolean }> {
+    const endereco = normalizarEndereco(dto.metodo, dto.endereco);
+    const existente = await this.prisma.impressora.findFirst({
+      where: { empresaId, agenteId, metodo: dto.metodo, endereco: { equals: endereco, mode: 'insensitive' } },
+      select: SELECAO,
+    });
+    if (existente) return { ...resumo(existente), jaExistia: true };
+    if ((await this.prisma.impressora.count({ where: { empresaId, agenteId } })) >= MAXIMO_POR_AGENTE) {
+      throw new BadRequestException(`Este agente já tem ${MAXIMO_POR_AGENTE} impressoras cadastradas.`);
+    }
+    const base = dto.nome.trim();
+    for (let n = 1; n <= 20; n++) {
+      const nome = n === 1 ? base : `${base} (${n})`.slice(0, 80);
+      try {
+        const impressora = await this.prisma.impressora.create({
+          data: { empresaId, agenteId, nome, linguagem: dto.linguagem, dpi: dto.dpi, metodo: dto.metodo, endereco, modelo: dto.modelo?.trim() || null },
+          select: SELECAO,
+        });
+        await this.auditoria.registrar({
+          empresaId,
+          usuarioId: null,
+          acao: 'impressora.criar',
+          entidade: 'Impressora',
+          entidadeId: impressora.id,
+          detalhes: { ...dto, nome, agenteId, origem: 'painel do agente' },
+        });
+        return { ...resumo(impressora), jaExistia: false };
+      } catch (erro) {
+        if (!ehViolacaoUnica(erro)) throw erro;
+      }
+    }
+    throw new ConflictException('Já existem impressoras demais com este nome; escolha outro.');
   }
 
   private async exigirAgente(empresaId: string, agenteId: string) {

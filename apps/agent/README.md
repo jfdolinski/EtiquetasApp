@@ -36,6 +36,13 @@ Como funciona por dentro:
 - Na primeira execução, o painel marca o ícone para ficar visível na barra. O Windows 11 aplica isso no próximo login. Antes disso, o link **Ícone ao lado do relógio** abre a configuração da barra de tarefas.
 - Se houver uma cópia antiga do agente na pasta Inicializar do usuário, o painel avisa e oferece removê-la. Ela disputaria a conexão com o serviço.
 
+**Aba Impressoras** (também no menu do ícone: **Impressoras…**):
+
+- lista as impressoras instaladas no Windows (sem as virtuais, como "Microsoft Print to PDF") e procura impressoras de etiqueta na rede local (porta 9100, só as redes /24 privadas deste computador);
+- sugere a linguagem pelo nome do driver: Zebra = ZPL, Zebra com driver EPL ou Argox = PPLB, Datamax = PPLA, Epson TM/Bematech/Elgin i9 = ESC/POS, demais (jato de tinta, laser) = PDF;
+- **Testar** imprime uma etiqueta de teste direto daqui (térmicas), sem passar pelo servidor;
+- **Cadastrar** cria a impressora no sistema, ligada a este agente (`POST /api/agente/impressoras`, autenticado pelo token do agente; repetir não duplica). Se este usuário não consegue ler a configuração, o painel usa o comando `impressora` como administrador.
+
 O ícone e as informações do executável vêm de `cmd/etiquetas-agente/rsrc_windows_amd64.syso`. Para gerar de novo depois de mudar o desenho (`internal/icone`):
 
 ```bash
@@ -72,6 +79,7 @@ Só o CNPJ não basta para ativar, porque o CNPJ é público. O código de uso �
 | `executar` | Roda em primeiro plano (é o que o serviço executa). É o padrão no Linux |
 | `instalar` / `desinstalar` | Instala e inicia, ou para e remove, o serviço (requer administrador ou root). No Windows, `instalar` também copia o agente para Arquivos de Programas e põe o painel para abrir com o Windows; com `-codigo`, reativa |
 | `iniciar` / `parar` / `reiniciar` / `status` | Controlam o serviço |
+| `impressora` | Cadastra no sistema uma impressora entregue por este agente: `-nome`, `-linguagem` (ZPL, PPLA, PPLB, ESCPOS, PDF), `-dpi`, `-metodo` (REDE ou SISTEMA), `-endereco` (IP[:porta] ou nome no Windows), `-modelo` |
 | `versao` | Mostra a versão |
 
 Opções: `-config <arquivo>`, `-servidor <url>`, `-cnpj`, `-codigo`, `-log <arquivo>`, `-oculto` (painel) e `-resultado <arquivo>` (uso interno: o painel lê o resultado dos comandos que roda como administrador).

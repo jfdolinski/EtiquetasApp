@@ -24,3 +24,6 @@ func imprimirSistema(ctx context.Context, impressora, nome string, dados []byte)
 	}
 	return nil
 }
+
+// listarSistema: o painel com a lista de impressoras só existe no Windows.
+func listarSistema() ([]Encontrada, error) { return nil, nil }

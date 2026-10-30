@@ -15,7 +15,7 @@ const podePerguntar = true
 
 func anexarConsole() {}
 
-func abrirPainel(bool) error {
+func abrirPainel(bool, string) error {
 	return errors.New("o painel com ícone só existe no Windows; use 'etiquetas-agente status'")
 }
 

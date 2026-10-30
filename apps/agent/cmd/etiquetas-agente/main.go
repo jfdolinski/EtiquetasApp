@@ -45,6 +45,7 @@ Comandos:
   iniciar      inicia o serviço
   parar        para o serviço
   reiniciar    reinicia o serviço
+  impressora   cadastra no sistema uma impressora deste computador (-nome, -linguagem, -dpi, -metodo, -endereco)
   status       mostra o estado do serviço
   versao       mostra a versão
 
@@ -152,6 +153,13 @@ func main() {
 	codigo := flags.String("codigo", "", "código de ativação gerado no painel (ativar)")
 	arquivoLog := flags.String("log", "", "grava o log neste arquivo além da saída padrão")
 	oculto := flags.Bool("oculto", false, "painel: só mostra a janela se o agente precisar de atenção (início com o Windows)")
+	var nova cliente.NovaImpressora
+	flags.StringVar(&nova.Nome, "nome", "", "impressora: nome no sistema")
+	flags.StringVar(&nova.Linguagem, "linguagem", "", "impressora: ZPL, PPLA, PPLB, ESCPOS ou PDF")
+	flags.IntVar(&nova.DPI, "dpi", 203, "impressora: resolução (152, 203, 300 ou 600)")
+	flags.StringVar(&nova.Metodo, "metodo", "SISTEMA", "impressora: REDE (IP:porta) ou SISTEMA (nome no Windows)")
+	flags.StringVar(&nova.Endereco, "endereco", "", "impressora: IP:porta ou nome da impressora no sistema")
+	flags.StringVar(&nova.Modelo, "modelo", "", "impressora: modelo ou driver (opcional)")
 	flags.StringVar(&arquivoResultado, "resultado", "", "grava o resultado do comando neste arquivo (uso interno do painel)")
 	flags.Usage = func() {
 		fmt.Fprint(flags.Output(), usoGeral)
@@ -160,7 +168,7 @@ func main() {
 	_ = flags.Parse(args)
 
 	if comando == "painel" {
-		if err := abrirPainel(*oculto); err != nil {
+		if err := abrirPainel(*oculto, *caminhoConfig); err != nil {
 			sair(err)
 		}
 		return
@@ -243,6 +251,25 @@ func main() {
 			sair(err)
 		}
 		concluir("Agente reiniciado.")
+	case "impressora":
+		// Cadastra no servidor uma impressora entregue por este agente (o painel usa quando
+		// não consegue ler a configuração sem ser administrador).
+		cfg, err := config.Carregar(*caminhoConfig)
+		if err != nil {
+			sair(err)
+		}
+		if !cfg.Ativado() {
+			sair(errors.New("agente não ativado"))
+		}
+		r, err := cliente.CadastrarImpressora(context.Background(), cfg.Servidor, cfg.Token, nova)
+		if err != nil {
+			sair(err)
+		}
+		if r.JaExistia {
+			concluir(fmt.Sprintf("A impressora já estava cadastrada como %q.", r.Nome))
+		} else {
+			concluir(fmt.Sprintf("Impressora %q cadastrada no sistema.", r.Nome))
+		}
 	case "status":
 		st, err := svc.Status()
 		if err != nil {

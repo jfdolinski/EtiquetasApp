@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 var (
@@ -19,6 +21,58 @@ var (
 	procEndPage      = winspool.NewProc("EndPagePrinter")
 	procWritePrinter = winspool.NewProc("WritePrinter")
 )
+
+var (
+	procEnumPrinters      = winspool.NewProc("EnumPrintersW")
+	procGetDefaultPrinter = winspool.NewProc("GetDefaultPrinterW")
+)
+
+// printerInfo2 = PRINTER_INFO_2W (só os campos lidos têm nome).
+type printerInfo2 struct {
+	servidor, nome, compartilhamento, porta, driver, comentario, local *uint16
+	devMode                                                            uintptr
+	separador, processador, tipoDados, parametros                      *uint16
+	seguranca                                                          uintptr
+	atributos, prioridade, prioridadePadrao, inicio, fim, status, jobs uint32
+	ppm                                                                uint32
+}
+
+func texto(p *uint16) string { return windows.UTF16PtrToString(p) }
+
+// listarSistema: impressoras locais e conexões de rede do usuário (EnumPrinters nível 2).
+func listarSistema() ([]Encontrada, error) {
+	const (
+		enumLocal       = 0x2
+		enumConnections = 0x4
+	)
+	var precisa, quantas uint32
+	_, _, _ = procEnumPrinters.Call(enumLocal|enumConnections, 0, 2, 0, 0, uintptr(unsafe.Pointer(&precisa)), uintptr(unsafe.Pointer(&quantas)))
+	if precisa == 0 {
+		return nil, nil
+	}
+	buf := make([]byte, precisa)
+	if r, _, e := procEnumPrinters.Call(enumLocal|enumConnections, 0, 2, uintptr(unsafe.Pointer(&buf[0])), uintptr(precisa),
+		uintptr(unsafe.Pointer(&precisa)), uintptr(unsafe.Pointer(&quantas))); r == 0 {
+		return nil, fmt.Errorf("não foi possível listar as impressoras do Windows: %v", e)
+	}
+	padrao := impressoraPadrao()
+	infos := unsafe.Slice((*printerInfo2)(unsafe.Pointer(&buf[0])), quantas)
+	r := make([]Encontrada, 0, quantas)
+	for _, i := range infos {
+		nome := texto(i.nome)
+		r = append(r, Encontrada{Nome: nome, Driver: texto(i.driver), Porta: texto(i.porta), Padrao: nome == padrao})
+	}
+	return r, nil
+}
+
+func impressoraPadrao() string {
+	var n uint32 = 512
+	buf := make([]uint16, n)
+	if r, _, _ := procGetDefaultPrinter.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&n))); r == 0 {
+		return ""
+	}
+	return syscall.UTF16ToString(buf)
+}
 
 // docInfo1 = DOC_INFO_1W.
 type docInfo1 struct {

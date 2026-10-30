@@ -218,3 +218,30 @@ export class AtualizarImpressoraDto {
   @IsBoolean()
   ativo?: boolean;
 }
+
+/** Cadastro feito pelo painel do agente (autenticado pelo token do agente). */
+export class CadastrarImpressoraAgenteDto {
+  @IsString()
+  @MinLength(2, { message: 'O nome deve ter ao menos 2 caracteres.' })
+  @MaxLength(80)
+  nome: string;
+
+  @IsIn(LINGUAGENS, { message: 'Linguagem inválida.' })
+  linguagem: LinguagemImpressora;
+
+  @IsIn(DPIS, { message: 'DPI inválido.' })
+  dpi: number;
+
+  @IsIn(['REDE', 'SISTEMA'], { message: 'Método inválido.' })
+  metodo: MetodoImpressora;
+
+  @IsString()
+  @MinLength(1, { message: 'Informe o endereço ou o nome da impressora.' })
+  @MaxLength(255)
+  endereco: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  modelo?: string;
+}

@@ -49,8 +49,8 @@ func anexarConsole() {
 	}
 }
 
-func abrirPainel(oculto bool) error {
-	return painel.Executar(painel.Opcoes{Versao: versao, ServidorPadrao: servidorPadrao, Oculto: oculto})
+func abrirPainel(oculto bool, caminhoConfig string) error {
+	return painel.Executar(painel.Opcoes{Versao: versao, ServidorPadrao: servidorPadrao, Oculto: oculto, Config: caminhoConfig})
 }
 
 // prepararExecutavel para o serviço (se estiver rodando) e copia este programa para

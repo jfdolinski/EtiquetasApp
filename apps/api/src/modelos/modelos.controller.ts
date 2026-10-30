@@ -1,10 +1,26 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
-import { ApenasSuperAdmin, EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
+import {
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  Headers,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { AgentesGateway } from '../agentes/agentes.gateway';
+import { ApenasSuperAdmin, EmpresaAtual, Publico, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import {
   AmostraDto,
   AtualizarImpressoraDto,
   AtualizarModeloDto,
+  CadastrarImpressoraAgenteDto,
   CopiarModeloDto,
   CriarImpressoraDto,
   CriarModeloDto,
@@ -139,5 +155,38 @@ export class ImpressorasController {
   @RequerPermissao('impressora.editar')
   async excluir(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() autor: UsuarioRequisicao) {
     await this.impressoras.excluir(empresaId, id, autor.id);
+  }
+}
+
+/**
+ * Painel do agente (Windows): lista e cadastra as impressoras que o próprio agente entrega.
+ * Autenticado pelo token do agente, como o WebSocket; a empresa vem do agente.
+ */
+@Controller('agente/impressoras')
+@Publico()
+export class ImpressorasAgenteController {
+  constructor(
+    private readonly impressoras: ImpressorasService,
+    private readonly gateway: AgentesGateway,
+  ) {}
+
+  private async agente(autorizacao: string | undefined) {
+    const auth = await this.gateway.autenticar(autorizacao);
+    if (!auth.ok) throw auth.status === 403 ? new ForbiddenException(auth.mensagem) : new UnauthorizedException(auth.mensagem);
+    return auth;
+  }
+
+  @Get()
+  async listar(@Headers('authorization') autorizacao: string | undefined) {
+    const { empresaId, agenteId } = await this.agente(autorizacao);
+    return this.impressoras.listarDoAgente(empresaId, agenteId);
+  }
+
+  @Post()
+  @HttpCode(200)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  async cadastrar(@Headers('authorization') autorizacao: string | undefined, @Body() dto: CadastrarImpressoraAgenteDto) {
+    const { empresaId, agenteId } = await this.agente(autorizacao);
+    return this.impressoras.cadastrarPeloAgente(empresaId, agenteId, dto);
   }
 }
