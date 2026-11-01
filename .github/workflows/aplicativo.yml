@@ -7,7 +7,7 @@ name: Aplicativo
 on:
   workflow_dispatch:
   push:
-    branches: [main, melhorias-e-app]
+    branches: [main]
     # Mudar só a versão publicada não gera APK novo.
     paths: ['apps/mobile/**', '!apps/mobile/release-publicada.txt', '.github/workflows/aplicativo.yml']
 

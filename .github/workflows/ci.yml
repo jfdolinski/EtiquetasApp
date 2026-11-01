@@ -4,7 +4,7 @@ name: CI
 
 on:
   push:
-    branches: [main, melhorias-e-app]
+    branches: [main]
   pull_request:
 
 permissions:
