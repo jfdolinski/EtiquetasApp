@@ -31,6 +31,12 @@ interface Props {
   desfazer: () => void;
   novaLinha: () => void;
   focarId: string | null;
+  /** Coluna que busca o produto na consulta do modelo ao ser preenchida. */
+  colunaBusca?: string | null;
+  /** Chamado quando o valor dessa coluna mudou numa linha. */
+  buscarProduto?: (linhaId: string, valor: string) => void;
+  /** Linhas com busca em andamento. */
+  buscando?: ReadonlySet<string>;
   /** Abaixo da grade, com as linhas visíveis (a impressão usa as mesmas). */
   rodape?: (visiveis: LinhaAvulsa[]) => ReactNode;
 }
@@ -39,7 +45,7 @@ interface Props {
  * Grade editável da etiqueta avulsa: filtro geral e por coluna, ordenação pelo cabeçalho,
  * edição na célula, seleção, exclusão, duplicação e alteração em massa.
  */
-export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfazer, desfazer, novaLinha, focarId, rodape }: Props) {
+export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfazer, desfazer, novaLinha, focarId, colunaBusca, buscarProduto, buscando, rodape }: Props) {
   const [busca, setBusca] = useState('');
   const [filtros, setFiltros] = useState<Record<string, string>>({});
   const [mostrarFiltros, setMostrarFiltros] = useState(false);
@@ -80,6 +86,12 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
     const antes = antesDaEdicao.current;
     antesDaEdicao.current = null;
     if (antes && antes !== atual.current) lembrar(antes);
+    // Só busca se o código mudou: voltar à célula sem alterar não apaga o que foi editado.
+    if (coluna && coluna === colunaBusca && buscarProduto) {
+      const depois = textoCelula(atual.current.find((x) => x.id === id)?.registro[coluna]).trim();
+      const anterior = textoCelula(antes?.find((x) => x.id === id)?.registro[coluna]).trim();
+      if (depois && depois !== anterior) buscarProduto(id, depois);
+    }
   }
 
   // Como numa planilha: ordenar reorganiza a lista uma vez (dá para desfazer). Ordem "ao
@@ -116,6 +128,7 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
     <th key={c} className={`px-2 py-2 text-left font-medium text-slate-600 ${classe}`}>
       <button type="button" onClick={() => alternarOrdem(c)} className="whitespace-nowrap hover:text-blue-700" title="Ordenar a lista por esta coluna (clique de novo para inverter)">
         {rotulo}
+        {c === colunaBusca && buscarProduto && <span title="Ao preencher, busca o produto na consulta do modelo"> 🔍</span>}
         <span className="text-blue-700">{seta(c)}</span>
       </button>
     </th>
@@ -230,10 +243,22 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
                 {colunas.map((c, i) => (
                   <td key={c} className="px-1 py-0.5">
                     <input
-                      autoFocus={focarId === l.id && i === 0}
+                      autoFocus={focarId === l.id && (colunaBusca && buscarProduto ? c === colunaBusca : i === 0)}
                       value={textoCelula(l.registro[c])}
                       onFocus={comecarEdicao}
                       onBlur={() => terminarEdicao(l.id, c)}
+                      onKeyDown={(e) => {
+                        // Leitor de código de barras termina com Enter: busca e vai para a quantidade.
+                        if (e.key === 'Enter' && c === colunaBusca && buscarProduto) {
+                          e.preventDefault();
+                          const quantidade = e.currentTarget.closest('tr')?.querySelector<HTMLInputElement>('input[type=number]');
+                          if (quantidade) {
+                            quantidade.focus();
+                            quantidade.select();
+                          }
+                        }
+                      }}
+                      disabled={buscando?.has(l.id)}
                       onChange={(e) => editar(l.id, (x) => ({ ...x, registro: { ...x.registro, [c]: e.target.value } }))}
                       className={CLASSE_ENTRADA}
                       style={{ width: `${larguras[c]}ch` }}

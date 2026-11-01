@@ -24,7 +24,7 @@ const MENU: ItemMenu[] = [
   { para: '/usuarios', rotulo: 'Usuários', permissao: 'usuario.ver' },
   { para: '/perfis', rotulo: 'Perfis e permissões', permissao: 'perfil.ver' },
   { para: '/agentes', rotulo: 'Agentes', permissao: 'agente.ver' },
-  { para: '/bancos', rotulo: 'Bancos de dados', permissao: 'agente.ver' },
+  { para: '/bancos', rotulo: 'Conexões de dados', permissao: 'agente.ver' },
   { para: '/consultas', rotulo: 'Consultas SQL', permissao: 'sql.ver' },
   { para: '/modelos', rotulo: 'Modelos de etiqueta', permissao: 'etiqueta.modelo.ver' },
   { para: '/impressoras', rotulo: 'Impressoras', permissao: 'impressora.ver' },

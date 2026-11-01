@@ -74,6 +74,10 @@ export interface ConsultaSqlResumo {
   descricao: string | null;
   finalidade: FinalidadeConsulta;
   sql: string;
+  /** Conexão de planilhas: arquivo (caminho ou id no Drive), nome para exibir e aba. */
+  arquivo: string | null;
+  arquivoNome: string | null;
+  aba: string | null;
   /** Placeholders usados no SQL. */
   placeholders: string[];
   campos: CampoDinamico[];

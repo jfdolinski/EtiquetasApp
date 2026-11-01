@@ -4,6 +4,7 @@ import type { AuditoriaService } from '../auditoria/auditoria.service';
 import { decifrar } from '../cripto';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { AgentesGateway } from './agentes.gateway';
+import type { GoogleDriveService } from './google-drive.service';
 import { ConexoesService } from './conexoes.service';
 import { AgenteDesconectado, ErroDoAgente } from './sessao-agente';
 
@@ -52,7 +53,7 @@ function montar() {
     sessao: jest.fn(() => ({ requisitar })),
   } as unknown as jest.Mocked<AgentesGateway>;
   return {
-    servico: new ConexoesService(prisma as unknown as PrismaService, auditoria, gateway),
+    servico: new ConexoesService(prisma as unknown as PrismaService, auditoria, gateway, {} as GoogleDriveService),
     prisma,
     gateway,
     requisitar,

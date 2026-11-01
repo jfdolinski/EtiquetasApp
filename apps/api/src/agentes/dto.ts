@@ -1,4 +1,4 @@
-import { TIPOS_BANCO, type TipoBanco } from '@etiquetas/shared';
+import { ehConexaoSql, TIPOS_CONEXAO, type TipoConexao } from '@etiquetas/shared';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
@@ -12,6 +12,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
@@ -67,40 +68,47 @@ export class OpcoesConexaoDto {
 }
 
 export class CriarConexaoDto {
+  /** O Google Drive não passa por agente. */
+  @ValidateIf((o: CriarConexaoDto) => o.tipo !== 'GOOGLE_DRIVE')
   @IsUUID('all', { message: 'Selecione um agente.' })
-  agenteId: string;
+  agenteId?: string;
 
   @IsString()
   @MinLength(2, { message: 'O nome deve ter ao menos 2 caracteres.' })
   @MaxLength(80)
   nome: string;
 
-  @IsIn(TIPOS_BANCO, { message: 'Tipo de banco inválido.' })
-  tipo: TipoBanco;
+  @IsIn(TIPOS_CONEXAO, { message: 'Tipo de conexão inválido.' })
+  tipo: TipoConexao;
 
+  @ValidateIf((o: CriarConexaoDto) => ehConexaoSql(o.tipo))
   @IsString()
   @MinLength(1, { message: 'Informe o servidor.' })
   @MaxLength(255)
-  host: string;
+  host?: string;
 
+  @ValidateIf((o: CriarConexaoDto) => ehConexaoSql(o.tipo))
   @IsInt({ message: 'Porta inválida.' })
   @Min(1, { message: 'Porta inválida.' })
   @Max(65535, { message: 'Porta inválida.' })
-  porta: number;
+  porta?: number;
 
+  /** Banco de dados, caminho da pasta ou link da pasta do Drive. */
   @IsString()
-  @MinLength(1, { message: 'Informe o banco de dados.' })
-  @MaxLength(128)
+  @MinLength(1, { message: 'Informe o banco de dados ou a pasta.' })
+  @MaxLength(1000)
   banco: string;
 
+  @ValidateIf((o: CriarConexaoDto) => ehConexaoSql(o.tipo))
   @IsString()
   @MinLength(1, { message: 'Informe o usuário.' })
   @MaxLength(128)
-  usuario: string;
+  usuario?: string;
 
+  /** Senha do banco ou chave JSON da conta de serviço do Google. */
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(8000)
   senha?: string;
 
   @IsOptional()
@@ -122,8 +130,8 @@ export class AtualizarConexaoDto {
   nome?: string;
 
   @IsOptional()
-  @IsIn(TIPOS_BANCO, { message: 'Tipo de banco inválido.' })
-  tipo?: TipoBanco;
+  @IsIn(TIPOS_CONEXAO, { message: 'Tipo de conexão inválido.' })
+  tipo?: TipoConexao;
 
   @IsOptional()
   @IsString()

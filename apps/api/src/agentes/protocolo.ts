@@ -1,4 +1,4 @@
-import type { OpcoesConexao, TipoBanco } from '@etiquetas/shared';
+import type { OpcoesConexao, TipoConexao } from '@etiquetas/shared';
 
 /**
  * Mensagens do WebSocket API ↔ agente (JSON, uma por frame). Espelho em
@@ -20,7 +20,7 @@ export interface Mensagem<T = unknown> {
 export interface ConexaoParaAgente {
   id: string;
   nome: string;
-  tipo: TipoBanco;
+  tipo: TipoConexao;
   host: string;
   porta: number;
   banco: string;
@@ -48,6 +48,32 @@ export interface DadosConsultar {
   parametros: unknown[];
   limiteLinhas: number;
   tempoLimiteSegundos: number;
+}
+
+/** `listar_arquivos`: planilhas da pasta de uma conexão PASTA. */
+export interface DadosListarArquivos {
+  conexaoId: string;
+}
+
+export interface ResultadoListarArquivos {
+  arquivos: { caminho: string; tamanho: number; modificadoEm: string }[];
+}
+
+/** `ler_arquivo`: linhas brutas de uma aba, já filtradas por `termo`; a primeira é o título. */
+export interface DadosLerArquivo {
+  conexaoId: string;
+  caminho: string;
+  aba: string;
+  termo: string;
+  limiteLinhas: number;
+}
+
+export interface ResultadoLerArquivo {
+  abas: string[];
+  aba: string;
+  linhas: unknown[][];
+  truncado: boolean;
+  duracaoMs: number;
 }
 
 /** `testar_conexao` */

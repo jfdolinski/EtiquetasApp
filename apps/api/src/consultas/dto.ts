@@ -11,6 +11,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 /** Valores de `{param.*}`: nome sem o prefixo → texto (null = NULL). */
@@ -34,10 +35,54 @@ export class CriarConsultaDto {
   @IsIn(FINALIDADES_CONSULTA, { message: 'Finalidade inválida.' })
   finalidade?: FinalidadeConsulta;
 
+  /** Sem `arquivo`, é SQL; com `arquivo`, consulta de planilha. A API confere com o tipo da conexão. */
+  @ValidateIf((o: CriarConsultaDto) => !o.arquivo)
   @IsString()
   @MinLength(1, { message: 'Informe o SQL.' })
   @MaxLength(100_000)
-  sql: string;
+  sql?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  arquivo?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  arquivoNome?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  aba?: string;
+}
+
+/** Testa um arquivo no editor, antes de salvar a consulta. */
+export class PreviaPlanilhaDto {
+  @IsUUID('all', { message: 'Selecione a conexão.' })
+  conexaoId: string;
+
+  @IsString()
+  @MinLength(1, { message: 'Escolha o arquivo.' })
+  @MaxLength(1000)
+  arquivo: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  aba?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  termo?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1000, { message: 'A prévia retorna no máximo 1000 linhas.' })
+  limiteLinhas?: number;
 }
 
 export class AtualizarConsultaDto {
@@ -62,9 +107,23 @@ export class AtualizarConsultaDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(1, { message: 'Informe o SQL.' })
   @MaxLength(100_000)
   sql?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  arquivo?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  arquivoNome?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  aba?: string;
 
   @IsOptional()
   @IsBoolean()

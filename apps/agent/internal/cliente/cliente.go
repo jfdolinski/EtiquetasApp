@@ -18,6 +18,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"etiquetas/agente/internal/arquivos"
 	"etiquetas/agente/internal/banco"
 	"etiquetas/agente/internal/config"
 	"etiquetas/agente/internal/estado"
@@ -69,10 +70,11 @@ type Cliente struct {
 	cfg           config.Config
 	caminhoConfig string
 	executor      *banco.Executor
+	leitor        *arquivos.Leitor
 }
 
 func Novo(cfg config.Config, caminhoConfig, versao string, log *slog.Logger) *Cliente {
-	return &Cliente{Versao: versao, Log: log, cfg: cfg, caminhoConfig: caminhoConfig, executor: banco.NovoExecutor()}
+	return &Cliente{Versao: versao, Log: log, cfg: cfg, caminhoConfig: caminhoConfig, executor: banco.NovoExecutor(), leitor: arquivos.NovoLeitor()}
 }
 
 // erroComEspera pede um intervalo específico antes de reconectar.
@@ -299,6 +301,9 @@ func (c *Cliente) atender(ctx context.Context, conn *websocket.Conn, msg protoco
 		if msg.Tipo == protocolo.TipoConsultar || msg.Tipo == protocolo.TipoTestarConexao {
 			c.Estado.Evento("aviso", "Consulta ao banco do ERP falhou: "+err.Error())
 		}
+		if msg.Tipo == protocolo.TipoLerArquivo || msg.Tipo == protocolo.TipoListarArquivos {
+			c.Estado.Evento("aviso", "Leitura de planilha falhou: "+err.Error())
+		}
 		c.Log.Warn("requisição falhou", "tipo", msg.Tipo, "codigo", codigo, "erro", err)
 	}
 	if msg.ID == "" {
@@ -327,7 +332,41 @@ func (c *Cliente) processar(ctx context.Context, msg protocolo.Mensagem) (any, e
 		if err := decodificar(msg.Dados, &req); err != nil {
 			return nil, err
 		}
+		if pasta, ok := c.executor.Pasta(req.ConexaoID); ok {
+			inicio := time.Now()
+			lista, err := arquivos.Listar(pasta)
+			if err != nil {
+				return nil, err
+			}
+			return protocolo.ResultadoTeste{OK: true, VersaoServidor: plural(len(lista), "planilha encontrada", "planilhas encontradas"), DuracaoMs: time.Since(inicio).Milliseconds()}, nil
+		}
 		return c.executor.Testar(ctx, req.ConexaoID)
+
+	case protocolo.TipoListarArquivos:
+		var req protocolo.ListarArquivos
+		if err := decodificar(msg.Dados, &req); err != nil {
+			return nil, err
+		}
+		pasta, ok := c.executor.Pasta(req.ConexaoID)
+		if !ok {
+			return nil, errors.New("esta conexão não é uma pasta de planilhas neste agente")
+		}
+		lista, err := arquivos.Listar(pasta)
+		if err != nil {
+			return nil, err
+		}
+		return protocolo.ResultadoArquivos{Arquivos: lista}, nil
+
+	case protocolo.TipoLerArquivo:
+		var req protocolo.LerArquivo
+		if err := decodificar(msg.Dados, &req); err != nil {
+			return nil, err
+		}
+		pasta, ok := c.executor.Pasta(req.ConexaoID)
+		if !ok {
+			return nil, errors.New("esta conexão não é uma pasta de planilhas neste agente")
+		}
+		return c.leitor.Ler(pasta, req)
 
 	case protocolo.TipoImprimir:
 		var req protocolo.Imprimir

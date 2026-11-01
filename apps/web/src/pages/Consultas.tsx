@@ -31,7 +31,7 @@ function ListaConsultas() {
     <>
       <Cabecalho
         titulo="Consultas SQL"
-        descricao="Consultas que buscam os produtos no banco do ERP. As colunas retornadas viram os campos disponíveis nas etiquetas."
+        descricao="Consultas que buscam os produtos no banco do ERP ou numa planilha. As colunas viram os campos disponíveis nas etiquetas."
         acoes={
           pode('sql.editar') && (
             <Link to="/consultas/nova" className="rounded-md bg-blue-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-blue-700">
@@ -55,7 +55,10 @@ function ListaConsultas() {
                 {c.descricao && <div className="text-xs text-slate-500">{c.descricao}</div>}
               </td>
               <td className="px-4 py-2.5">{ROTULO_FINALIDADE[c.finalidade]}</td>
-              <td className="px-4 py-2.5">{nomeConexao.get(c.conexaoId) ?? '—'}</td>
+              <td className="px-4 py-2.5">
+                {nomeConexao.get(c.conexaoId) ?? '—'}
+                {c.arquivoNome && <div className="text-xs text-slate-500">{c.arquivoNome}{c.aba ? ` · ${c.aba}` : ''}</div>}
+              </td>
               <td className="px-4 py-2.5">
                 {c.campos.length}{' '}
                 {c.camposDesatualizados && <Selo cor="amarelo">Desatualizados</Selo>}

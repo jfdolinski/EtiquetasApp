@@ -7,6 +7,8 @@ import {
   ehParametro,
   extrairPlaceholders,
   linhasParaRegistros,
+  ehConexaoSql,
+  PARAMETRO_PLANILHA,
   PREFIXO_PARAMETRO,
   quantidadeDoRegistro,
   type BuscaAvulsaResposta,
@@ -294,7 +296,8 @@ export class ListasService {
   /** Modelos para etiqueta avulsa: os que têm consulta de busca de produto. */
   async modelosAvulsos(empresaId: string): Promise<ModeloAvulso[]> {
     const modelos = await this.prisma.modeloEtiqueta.findMany({
-      where: { empresaId, ativo: true, consulta: { ativo: true, finalidade: 'BUSCA_PRODUTO' } },
+      // Planilha sempre serve: a leitura dela já filtra pelo código ou nome.
+      where: { empresaId, ativo: true, consulta: { ativo: true, OR: [{ finalidade: 'BUSCA_PRODUTO' }, { arquivo: { not: null } }] } },
       orderBy: { nome: 'asc' },
       select: {
         id: true,
@@ -305,12 +308,16 @@ export class ListasService {
       },
     });
     return modelos.map((m) => {
-      let parametros: string[] = [];
+      let parametros: string[] = [PARAMETRO_PLANILHA];
       try {
-        parametros = extrairPlaceholders(m.consulta!.sql, m.consulta!.conexao.tipo)
-          .filter(ehParametro)
-          .map((p) => p.slice(PREFIXO_PARAMETRO.length));
+        const tipo = m.consulta!.conexao.tipo;
+        if (ehConexaoSql(tipo)) {
+          parametros = extrairPlaceholders(m.consulta!.sql, tipo)
+            .filter(ehParametro)
+            .map((p) => p.slice(PREFIXO_PARAMETRO.length));
+        }
       } catch {
+        parametros = [];
         // SQL inválido aparece como erro na busca.
       }
       // Campos da consulta (na ordem dela) e os que o layout usa: o operador pode digitar qualquer um.

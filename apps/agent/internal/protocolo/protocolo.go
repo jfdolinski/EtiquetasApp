@@ -23,6 +23,8 @@ const (
 	TipoTestarConexao   = "testar_conexao"
 	TipoRotacionarToken = "rotacionar_token"
 	TipoImprimir        = "imprimir"
+	TipoListarArquivos  = "listar_arquivos"
+	TipoLerArquivo      = "ler_arquivo"
 )
 
 // Mensagem é o envelope de todo frame. Dados é decodificado conforme o Tipo.
@@ -48,7 +50,7 @@ type Opcoes struct {
 type Conexao struct {
 	ID      string `json:"id"`
 	Nome    string `json:"nome"`
-	Tipo    string `json:"tipo"` // POSTGRES | MYSQL | SQLSERVER
+	Tipo    string `json:"tipo"` // POSTGRES | MYSQL | SQLSERVER | PASTA (Banco = caminho da pasta)
 	Host    string `json:"host"`
 	Porta   int    `json:"porta"`
 	Banco   string `json:"banco"`
@@ -83,6 +85,38 @@ type Imprimir struct {
 	Endereco   string `json:"endereco"` // IP:porta ou nome da impressora no sistema
 	Nome       string `json:"nome"`
 	Dados      []byte `json:"dados"`
+}
+
+type ListarArquivos struct {
+	ConexaoID string `json:"conexaoId"`
+}
+
+type Arquivo struct {
+	Caminho      string `json:"caminho"` // relativo à pasta, com "/"
+	Tamanho      int64  `json:"tamanho"`
+	ModificadoEm string `json:"modificadoEm"`
+}
+
+type ResultadoArquivos struct {
+	Arquivos []Arquivo `json:"arquivos"`
+}
+
+// LerArquivo: linhas brutas de uma aba; Termo filtra (código exato ou texto contido).
+type LerArquivo struct {
+	ConexaoID    string `json:"conexaoId"`
+	Caminho      string `json:"caminho"`
+	Aba          string `json:"aba"`
+	Termo        string `json:"termo"`
+	LimiteLinhas int    `json:"limiteLinhas"`
+}
+
+// ResultadoArquivo: Linhas[0] é o título; a API limpa os nomes das colunas.
+type ResultadoArquivo struct {
+	Abas      []string `json:"abas"`
+	Aba       string   `json:"aba"`
+	Linhas    [][]any  `json:"linhas"`
+	Truncado  bool     `json:"truncado"`
+	DuracaoMs int64    `json:"duracaoMs"`
 }
 
 type RotacionarToken struct {

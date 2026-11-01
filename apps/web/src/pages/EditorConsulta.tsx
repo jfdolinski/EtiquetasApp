@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router';
 import {
+  ehConexaoSql,
   ehParametro,
   extrairPlaceholders,
   FINALIDADES_CONSULTA,
@@ -9,11 +10,13 @@ import {
   PREFIXO_PARAMETRO,
   ROTULO_CATEGORIA,
   ROTULO_FINALIDADE,
+  type ArquivoPlanilha,
   type CampoDinamico,
   type ConexaoBancoResumo,
   type ConsultaSqlResumo,
   type FinalidadeConsulta,
   type PreviaConsulta,
+  type PreviaPlanilha,
   type SalvarConsultaResposta,
 } from '@etiquetas/shared';
 import { api } from '../api';
@@ -67,7 +70,10 @@ function Formulario({ consulta, conexoes }: { consulta: ConsultaSqlResumo | null
     descricao: consulta?.descricao ?? '',
     finalidade: consulta?.finalidade ?? ('LISTA_DIARIA' as FinalidadeConsulta),
     conexaoId: consulta?.conexaoId ?? conexoes.find((c) => c.ativo)?.id ?? '',
-    sql: consulta?.sql ?? SQL_EXEMPLO,
+    sql: consulta?.sql || SQL_EXEMPLO,
+    arquivo: consulta?.arquivo ?? '',
+    arquivoNome: consulta?.arquivoNome ?? '',
+    aba: consulta?.aba ?? '',
     ativo: consulta?.ativo ?? true,
   });
   const [valoresParam, setValoresParam] = useState<Record<string, string>>({});
@@ -75,10 +81,34 @@ function Formulario({ consulta, conexoes }: { consulta: ConsultaSqlResumo | null
   const [avisosSalvar, setAvisosSalvar] = useState<string[]>([]);
 
   const conexao = conexoes.find((c) => c.id === f.conexaoId);
+  const planilha = conexao !== undefined && !ehConexaoSql(conexao.tipo);
+  const [previaPlanilha, setPreviaPlanilha] = useState<{ chave: string; dados: PreviaPlanilha } | null>(null);
+  const [termoTeste, setTermoTeste] = useState('');
+  const chavePlanilha = `${f.conexaoId}\n${f.arquivo}\n${f.aba}`;
+
+  const { data: arquivos = [], error: erroArquivos, isFetching: lendoArquivos, refetch: relerArquivos } = useQuery({
+    queryKey: ['arquivos', empresaId, f.conexaoId],
+    queryFn: () => api<ArquivoPlanilha[]>(`/consultas/conexoes/${f.conexaoId}/arquivos`),
+    enabled: planilha,
+    retry: false,
+  });
+
+  const testarPlanilha = useMutation({
+    mutationFn: (p: { arquivo: string; aba: string }) =>
+      api<PreviaPlanilha>('/consultas/previa-planilha', { metodo: 'POST', corpo: { conexaoId: f.conexaoId, arquivo: p.arquivo, aba: p.aba || undefined, termo: termoTeste || undefined } }),
+    onSuccess: (dados, p) => setPreviaPlanilha({ chave: `${f.conexaoId}\n${p.arquivo}\n${p.aba}`, dados }),
+  });
+
+  /** Ao escolher arquivo ou aba, já lê: traz as abas e mostra as colunas. */
+  function escolherPlanilha(arquivo: string, aba: string) {
+    const nome = arquivos.find((a) => a.id === arquivo)?.nome ?? f.arquivoNome;
+    setF({ ...f, arquivo, arquivoNome: nome, aba });
+    if (arquivo) testarPlanilha.mutate({ arquivo, aba });
+  }
 
   // Placeholders detectados enquanto digita, com a mesma regra do servidor.
   const analise = useMemo(() => {
-    if (!conexao) return { placeholders: [] as string[], erro: null };
+    if (!conexao || !ehConexaoSql(conexao.tipo)) return { placeholders: [] as string[], erro: null };
     try {
       return { placeholders: extrairPlaceholders(f.sql, conexao.tipo), erro: null };
     } catch (e) {
@@ -102,7 +132,10 @@ function Formulario({ consulta, conexoes }: { consulta: ConsultaSqlResumo | null
 
   const salvar = useMutation({
     mutationFn: () => {
-      const corpo = { ...f, descricao: f.descricao || undefined };
+      const fonte = planilha
+        ? { sql: undefined, arquivo: f.arquivo, arquivoNome: f.arquivoNome, aba: f.aba }
+        : { sql: f.sql, arquivo: undefined, arquivoNome: undefined, aba: undefined };
+      const corpo = { ...f, ...fonte, descricao: f.descricao || undefined };
       if (!consulta) {
         const { ativo, ...criar } = corpo;
         return api<SalvarConsultaResposta>('/consultas', { metodo: 'POST', corpo: criar });
@@ -152,8 +185,12 @@ function Formulario({ consulta, conexoes }: { consulta: ConsultaSqlResumo | null
   }
 
   // Campos: os da prévia, se ela foi feita com o SQL atual; senão, os gravados.
-  const previaAtual = previa && previa.sql === f.sql && previa.conexaoId === f.conexaoId ? previa.dados : null;
-  const salvoIgual = consulta && consulta.sql === f.sql && consulta.conexaoId === f.conexaoId;
+  const previaPlanilhaAtual = planilha && previaPlanilha?.chave === chavePlanilha ? previaPlanilha.dados : null;
+  const previaAtual = planilha ? previaPlanilhaAtual : previa && previa.sql === f.sql && previa.conexaoId === f.conexaoId ? previa.dados : null;
+  const salvoIgual =
+    consulta &&
+    consulta.conexaoId === f.conexaoId &&
+    (planilha ? (consulta.arquivo ?? '') === f.arquivo && (consulta.aba ?? '') === f.aba : consulta.sql === f.sql);
   const campos: CampoDinamico[] = previaAtual?.campos ?? consulta?.campos ?? [];
   const camposDesatualizados = previaAtual ? false : !salvoIgual || Boolean(consulta?.camposDesatualizados);
   const erro = salvar.error ?? excluir.error ?? relerCampos.error;
@@ -162,14 +199,14 @@ function Formulario({ consulta, conexoes }: { consulta: ConsultaSqlResumo | null
     <>
       <Cabecalho
         titulo={consulta ? consulta.nome : 'Nova consulta'}
-        descricao="Use placeholders entre chaves no lugar de valores. Eles são enviados ao banco como parâmetros, nunca colados no SQL."
+        descricao={planilha ? 'Escolha o arquivo e a aba da planilha. As colunas viram os campos da etiqueta.' : 'Use placeholders entre chaves no lugar de valores. Eles são enviados ao banco como parâmetros, nunca colados no SQL.'}
         acoes={
           <Link to="/consultas" className="text-sm text-blue-700 hover:underline">
             ← Consultas
           </Link>
         }
       />
-      {conexoes.length === 0 && <Alerta tipo="info">Cadastre uma conexão em Bancos de dados antes de criar consultas.</Alerta>}
+      {conexoes.length === 0 && <Alerta tipo="info">Cadastre uma conexão em Conexões de dados antes de criar consultas.</Alerta>}
 
       <form onSubmit={enviar} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <fieldset disabled={!podeEditar} className="min-w-0 space-y-4">
@@ -180,7 +217,7 @@ function Formulario({ consulta, conexoes }: { consulta: ConsultaSqlResumo | null
 
           <div className="grid gap-3 sm:grid-cols-2">
             <Campo rotulo="Nome" required minLength={2} value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} />
-            <Selecao rotulo="Conexão" required value={f.conexaoId} onChange={(e) => setF({ ...f, conexaoId: e.target.value })}>
+            <Selecao rotulo="Conexão" required value={f.conexaoId} onChange={(e) => setF({ ...f, conexaoId: e.target.value, arquivo: '', arquivoNome: '', aba: '' })}>
               <option value="">Selecione…</option>
               {conexoes.map((c) => (
                 <option key={c.id} value={c.id} disabled={!c.ativo}>
@@ -196,6 +233,36 @@ function Formulario({ consulta, conexoes }: { consulta: ConsultaSqlResumo | null
             <Campo rotulo="Descrição" value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} />
           </div>
 
+          {planilha ? (
+            <div className="space-y-3 rounded-md border border-slate-200 bg-white p-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Selecao rotulo="Arquivo" required value={f.arquivo} onChange={(e) => escolherPlanilha(e.target.value, '')}>
+                  <option value="">{lendoArquivos ? 'Lendo a pasta…' : 'Selecione…'}</option>
+                  {f.arquivo && !arquivos.some((a) => a.id === f.arquivo) && <option value={f.arquivo}>{f.arquivoNome || f.arquivo}</option>}
+                  {arquivos.map((a) => (
+                    <option key={a.id} value={a.id}>{a.nome}</option>
+                  ))}
+                </Selecao>
+                <Selecao rotulo="Aba" value={f.aba} disabled={!f.arquivo} onChange={(e) => escolherPlanilha(f.arquivo, e.target.value)}>
+                  <option value="">Primeira aba{previaPlanilhaAtual && !f.aba ? ` (${previaPlanilhaAtual.aba})` : ''}</option>
+                  {f.aba && !(previaPlanilha?.dados.abas ?? []).includes(f.aba) && <option value={f.aba}>{f.aba}</option>}
+                  {(previaPlanilha?.dados.abas ?? []).map((a) => (
+                    <option key={a} value={a}>{a}</option>
+                  ))}
+                </Selecao>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                <span>{arquivos.length} planilha(s) encontrada(s).</span>
+                <button type="button" className="text-blue-700 hover:underline" onClick={() => void relerArquivos()}>Ler a pasta de novo</button>
+              </div>
+              {erroArquivos && <Alerta>{erroArquivos.message}</Alerta>}
+              <p className="text-xs text-slate-500">
+                A primeira linha da planilha traz os títulos, que viram os campos (“Código de Barras” vira codigo_de_barras). O arquivo é lido na hora: basta salvar a planilha para a etiqueta usar os dados novos. Na etiqueta avulsa, a busca procura o código exato ou parte do texto.
+              </p>
+              <Campo rotulo="Testar uma busca (opcional)" placeholder="Código, EAN ou nome" value={termoTeste} onChange={(e) => setTermoTeste(e.target.value)} />
+            </div>
+          ) : (
+          <>
           <div>
             <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
               <span className="text-sm font-medium text-slate-700">SQL</span>
@@ -259,14 +326,17 @@ function Formulario({ consulta, conexoes }: { consulta: ConsultaSqlResumo | null
             </div>
           )}
 
+          </>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex gap-2">
               <Botao
                 variante="secundario"
-                disabled={testar.isPending || !f.conexaoId || Boolean(analise.erro)}
-                onClick={() => testar.mutate()}
+                disabled={planilha ? testarPlanilha.isPending || !f.arquivo : testar.isPending || !f.conexaoId || Boolean(analise.erro)}
+                onClick={() => (planilha ? testarPlanilha.mutate({ arquivo: f.arquivo, aba: f.aba }) : testar.mutate())}
               >
-                {testar.isPending ? 'Testando…' : 'Testar'}
+                {testar.isPending || testarPlanilha.isPending ? 'Testando…' : 'Testar'}
               </Botao>
               <Botao type="submit" disabled={salvar.isPending || Boolean(analise.erro)}>
                 {salvar.isPending ? 'Salvando…' : 'Salvar'}
@@ -289,8 +359,17 @@ function Formulario({ consulta, conexoes }: { consulta: ConsultaSqlResumo | null
             )}
           </div>
 
-          {testar.error && <Alerta>{testar.error.message}</Alerta>}
-          {previa && (
+          {testar.error && !planilha && <Alerta>{testar.error.message}</Alerta>}
+          {testarPlanilha.error && planilha && <Alerta>{testarPlanilha.error.message}</Alerta>}
+          {planilha && previaPlanilhaAtual && (
+            <div className="space-y-2">
+              {previaPlanilhaAtual.avisos.map((a) => (
+                <Alerta key={a} tipo="aviso">{a}</Alerta>
+              ))}
+              <TabelaResultado resultado={previaPlanilhaAtual.resultado} />
+            </div>
+          )}
+          {!planilha && previa && (
             <div className="space-y-2">
               {previa.dados.avisos.map((a) => (
                 <Alerta key={a} tipo="aviso">{a}</Alerta>

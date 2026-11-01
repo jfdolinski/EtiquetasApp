@@ -132,3 +132,13 @@ O build também compila o agente para Windows e Linux. Os arquivos ficam em:
 - **Bancos e impressoras reais:** ainda não foram testados contra MySQL e SQL Server reais nem com impressoras físicas. Faça um piloto e confira a primeira etiqueta de cada linguagem: ZPL, PPLA, PPLB e ESC/POS.
 - **Usuário de banco do cliente:** crie-o **somente leitura**. O agente também recusa escrita, mas a permissão do banco é a proteção principal.
 - **Login:** a sessão expira em `JWT_EXPIRACAO`, por padrão 12 h, sem renovação automática.
+
+## Conexão com o Google Drive
+
+Cada conexão usa uma conta de serviço do Google, com acesso somente de leitura. Dá para usar a mesma conta em várias empresas, mas quem tiver a chave lê as pastas de todas elas: para isolar de vez, crie uma conta por empresa.
+
+1. No [Google Cloud](https://console.cloud.google.com/), crie um projeto e ative a **Google Drive API**.
+2. Em **IAM e administrador > Contas de serviço**, crie uma conta (não precisa de papéis).
+3. Na conta, abra **Chaves > Adicionar chave > JSON** e baixe o arquivo.
+4. No sistema, em **Conexões de dados > Nova conexão > Google Drive**, informe o link da pasta e envie o arquivo JSON. A chave fica criptografada.
+5. No Drive, compartilhe a pasta com o e-mail da conta de serviço (`...@....iam.gserviceaccount.com`) como **Leitor**.

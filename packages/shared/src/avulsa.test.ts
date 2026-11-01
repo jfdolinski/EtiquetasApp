@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   alterarEmMassa,
+  colunaDeBusca,
+  parametrosDaBusca,
+  registrosDoCodigo,
   COLUNA_QUANTIDADE,
   colunaNumerica,
   filtrarLinhas,
@@ -69,5 +72,29 @@ describe('grade da etiqueta avulsa', () => {
     expect(r.novas).toBe(1);
     expect(r.linhas[0]).toMatchObject({ id: 'n0', quantidade: 1, registro: { codigo: '0200' } });
     expect(r.linhas).toHaveLength(4);
+  });
+});
+
+describe('busca pelo código na linha', () => {
+  it('escolhe a coluna do código de barras, depois a do código', () => {
+    expect(colunaDeBusca(['descricao', 'codigo', 'ean'])).toBe('ean');
+    expect(colunaDeBusca(['descricao', 'codigo_barras'])).toBe('codigo_barras');
+    expect(colunaDeBusca(['descricao', 'CodProduto', 'preco'])).toBe('CodProduto');
+    expect(colunaDeBusca(['descricao', 'preco'])).toBe('descricao');
+    expect(colunaDeBusca([])).toBeNull();
+  });
+
+  it('põe o valor no parâmetro certo e os outros ficam nulos', () => {
+    expect(parametrosDaBusca(['loja', 'busca'], '789')).toEqual({ loja: null, busca: '789' });
+    expect(parametrosDaBusca(['loja', 'ean'], '789')).toEqual({ loja: null, ean: '789' });
+    expect(parametrosDaBusca(['x'], '789')).toEqual({ x: '789' });
+    expect(parametrosDaBusca([], '789')).toEqual({});
+  });
+
+  it('prefere o código exato, ignorando zeros à esquerda; sem exato, devolve tudo', () => {
+    const r = [{ ean: '7891000', d: 'A' }, { ean: 78910001, d: 'B' }, { ean: '0123', d: 'C' }];
+    expect(registrosDoCodigo(r, 'ean', '7891000').map((x) => x.d)).toEqual(['A']);
+    expect(registrosDoCodigo(r, 'ean', '123').map((x) => x.d)).toEqual(['C']);
+    expect(registrosDoCodigo(r, 'ean', '999')).toHaveLength(3);
   });
 });

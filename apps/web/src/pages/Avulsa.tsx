@@ -1,18 +1,23 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
+  colunaDeBusca,
+  parametrosDaBusca,
+  registrosDoCodigo,
   somarResultados,
+  textoCelula,
   type BuscaAvulsaResposta,
   type ImpressoraResumo,
   type ImprimirResposta,
   type LinhaAvulsa,
   type ModeloAvulso,
+  type Registro,
 } from '@etiquetas/shared';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { ExigeEmpresa } from '../components/ExigeEmpresa';
 import { AcompanharTrabalhos } from '../components/Trabalhos';
-import { Alerta, Botao, Cabecalho, Selecao } from '../components/ui';
+import { Alerta, Botao, Cabecalho, Modal, Selecao } from '../components/ui';
 import { Grade } from './avulsa/Grade';
 
 /** Limites do pedido de impressão avulsa (iguais aos da API). */
@@ -93,14 +98,21 @@ function EtiquetaAvulsa() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [focarId, setFocarId] = useState<string | null>(null);
   const [envio, setEnvio] = useState<ImprimirResposta | null>(null);
+  const [buscando, setBuscando] = useState<ReadonlySet<string>>(new Set());
+  const [erroLinha, setErroLinha] = useState<string | null>(null);
+  const [escolha, setEscolha] = useState<{ linhaId: string; valor: string; registros: Registro[] } | null>(null);
   const primeiroParametro = useRef<HTMLInputElement>(null);
 
   const modelo = modelos.find((m) => m.id === modeloId) ?? modelos[0] ?? null;
   const lista = useListaDoModelo(`etiquetas.avulsa.${empresaId}.${modelo?.id ?? ''}`);
   const { linhas } = lista;
+  // A busca termina depois de a lista poder ter mudado: preenche sobre a lista daquele momento.
+  const listaAtual = useRef(linhas);
+  listaAtual.current = linhas;
 
   // Colunas: campos do modelo primeiro, depois as que vieram das buscas.
   const colunas = [...new Set([...(modelo?.campos ?? []), ...linhas.flatMap((l) => Object.keys(l.registro))])];
+  const colunaBusca = colunaDeBusca(colunas);
 
   const buscar = useMutation({
     mutationFn: () => api<BuscaAvulsaResposta>('/avulsa/buscar', { metodo: 'POST', corpo: { modeloId: modelo!.id, parametros: valores } }),
@@ -133,6 +145,39 @@ function EtiquetaAvulsa() {
   function limparBusca() {
     setValores({});
     primeiroParametro.current?.focus();
+  }
+
+  /** Preenche a linha com o registro encontrado; o que a consulta não traz fica como está. */
+  function preencherLinha(linhaId: string, registro: Registro) {
+    const atuais = listaAtual.current;
+    if (atuais.some((l) => l.id === linhaId)) lista.alterar(atuais.map((l) => (l.id === linhaId ? { ...l, registro: { ...l.registro, ...registro } } : l)));
+  }
+
+  /** Código digitado (ou lido) na linha: procura na consulta do modelo e traz os dados, editáveis. */
+  async function buscarProduto(linhaId: string, valor: string) {
+    if (!modelo || !colunaBusca) return;
+    setBuscando((b) => new Set(b).add(linhaId));
+    setErroLinha(null);
+    try {
+      const r = await api<BuscaAvulsaResposta>('/avulsa/buscar', {
+        metodo: 'POST',
+        corpo: { modeloId: modelo.id, parametros: parametrosDaBusca(modelo.parametros, valor) },
+      });
+      const achados = registrosDoCodigo(r.registros, colunaBusca, valor);
+      if (achados.length === 0) setAviso(`Nenhum produto com “${valor}”: preencha os dados à mão, se quiser.`);
+      else if (achados.length === 1) {
+        preencherLinha(linhaId, achados[0]);
+        setAviso(`Dados de “${valor}” preenchidos pela consulta. Pode editar o que quiser.`);
+      } else setEscolha({ linhaId, valor, registros: achados.slice(0, 50) });
+    } catch (e) {
+      setErroLinha(`Não deu para buscar “${valor}”: ${(e as Error).message}`);
+    } finally {
+      setBuscando((b) => {
+        const n = new Set(b);
+        n.delete(linhaId);
+        return n;
+      });
+    }
   }
 
   function novaLinha() {
@@ -217,7 +262,28 @@ function EtiquetaAvulsa() {
             )}
           </form>
           {buscar.error && <Alerta>{buscar.error.message}</Alerta>}
+          {erroLinha && <Alerta>{erroLinha}</Alerta>}
           {aviso && <Alerta tipo="info">{aviso}</Alerta>}
+
+          <Modal titulo={`Vários produtos para “${escolha?.valor ?? ''}”`} aberto={escolha !== null} aoFechar={() => setEscolha(null)}>
+            {escolha && (
+              <div className="max-h-[60vh] divide-y divide-slate-100 overflow-y-auto">
+                {escolha.registros.map((r, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className="block w-full px-2 py-2 text-left text-sm hover:bg-blue-50"
+                    onClick={() => {
+                      preencherLinha(escolha.linhaId, r);
+                      setEscolha(null);
+                    }}
+                  >
+                    {Object.values(r).map(textoCelula).filter(Boolean).join(' · ')}
+                  </button>
+                ))}
+              </div>
+            )}
+          </Modal>
 
           <Grade
             linhas={linhas}
@@ -229,6 +295,9 @@ function EtiquetaAvulsa() {
             desfazer={lista.desfazer}
             novaLinha={novaLinha}
             focarId={focarId}
+            colunaBusca={colunaBusca}
+            buscarProduto={(id, valor) => void buscarProduto(id, valor)}
+            buscando={buscando}
             rodape={(visiveis) => {
               const itens = visiveis.filter((l) => l.quantidade > 0);
               const total = itens.reduce((s, l) => s + l.quantidade, 0);

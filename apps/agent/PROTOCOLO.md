@@ -56,6 +56,11 @@ Códigos de erro: `conexao_desconhecida`, `sql_recusado`, `banco`, `tempo_esgota
 | `rotacionar_token` | sim | `{ token }` | `{}`, enviado depois de gravar o token em disco |
 | `imprimir` | sim | `{ trabalhoId, metodo: REDE \| SISTEMA, endereco, nome, dados (base64) }` | `{}`, enviado depois de entregar todos os bytes |
 
+| `listar_arquivos` | sim | `{ conexaoId }` | `{ arquivos: [{ caminho, tamanho, modificadoEm }] }` |
+| `ler_arquivo` | sim | `{ conexaoId, caminho, aba, termo, limiteLinhas }` | `{ abas, aba, linhas: any[][], truncado, duracaoMs }`; `linhas[0]` é o título |
+
+Conexão `PASTA`: `banco` traz o caminho da pasta; o agente só lê csv, xls e xlsx dentro dela (recusa `..` e atalhos para fora). Em `testar_conexao`, `versaoServidor` diz quantas planilhas achou.
+
 No `imprimir`, os bytes já vêm na linguagem da impressora e são entregues sem conversão:
 
 - **REDE:** conexão TCP em `endereco` (IP:porta, normalmente 9100).

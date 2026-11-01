@@ -11,3 +11,4 @@ export * from './impressao';
 export * from './placeholders';
 export * from './permissoes';
 export * from './tipos';
+export * from './planilhas';

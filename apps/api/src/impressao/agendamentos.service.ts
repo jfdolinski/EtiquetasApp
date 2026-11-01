@@ -1,13 +1,14 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
+  ehConexaoSql,
   ehParametro,
   extrairPlaceholders,
   proximaExecucao,
   type AgendamentoResumo,
   type ExecucaoAgendamento,
   type OpcoesAgendamento,
-  type TipoBanco,
+  type TipoConexao,
 } from '@etiquetas/shared';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { empresaBloqueada } from '../auth/acesso-empresa';
@@ -42,10 +43,10 @@ const SELECAO = {
 type Agendamento = Prisma.AgendamentoModeloGetPayload<{ select: typeof SELECAO }>;
 
 /** Consulta com `{param.*}` é de busca (alguém digita o valor): não roda sozinha. */
-function pedeParametros(consulta: { sql: string; conexao: { tipo: string } } | null): boolean {
-  if (!consulta) return false;
+function pedeParametros(consulta: { sql: string; conexao: { tipo: TipoConexao } } | null): boolean {
+  if (!consulta || !ehConexaoSql(consulta.conexao.tipo)) return false; // planilha sem busca traz todas as linhas
   try {
-    return extrairPlaceholders(consulta.sql, consulta.conexao.tipo as TipoBanco).some(ehParametro);
+    return extrairPlaceholders(consulta.sql, consulta.conexao.tipo).some(ehParametro);
   } catch {
     return false; // SQL inválido aparece como erro na execução
   }

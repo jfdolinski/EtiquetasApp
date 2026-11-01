@@ -1,14 +1,17 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ehConexaoSql,
   PORTA_PADRAO_BANCO,
-  ROTULO_TIPO_BANCO,
+  ROTULO_TIPO_CONEXAO,
   TIPOS_BANCO,
+  TIPOS_CONEXAO,
   type AgenteResumo,
   type ConexaoBancoResumo,
   type ResultadoConsulta,
   type ResultadoTesteConexao,
   type TipoBanco,
+  type TipoConexao,
 } from '@etiquetas/shared';
 import { api } from '../api';
 import { useAuth } from '../auth';
@@ -72,11 +75,11 @@ function ListaBancos() {
   return (
     <>
       <Cabecalho
-        titulo="Bancos de dados"
-        descricao="Bancos dos ERPs acessados pelos agentes. A senha fica criptografada no servidor e só é enviada ao agente."
+        titulo="Conexões de dados"
+        descricao="De onde vêm os produtos: bancos dos ERPs, planilhas numa pasta do computador do agente ou no Google Drive. Senhas e chaves ficam criptografadas no servidor."
         acoes={
           podeEditar && (
-            <Botao onClick={() => setEdicao({ conexao: null })} disabled={agentes.length === 0}>
+            <Botao onClick={() => setEdicao({ conexao: null })}>
               Nova conexão
             </Botao>
           )
@@ -84,39 +87,46 @@ function ListaBancos() {
       />
       <div className="space-y-4">
         {error && <Alerta>{error.message}</Alerta>}
-        {agentes.length === 0 && !isLoading && <Alerta tipo="info">Cadastre um agente antes de configurar os bancos.</Alerta>}
+        {agentes.length === 0 && !isLoading && <Alerta tipo="info">Bancos e pastas do computador precisam de um agente: cadastre um em Agentes. O Google Drive não precisa.</Alerta>}
         <Alerta tipo="aviso">
           Use um usuário do banco com permissão <strong>somente de leitura</strong>. O agente também recusa comandos de escrita e
           desfaz qualquer transação, mas a permissão do usuário é a proteção principal.
         </Alerta>
         {teste && <Alerta tipo={teste.tipo}>{teste.texto}</Alerta>}
         {!isLoading && (
-          <Tabela colunas={['Conexão', 'Tipo', 'Servidor', 'Banco / usuário', 'Agente', '']} vazio={conexoes.length === 0}>
+          <Tabela colunas={['Conexão', 'Tipo', 'Servidor', 'Banco ou pasta', 'Agente', '']} vazio={conexoes.length === 0}>
             {conexoes.map((c) => {
-              const agente = agentePorId.get(c.agenteId);
+              const agente = c.agenteId ? agentePorId.get(c.agenteId) : undefined;
+              const sql = ehConexaoSql(c.tipo);
               return (
                 <tr key={c.id} className={c.ativo ? '' : 'text-slate-400'}>
                   <td className="px-4 py-2.5 font-medium">
                     {c.nome} {!c.ativo && <Selo cor="cinza">Desativada</Selo>}
                   </td>
-                  <td className="px-4 py-2.5">{ROTULO_TIPO_BANCO[c.tipo]}</td>
+                  <td className="px-4 py-2.5">{ROTULO_TIPO_CONEXAO[c.tipo]}</td>
                   <td className="px-4 py-2.5 font-mono text-xs">
-                    {c.host}
-                    {c.opcoes.instancia ? `\\${c.opcoes.instancia}` : `:${c.porta}`}
+                    {sql ? (
+                      <>
+                        {c.host}
+                        {c.opcoes.instancia ? `\\${c.opcoes.instancia}` : `:${c.porta}`}
+                      </>
+                    ) : (
+                      '—'
+                    )}
                   </td>
                   <td className="px-4 py-2.5">
                     <div>{c.banco}</div>
                     <div className="text-xs text-slate-500">{c.usuario}</div>
                   </td>
                   <td className="px-4 py-2.5">
-                    {agente?.nome ?? '—'}{' '}
+                    {agente?.nome ?? (c.tipo === 'GOOGLE_DRIVE' ? 'Não usa' : '—')}{' '}
                     {agente && <Selo cor={agente.online ? 'verde' : 'vermelho'}>{agente.online ? 'Online' : 'Offline'}</Selo>}
                   </td>
                   <td className="space-x-2 whitespace-nowrap px-4 py-2.5 text-right">
                     <Botao variante="secundario" disabled={testar.isPending || !c.ativo} onClick={() => testar.mutate(c)}>
                       {testar.isPending && testar.variables?.id === c.id ? 'Testando…' : 'Testar'}
                     </Botao>
-                    {podeConsultar && (
+                    {podeConsultar && sql && (
                       <Botao variante="secundario" disabled={!c.ativo} onClick={() => setConsulta(c)}>
                         Consultar
                       </Botao>
@@ -158,10 +168,10 @@ function FormConexao({
   const [f, setF] = useState({
     agenteId: conexao?.agenteId ?? agentes.find((a) => a.ativo)?.id ?? '',
     nome: conexao?.nome ?? '',
-    tipo: conexao?.tipo ?? ('POSTGRES' as TipoBanco),
+    tipo: conexao?.tipo ?? ('POSTGRES' as TipoConexao),
     host: conexao?.host ?? '',
     porta: String(conexao?.porta ?? PORTA_PADRAO_BANCO.POSTGRES),
-    banco: conexao?.banco ?? '',
+    banco: conexao?.tipo === 'GOOGLE_DRIVE' ? `https://drive.google.com/drive/folders/${conexao.banco}` : (conexao?.banco ?? ''),
     usuario: conexao?.usuario ?? '',
     senha: '',
     removerSenha: false,
@@ -173,6 +183,17 @@ function FormConexao({
 
   const mutacao = useMutation({
     mutationFn: () => {
+      if (!ehConexaoSql(f.tipo)) {
+        const planilha = {
+          nome: f.nome,
+          tipo: f.tipo,
+          banco: f.banco,
+          agenteId: f.tipo === 'PASTA' ? f.agenteId : undefined,
+          senha: f.tipo === 'GOOGLE_DRIVE' ? f.senha || undefined : undefined,
+        };
+        if (!conexao) return api('/conexoes', { metodo: 'POST', corpo: planilha });
+        return api(`/conexoes/${conexao.id}`, { metodo: 'PATCH', corpo: { ...planilha, ativo: f.ativo } });
+      }
       const corpo = {
         agenteId: f.agenteId,
         nome: f.nome,
@@ -206,9 +227,13 @@ function FormConexao({
     },
   });
 
-  function trocarTipo(tipo: TipoBanco) {
+  function trocarTipo(tipo: TipoConexao) {
     const portaEhPadrao = TIPOS_BANCO.some((t) => String(PORTA_PADRAO_BANCO[t]) === f.porta) || !f.porta;
-    setF({ ...f, tipo, ssl: '', porta: portaEhPadrao ? String(PORTA_PADRAO_BANCO[tipo]) : f.porta });
+    setF({ ...f, tipo, ssl: '', banco: '', senha: '', porta: ehConexaoSql(tipo) && portaEhPadrao ? String(PORTA_PADRAO_BANCO[tipo]) : f.porta });
+  }
+
+  async function lerChave(arquivo: File | undefined) {
+    if (arquivo) setF({ ...f, senha: await arquivo.text() });
   }
 
   function enviar(e: FormEvent) {
@@ -223,25 +248,65 @@ function FormConexao({
       {erro && <Alerta>{erro.message}</Alerta>}
       <div className="grid gap-3 sm:grid-cols-2">
         <Campo rotulo="Nome" required placeholder="Ex.: ERP Loja Centro" value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} />
-        <Selecao rotulo="Agente" required value={f.agenteId} onChange={(e) => setF({ ...f, agenteId: e.target.value })}>
-          <option value="">Selecione…</option>
-          {agentes.map((a) => (
-            <option key={a.id} value={a.id} disabled={!a.ativo}>
-              {a.nome}
-            </option>
+        <Selecao rotulo="Tipo" value={f.tipo} disabled={conexao !== null && !ehConexaoSql(conexao.tipo)} onChange={(e) => trocarTipo(e.target.value as TipoConexao)}>
+          {TIPOS_CONEXAO.filter((t) => !conexao || ehConexaoSql(conexao.tipo) === ehConexaoSql(t)).map((t) => (
+            <option key={t} value={t}>{ROTULO_TIPO_CONEXAO[t]}</option>
           ))}
         </Selecao>
-        <Selecao rotulo="Tipo de banco" value={f.tipo} onChange={(e) => trocarTipo(e.target.value as TipoBanco)}>
-          {TIPOS_BANCO.map((t) => (
-            <option key={t} value={t}>{ROTULO_TIPO_BANCO[t]}</option>
-          ))}
-        </Selecao>
-        <Selecao rotulo="Criptografia (SSL/TLS)" value={f.ssl} onChange={(e) => setF({ ...f, ssl: e.target.value })}>
-          {OPCOES_SSL[f.tipo].map((o) => (
-            <option key={o.valor} value={o.valor}>{o.rotulo}</option>
-          ))}
-        </Selecao>
+        {f.tipo !== 'GOOGLE_DRIVE' && (
+          <Selecao rotulo="Agente" required value={f.agenteId} onChange={(e) => setF({ ...f, agenteId: e.target.value })}>
+            <option value="">Selecione…</option>
+            {agentes.map((a) => (
+              <option key={a.id} value={a.id} disabled={!a.ativo}>
+                {a.nome}
+              </option>
+            ))}
+          </Selecao>
+        )}
+        {ehConexaoSql(f.tipo) && (
+          <Selecao rotulo="Criptografia (SSL/TLS)" value={f.ssl} onChange={(e) => setF({ ...f, ssl: e.target.value })}>
+            {OPCOES_SSL[f.tipo].map((o) => (
+              <option key={o.valor} value={o.valor}>{o.rotulo}</option>
+            ))}
+          </Selecao>
+        )}
       </div>
+      {f.tipo === 'PASTA' && (
+        <Campo
+          rotulo="Pasta no computador do agente"
+          required
+          placeholder="C:\Planilhas\Etiquetas"
+          value={f.banco}
+          onChange={(e) => setF({ ...f, banco: e.target.value })}
+          ajuda="Caminho completo. O agente lê os arquivos .csv, .xls e .xlsx dela e das subpastas, sem alterar nada. Como serviço do Windows, ele não enxerga unidades de rede mapeadas: use uma pasta local."
+        />
+      )}
+      {f.tipo === 'GOOGLE_DRIVE' && (
+        <>
+          <Campo
+            rotulo="Link da pasta do Google Drive"
+            required
+            placeholder="https://drive.google.com/drive/folders/…"
+            value={f.banco}
+            onChange={(e) => setF({ ...f, banco: e.target.value })}
+            ajuda="São lidas as Planilhas Google, os .xlsx e os .csv que estiverem diretamente nesta pasta."
+          />
+          <label className="block text-sm font-medium text-slate-700">
+            Chave da conta de serviço do Google (arquivo .json)
+            <input type="file" accept=".json,application/json" onChange={(e) => void lerChave(e.target.files?.[0])} className="mt-1 block w-full text-sm font-normal" />
+            <span className="mt-1 block text-xs font-normal text-slate-500">
+              {f.senha ? 'Chave carregada: será gravada criptografada ao salvar.' : conexao?.temSenha ? 'Deixe sem arquivo para manter a chave gravada.' : 'Crie no Google Cloud: projeto com a API do Drive ativada > Contas de serviço > Chaves.'}
+            </span>
+          </label>
+          {conexao?.usuario && (
+            <Alerta tipo="info">
+              Compartilhe a pasta do Drive com <strong className="break-all">{conexao.usuario}</strong> como Leitor.
+            </Alerta>
+          )}
+        </>
+      )}
+      {ehConexaoSql(f.tipo) && (
+      <>
       <div className="grid gap-3 sm:grid-cols-[1fr_7rem]">
         <Campo
           rotulo="Servidor"
@@ -284,7 +349,9 @@ function FormConexao({
           onChange={(e) => setF({ ...f, tempoLimiteSegundos: e.target.value })}
         />
       </div>
-      {conexao?.temSenha && (
+      </>
+      )}
+      {conexao?.temSenha && ehConexaoSql(f.tipo) && (
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={f.removerSenha} onChange={(e) => setF({ ...f, removerSenha: e.target.checked, senha: '' })} />
           Remover a senha gravada

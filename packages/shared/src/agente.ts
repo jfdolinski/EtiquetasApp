@@ -16,6 +16,24 @@ export const ROTULO_TIPO_BANCO: Record<TipoBanco, string> = {
   SQLSERVER: 'SQL Server',
 };
 
+/** Conexão: banco com SQL ou pasta de planilhas (no computador do agente ou no Google Drive). */
+export type TipoConexao = TipoBanco | 'PASTA' | 'GOOGLE_DRIVE';
+
+export const TIPOS_CONEXAO: readonly TipoConexao[] = [...TIPOS_BANCO, 'PASTA', 'GOOGLE_DRIVE'];
+
+export const ROTULO_TIPO_CONEXAO: Record<TipoConexao, string> = {
+  POSTGRES: 'PostgreSQL',
+  MYSQL: 'MySQL',
+  SQLSERVER: 'SQL Server',
+  PASTA: 'Excel/CSV em pasta do computador',
+  GOOGLE_DRIVE: 'Google Drive',
+};
+
+/** Banco com SQL. O resto é fonte de planilhas: consulta aponta para arquivo e aba. */
+export function ehConexaoSql(tipo: TipoConexao): tipo is TipoBanco {
+  return tipo !== 'PASTA' && tipo !== 'GOOGLE_DRIVE';
+}
+
 export const PORTA_PADRAO_BANCO: Record<TipoBanco, number> = {
   POSTGRES: 5432,
   MYSQL: 3306,
@@ -58,9 +76,10 @@ export interface AtivacaoAgenteResposta {
 
 export interface ConexaoBancoResumo {
   id: string;
-  agenteId: string;
+  /** Nulo no Google Drive: quem lê é a API. */
+  agenteId: string | null;
   nome: string;
-  tipo: TipoBanco;
+  tipo: TipoConexao;
   host: string;
   porta: number;
   banco: string;

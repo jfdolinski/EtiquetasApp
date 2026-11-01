@@ -116,6 +116,16 @@ model PerfilPermissao {
   @@map("perfis_permissoes")
 }
 
+/// Banco com SQL ou fonte de planilhas: PASTA (agente; banco = caminho) e GOOGLE_DRIVE (API;
+/// banco = id da pasta, usuario = e-mail da conta de serviço, senha_cifrada = chave JSON).
+enum TipoConexao {
+  POSTGRES
+  MYSQL
+  SQLSERVER
+  PASTA
+  GOOGLE_DRIVE
+}
+
 enum TipoBanco {
   POSTGRES
   MYSQL
@@ -154,9 +164,10 @@ model Agente {
 model ConexaoBanco {
   id           String    @id @default(uuid()) @db.Uuid
   empresaId    String    @map("empresa_id") @db.Uuid
-  agenteId     String    @map("agente_id") @db.Uuid
+  /// Nulo no Google Drive: quem lê é a API.
+  agenteId     String?   @map("agente_id") @db.Uuid
   nome         String
-  tipo         TipoBanco
+  tipo         TipoConexao
   host         String
   porta        Int
   banco        String
@@ -170,7 +181,7 @@ model ConexaoBanco {
   atualizadoEm DateTime  @updatedAt @map("atualizado_em")
 
   empresa   Empresa       @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  agente    Agente        @relation(fields: [agenteId], references: [id], onDelete: Restrict)
+  agente    Agente?       @relation(fields: [agenteId], references: [id], onDelete: Restrict)
   consultas ConsultaSql[]
 
   @@unique([empresaId, nome])
@@ -193,6 +204,10 @@ model ConsultaSql {
   descricao           String?
   finalidade          FinalidadeConsulta @default(OUTRA)
   sql                 String
+  /// Conexão de planilhas: caminho na pasta ou id no Drive, nome para exibir e aba (nula = a primeira).
+  arquivo             String?
+  arquivoNome         String?            @map("arquivo_nome")
+  aba                 String?
   /// CampoDinamico[] de packages/shared: colunas lidas na última execução bem-sucedida.
   campos              Json               @default("[]")
   /// SHA-256 de conexaoId + sql quando os campos foram lidos; diferente do atual = desatualizados.

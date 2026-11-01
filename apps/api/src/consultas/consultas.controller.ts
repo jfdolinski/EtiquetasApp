@@ -3,7 +3,7 @@ import { ConexoesService } from '../agentes/conexoes.service';
 import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { ConsultasService } from './consultas.service';
-import { AtualizarConsultaDto, CriarConsultaDto, PreviaConsultaDto } from './dto';
+import { AtualizarConsultaDto, CriarConsultaDto, PreviaConsultaDto, PreviaPlanilhaDto } from './dto';
 
 @Controller('consultas')
 export class ConsultasController {
@@ -23,6 +23,21 @@ export class ConsultasController {
   @RequerPermissao('sql.ver')
   conexoes(@EmpresaAtual() empresaId: string) {
     return this.conexoesService.listar(empresaId);
+  }
+
+  /** Planilhas de uma conexão PASTA ou Google Drive, para escolher no editor. */
+  @Get('conexoes/:id/arquivos')
+  @RequerPermissao('sql.ver')
+  arquivos(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string) {
+    return this.conexoesService.listarArquivos(empresaId, id);
+  }
+
+  /** Lê um arquivo ainda não salvo na consulta, direto do editor. */
+  @Post('previa-planilha')
+  @HttpCode(200)
+  @RequerPermissao('sql.editar')
+  previaPlanilha(@EmpresaAtual() empresaId: string, @Body() dto: PreviaPlanilhaDto) {
+    return this.consultas.previaPlanilha(empresaId, dto);
   }
 
   /** Executa SQL ainda não salvo, direto do editor. */

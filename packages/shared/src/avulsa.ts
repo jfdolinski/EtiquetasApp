@@ -282,3 +282,38 @@ export function somarResultados(lista: LinhaAvulsa[], registros: Registro[], nov
   }
   return { linhas: [...novas, ...lista], novas: novas.length };
 }
+
+/** Coluna da grade que dispara a busca do produto: código de barras; sem ela, o código. */
+export function colunaDeBusca(colunas: string[]): string | null {
+  return colunas.find((c) => /ean|gtin|barra|codbar/i.test(c)) ?? colunas.find((c) => /^cod|codigo|código|sku|^id$/i.test(c)) ?? colunas[0] ?? null;
+}
+
+/** Em qual `{param.*}` da consulta vai o valor digitado na linha; os outros seguem nulos. */
+export function parametrosDaBusca(parametros: string[], valor: string): Record<string, string | null> {
+  const alvo =
+    parametros.find((p) => p === 'busca') ??
+    parametros.find((p) => /ean|gtin|barra|codbar/i.test(p)) ??
+    parametros.find((p) => /cod/i.test(p)) ??
+    parametros[0];
+  return Object.fromEntries(parametros.map((p) => [p, p === alvo ? valor : null]));
+}
+
+/** O mesmo código, ignorando espaços e zeros à esquerda (o Excel costuma comer os zeros). */
+export function mesmoCodigo(a: unknown, b: unknown): boolean {
+  const norm = (v: unknown) => {
+    const t = textoCelula(v).trim().toLowerCase();
+    return /^\d+$/.test(t) ? t.replace(/^0+(?=\d)/, '') : t;
+  };
+  return norm(a) !== '' && norm(a) === norm(b);
+}
+
+/**
+ * Resultado da busca pelo código digitado na linha: se algum registro tem exatamente esse
+ * código, ficam só os iguais; a consulta pode devolver parecidos (LIKE) ou nem filtrar.
+ */
+export function registrosDoCodigo<T extends Record<string, unknown>>(registros: T[], coluna: string, valor: string): T[] {
+  const naColuna = registros.filter((r) => mesmoCodigo(r[coluna], valor));
+  if (naColuna.length) return naColuna;
+  const emQualquer = registros.filter((r) => Object.values(r).some((v) => mesmoCodigo(v, valor)));
+  return emQualquer.length ? emQualquer : registros;
+}

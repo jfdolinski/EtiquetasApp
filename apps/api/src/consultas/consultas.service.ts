@@ -4,16 +4,20 @@ import {
   avisosDosCampos,
   camposDasColunas,
   compilarSql,
+  ehConexaoSql,
   ehParametro,
   ErroPlaceholder,
   extrairPlaceholders,
+  PARAMETRO_PLANILHA,
   PREFIXO_PARAMETRO,
   type CampoDinamico,
   type ConsultaSqlResumo,
   type PreviaConsulta,
+  type PreviaPlanilha,
   type ResultadoConsulta,
   type SalvarConsultaResposta,
   type TipoBanco,
+  type TipoConexao,
 } from '@etiquetas/shared';
 import { ConexoesService } from '../agentes/conexoes.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -21,7 +25,7 @@ import { config } from '../config';
 import { sha256 } from '../cripto';
 import { ehViolacaoUnica } from '../prisma/erros';
 import { PrismaService } from '../prisma/prisma.service';
-import type { AtualizarConsultaDto, CriarConsultaDto, PreviaConsultaDto, ValoresParametros } from './dto';
+import type { AtualizarConsultaDto, CriarConsultaDto, PreviaConsultaDto, PreviaPlanilhaDto, ValoresParametros } from './dto';
 
 const LIMITE_LINHAS_PREVIA = 50;
 const TAMANHO_MAXIMO_PARAMETRO = 1000;
@@ -33,6 +37,9 @@ const SELECAO = {
   descricao: true,
   finalidade: true,
   sql: true,
+  arquivo: true,
+  arquivoNome: true,
+  aba: true,
   campos: true,
   camposHash: true,
   camposAtualizadosEm: true,
@@ -59,6 +66,21 @@ type ConsultaSelecionada = Prisma.ConsultaSqlGetPayload<{ select: typeof SELECAO
 /** Hash que amarra os campos lidos ao SQL e à conexão de onde vieram. */
 export function hashCampos(conexaoId: string, sql: string): string {
   return sha256(`${conexaoId}\n${sql}`);
+}
+
+/** O que os campos dependem: o SQL, ou o arquivo e a aba nas consultas de planilha. */
+function fonteDaConsulta(c: { sql: string; arquivo: string | null; aba: string | null }): string {
+  return c.arquivo ? `${c.arquivo}\n${c.aba ?? ''}` : c.sql;
+}
+
+/** Na conexão de planilhas não há SQL; na de banco, não há arquivo. */
+function fonteParaGravar(tipo: TipoConexao, d: { sql?: string; arquivo?: string | null; arquivoNome?: string | null; aba?: string | null }) {
+  if (ehConexaoSql(tipo)) {
+    validarSql(d.sql ?? '', tipo);
+    return { sql: d.sql ?? '', arquivo: null, arquivoNome: null, aba: null };
+  }
+  if (!d.arquivo) throw new BadRequestException('Escolha o arquivo da planilha.');
+  return { sql: '', arquivo: d.arquivo, arquivoNome: d.arquivoNome || d.arquivo, aba: d.aba || null };
 }
 
 /** Data e hora "de parede" no fuso informado. */
@@ -101,7 +123,7 @@ export class ConsultasService {
 
   async criar(empresaId: string, dto: CriarConsultaDto, autorId: string, template?: OrigemTemplate): Promise<SalvarConsultaResposta> {
     const tipo = await this.tipoDaConexao(empresaId, dto.conexaoId);
-    validarSql(dto.sql, tipo);
+    const fonte = fonteParaGravar(tipo, dto);
     try {
       const consulta = await this.prisma.consultaSql.create({
         data: {
@@ -110,7 +132,7 @@ export class ConsultasService {
           nome: dto.nome.trim(),
           descricao: dto.descricao?.trim() || null,
           finalidade: dto.finalidade,
-          sql: dto.sql,
+          ...fonte,
           templateConsultaId: template?.templateConsultaId,
           templateSqlHash: template ? hashSql(template.sql) : undefined,
         },
@@ -122,7 +144,7 @@ export class ConsultasService {
         acao: template ? 'consulta.copiar_template' : 'consulta.criar',
         entidade: 'ConsultaSql',
         entidadeId: consulta.id,
-        detalhes: { nome: consulta.nome, conexaoId: dto.conexaoId, templateConsultaId: template?.templateConsultaId, sql: dto.sql.slice(0, 2000) },
+        detalhes: { nome: consulta.nome, conexaoId: dto.conexaoId, templateConsultaId: template?.templateConsultaId, sql: fonte.sql.slice(0, 2000), arquivo: fonte.arquivo, aba: fonte.aba },
       });
       return this.lerCamposAoSalvar(empresaId, consulta, autorId);
     } catch (erro) {
@@ -135,8 +157,12 @@ export class ConsultasService {
     const atual = await this.buscar(empresaId, id);
     const conexaoId = dto.conexaoId ?? atual.conexaoId;
     const tipo = dto.conexaoId && dto.conexaoId !== atual.conexaoId ? await this.tipoDaConexao(empresaId, dto.conexaoId) : atual.conexao.tipo;
-    const sql = dto.sql ?? atual.sql;
-    validarSql(sql, tipo);
+    const fonte = fonteParaGravar(tipo, {
+      sql: dto.sql ?? atual.sql,
+      arquivo: dto.arquivo ?? atual.arquivo,
+      arquivoNome: dto.arquivoNome ?? atual.arquivoNome,
+      aba: dto.aba === undefined ? atual.aba : dto.aba,
+    });
 
     try {
       const consulta = await this.prisma.consultaSql.update({
@@ -146,7 +172,7 @@ export class ConsultasService {
           nome: dto.nome?.trim(),
           descricao: dto.descricao === undefined ? undefined : dto.descricao.trim() || null,
           finalidade: dto.finalidade,
-          sql,
+          ...fonte,
           ativo: dto.ativo,
         },
         select: SELECAO,
@@ -181,7 +207,7 @@ export class ConsultasService {
 
   /** Executa um SQL ainda não salvo (editor), com os valores de `{param.*}` informados. */
   async previa(empresaId: string, dto: PreviaConsultaDto, usuarioId: string): Promise<PreviaConsulta> {
-    const tipo = await this.tipoDaConexao(empresaId, dto.conexaoId);
+    const tipo = sqlDe(await this.tipoDaConexao(empresaId, dto.conexaoId));
     const compilado = await this.compilar(empresaId, usuarioId, dto.sql, tipo, dto.parametros ?? {});
     await this.auditoria.registrar({
       empresaId,
@@ -207,6 +233,18 @@ export class ConsultasService {
       parametros: compilado.parametros,
       placeholders: compilado.placeholders,
     };
+  }
+
+  /** Lê um arquivo ainda não salvo (editor): abas, colunas e primeiras linhas. */
+  async previaPlanilha(empresaId: string, dto: PreviaPlanilhaDto): Promise<PreviaPlanilha> {
+    const leitura = await this.conexoes.lerPlanilha(empresaId, dto.conexaoId, {
+      arquivo: dto.arquivo,
+      aba: dto.aba || null,
+      termo: dto.termo || null,
+      limiteLinhas: dto.limiteLinhas ?? LIMITE_LINHAS_PREVIA,
+    });
+    const campos = camposDasColunas(leitura.resultado.colunas);
+    return { ...leitura, campos, avisos: avisosDosCampos(campos) };
   }
 
   /**
@@ -241,7 +279,7 @@ export class ConsultasService {
     if (template.sistemaErp.tipoBanco !== atual.conexao.tipo) {
       throw new BadRequestException('A conexão desta consulta é de outro tipo de banco que o do template.');
     }
-    validarSql(template.sql, atual.conexao.tipo);
+    validarSql(template.sql, sqlDe(atual.conexao.tipo));
     const consulta = await this.prisma.consultaSql.update({
       where: { id },
       data: { sql: template.sql, templateSqlHash: hashSql(template.sql) },
@@ -275,7 +313,7 @@ export class ConsultasService {
     autorId: string,
     propagarErro = false,
   ): Promise<SalvarConsultaResposta> {
-    const placeholders = extrairPlaceholders(consulta.sql, consulta.conexao.tipo);
+    const placeholders = ehConexaoSql(consulta.conexao.tipo) ? extrairPlaceholders(consulta.sql, consulta.conexao.tipo) : [];
     const nulos = Object.fromEntries(placeholders.filter(ehParametro).map((p) => [p.slice(PREFIXO_PARAMETRO.length), null]));
 
     let resultado: ResultadoConsulta;
@@ -294,7 +332,7 @@ export class ConsultasService {
       where: { id: consulta.id },
       data: {
         campos: campos as unknown as Prisma.InputJsonArray,
-        camposHash: hashCampos(consulta.conexaoId, consulta.sql),
+        camposHash: hashCampos(consulta.conexaoId, fonteDaConsulta(consulta)),
         camposAtualizadosEm: new Date(),
       },
       select: SELECAO,
@@ -309,6 +347,15 @@ export class ConsultasService {
     parametros: ValoresParametros,
     limiteLinhas: number,
   ) {
+    if (!ehConexaoSql(consulta.conexao.tipo)) {
+      const leitura = await this.conexoes.lerPlanilha(empresaId, consulta.conexaoId, {
+        arquivo: consulta.arquivo ?? '',
+        aba: consulta.aba,
+        termo: parametros[PARAMETRO_PLANILHA] ?? null,
+        limiteLinhas,
+      });
+      return leitura.resultado;
+    }
     const compilado = await this.compilar(empresaId, usuarioId, consulta.sql, consulta.conexao.tipo, parametros);
     return this.conexoes.executar(empresaId, consulta.conexaoId, compilado.sql, compilado.parametros, limiteLinhas);
   }
@@ -345,7 +392,7 @@ export class ConsultasService {
     }
   }
 
-  private async tipoDaConexao(empresaId: string, conexaoId: string): Promise<TipoBanco> {
+  private async tipoDaConexao(empresaId: string, conexaoId: string): Promise<TipoConexao> {
     try {
       return await this.conexoes.tipo(empresaId, conexaoId);
     } catch (erro) {
@@ -361,7 +408,13 @@ export class ConsultasService {
   }
 }
 
+function sqlDe(tipo: TipoConexao): TipoBanco {
+  if (!ehConexaoSql(tipo)) throw new BadRequestException('Esta conexão é de planilhas: não aceita SQL.');
+  return tipo;
+}
+
 function validarSql(sql: string, tipo: TipoBanco) {
+  if (!sql.trim()) throw new BadRequestException('Informe o SQL.');
   try {
     extrairPlaceholders(sql, tipo);
   } catch (erro) {
@@ -371,10 +424,12 @@ function validarSql(sql: string, tipo: TipoBanco) {
 }
 
 function resumo(c: ConsultaSelecionada): ConsultaSqlResumo {
-  let placeholders: string[] = [];
+  // Planilha sempre aceita a busca: é o que a avulsa usa para achar o código.
+  let placeholders: string[] = [PREFIXO_PARAMETRO + PARAMETRO_PLANILHA];
   try {
-    placeholders = extrairPlaceholders(c.sql, c.conexao.tipo);
+    if (ehConexaoSql(c.conexao.tipo)) placeholders = extrairPlaceholders(c.sql, c.conexao.tipo);
   } catch {
+    placeholders = [];
     // SQL salvo antes de uma troca de conexão para outro dialeto: o editor mostra o erro ao testar.
   }
   return {
@@ -384,9 +439,12 @@ function resumo(c: ConsultaSelecionada): ConsultaSqlResumo {
     descricao: c.descricao,
     finalidade: c.finalidade,
     sql: c.sql,
+    arquivo: c.arquivo,
+    arquivoNome: c.arquivoNome,
+    aba: c.aba,
     placeholders,
     campos: c.campos as unknown as CampoDinamico[],
-    camposDesatualizados: c.camposHash !== hashCampos(c.conexaoId, c.sql),
+    camposDesatualizados: c.camposHash !== hashCampos(c.conexaoId, fonteDaConsulta(c)),
     camposAtualizadosEm: c.camposAtualizadosEm?.toISOString() ?? null,
     templateConsultaId: c.templateConsultaId,
     ativo: c.ativo,

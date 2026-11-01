@@ -24,6 +24,9 @@ const (
 	limiteLinhasMaximo = 100_000
 )
 
+// TipoPasta é a conexão com uma pasta de planilhas (pacote arquivos), sem SQL.
+const TipoPasta = "PASTA"
+
 // ErroConsulta carrega um código para o servidor distinguir a origem da falha.
 type ErroConsulta struct {
 	Codigo string // conexao_desconhecida | sql_recusado | banco | tempo_esgotado
@@ -67,6 +70,17 @@ func (e *Executor) Configurar(lista []protocolo.Conexao) {
 		}
 	}
 	e.conexoes = novas
+}
+
+// Pasta devolve o caminho se a conexão for de planilhas numa pasta deste computador.
+func (e *Executor) Pasta(id string) (string, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	c, ok := e.conexoes[id]
+	if !ok || c.Tipo != TipoPasta {
+		return "", false
+	}
+	return c.Banco, true
 }
 
 func (e *Executor) TotalConexoes() int {
