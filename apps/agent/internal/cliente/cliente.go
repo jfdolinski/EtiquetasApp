@@ -14,6 +14,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -65,6 +66,8 @@ type Cliente struct {
 	Log    *slog.Logger
 	// Estado publicado para o painel da bandeja (pode ser nil).
 	Estado *estado.Estado
+	// Conta as impressões em andamento (pode ser nil): a atualização espera terminar.
+	Ocupado *atomic.Int64
 
 	mu            sync.Mutex
 	cfg           config.Config
@@ -315,6 +318,10 @@ func (c *Cliente) atender(ctx context.Context, conn *websocket.Conn, msg protoco
 }
 
 func (c *Cliente) processar(ctx context.Context, msg protocolo.Mensagem) (any, error) {
+	if msg.Tipo == protocolo.TipoImprimir && c.Ocupado != nil {
+		c.Ocupado.Add(1)
+		defer c.Ocupado.Add(-1)
+	}
 	switch msg.Tipo {
 	case protocolo.TipoConsultar:
 		var req protocolo.Consultar

@@ -80,6 +80,8 @@ func (p *Painel) abrirJanela() {
 		_ = w.Bind("reiniciar", func() { go p.acaoAdmin("Reiniciando o agente…", "Agente reiniciado.", "reiniciar") })
 		_ = w.Bind("instalar", p.instalar)
 		_ = w.Bind("atualizar", p.atualizar)
+		_ = w.Bind("atualizacaoAutomatica", p.atualizacaoAutomatica)
+		_ = w.Bind("procurarAtualizacao", p.procurarAtualizacao)
 		_ = w.Bind("removerCopiasAntigas", p.removerCopiasAntigas)
 		_ = w.Bind("abrirSistema", p.abrirSistema)
 		_ = w.Bind("impressoras", p.visaoImpressoras)

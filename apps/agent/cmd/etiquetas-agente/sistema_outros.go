@@ -13,6 +13,13 @@ const comandoPadrao = "executar"
 
 const podePerguntar = true
 
+// A atualização pelo próprio agente é do serviço Windows; no Linux, rode `instalar` com o arquivo novo.
+const atualizacaoSuportada = false
+
+func iniciarVigia(string, string, string, string) error {
+	return errors.New("a atualização pelo próprio agente só existe no Windows")
+}
+
 func anexarConsole() {}
 
 func abrirPainel(bool, string) error {

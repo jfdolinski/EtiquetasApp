@@ -6,8 +6,10 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/kardianos/service"
 	"golang.org/x/sys/windows"
@@ -24,6 +26,18 @@ const comandoPadrao = "painel"
 
 // Sem console próprio não dá para perguntar: a ativação vem por opções ou pelo painel.
 const podePerguntar = false
+
+const atualizacaoSuportada = true
+
+// iniciarVigia solta um processo independente: o Windows não o encerra junto com o serviço.
+func iniciarVigia(executavel, nova, caminhoConfig, arquivoLog string) error {
+	cmd := exec.Command(executavel, "concluir-atualizacao", "-para", nova, "-config", caminhoConfig, "-log", arquivoLog)
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
+}
 
 const (
 	chaveInicio = `Software\Microsoft\Windows\CurrentVersion\Run`

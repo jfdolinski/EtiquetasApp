@@ -147,6 +147,15 @@
     <button id="btnServico">Reiniciar o agente</button>
   </div>
 
+  <section class="cartao" id="cartaoAtualizacao" hidden>
+    <h3>Atualização do agente</h3>
+    <p class="dica" id="textoAuto"></p>
+    <div class="acoes" style="margin-top: 8px">
+      <button id="btnAuto"></button>
+      <button id="btnProcurar">Procurar agora</button>
+    </div>
+  </section>
+
   <section class="cartao" id="ativacao" hidden>
     <h3 id="tituloAtivacao">Ativar este computador</h3>
     <form id="form" autocomplete="off">
@@ -265,6 +274,19 @@
       $('btnAtualizar').disabled = v.operacao.andamento;
     }
 
+    const auto = st && st.atualizacaoAutomatica;
+    const mostrarAuto = !!st && typeof auto === 'boolean' && !v.podeAtualizar && v.agenteRodando;
+    $('cartaoAtualizacao').hidden = !mostrarAuto;
+    if (mostrarAuto) {
+      let texto = auto
+        ? 'Ligada: o agente confere a cada 6 horas e se atualiza sozinho, sem reinstalar. Se a versão nova não funcionar, ele volta para a anterior.'
+        : 'Desligada: o agente só muda de versão quando você pedir.';
+      if (st.ultimaVerificacao) texto += ` Última conferência às ${hora(st.ultimaVerificacao)}.`;
+      $('textoAuto').textContent = texto;
+      $('btnAuto').textContent = auto ? 'Desligar' : 'Ligar';
+      $('btnAuto').disabled = $('btnProcurar').disabled = v.operacao.andamento;
+    }
+
     const copias = v.copiasAntigas || [];
     $('copias').hidden = !copias.length;
     $('listaCopias').textContent = copias.join('\n');
@@ -347,6 +369,8 @@
     (s === 'falta_instalar' ? window.instalar() : s === 'parado' ? window.iniciar() : window.reiniciar()).then(atualizar);
   });
   $('btnAtualizar').addEventListener('click', () => window.atualizar().then(atualizar));
+  $('btnAuto').addEventListener('click', () => window.atualizacaoAutomatica(!(visao && visao.status && visao.status.atualizacaoAutomatica)).then(atualizar));
+  $('btnProcurar').addEventListener('click', () => window.procurarAtualizacao().then(atualizar));
   $('btnRemoverCopias').addEventListener('click', async () => {
     try {
       await window.removerCopiasAntigas();

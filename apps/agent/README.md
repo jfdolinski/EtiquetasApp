@@ -35,7 +35,8 @@ Como funciona por dentro:
 - A janela usa o WebView2, que já vem no Windows 11 e no Windows 10 atualizado. Sem ele, o painel avisa e abre a página de download; o agente continua funcionando.
 - Na primeira execução, o painel marca o ícone para ficar visível na barra. O Windows 11 aplica isso no próximo login. Antes disso, o link **Ícone ao lado do relógio** abre a configuração da barra de tarefas.
 - Se houver uma cópia antiga do agente na pasta Inicializar do usuário, o painel avisa e oferece removê-la. Ela disputaria a conexão com o serviço.
-- **Atualizar:** abra o `.exe` novo (baixado do sistema) com dois cliques. Fora de Arquivos de Programas, ele fecha o painel aberto (inclusive de versões antigas) e mostra **Atualizar o agente**, que roda `instalar` como administrador: para o serviço, troca o executável e inicia de novo. **Reiniciar** não troca a versão.
+- **Atualização automática (Windows):** o serviço confere a cada 6 horas o `/downloads/versao.txt` do servidor. Havendo versão mais nova, baixa na pasta de instalação, confere o SHA-256 e se ela executa, espera terminar a impressão em andamento e troca o arquivo. Um processo à parte reinicia o serviço; se a versão nova não ficar 30 segundos de pé em até 3 minutos, ele volta para a anterior e essa versão não é tentada de novo. O painel tem **Desligar/Ligar** e **Procurar agora**. O histórico fica em `%ProgramData%\EtiquetasAgente\atualizacao.log`.
+- **Atualizar à mão:** abra o `.exe` novo (baixado do sistema) com dois cliques. Fora de Arquivos de Programas, ele fecha o painel aberto (inclusive de versões antigas) e mostra **Atualizar o agente**, que roda `instalar` como administrador: para o serviço, troca o executável e inicia de novo. **Reiniciar** não troca a versão.
 
 **Aba Impressoras** (também no menu do ícone: **Impressoras…**):
 
@@ -124,4 +125,4 @@ GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -H windowsgui -X ma
 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.versao=0.2.0 -X main.servidorPadrao=https://app.seudominio.com.br" -o bin/etiquetas-agente ./cmd/etiquetas-agente
 ```
 
-Ainda não implementado: atualização automática do agente e instalador gráfico (`.msi`). Hoje a instalação é o executável mais o comando `instalar`.
+Ainda não implementado: atualização automática no Linux e instalador gráfico (`.msi`). Hoje a instalação é o executável mais o comando `instalar`.

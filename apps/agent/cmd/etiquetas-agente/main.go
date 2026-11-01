@@ -5,6 +5,8 @@
 //	etiquetas-agente ativar     ativa com servidor, CNPJ e código de ativação e grava o token
 //	etiquetas-agente executar   roda em primeiro plano (é o que o serviço executa)
 //	etiquetas-agente instalar   instala como serviço do sistema (Windows/systemd) e inicia
+//	etiquetas-agente atualizar-agora   procura e aplica a versão publicada no servidor (Windows)
+//	etiquetas-agente atualizacao-automatica -ligada=true|false
 //	etiquetas-agente desinstalar | iniciar | parar | reiniciar | status | versao
 package main
 
@@ -19,6 +21,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/kardianos/service"
@@ -45,6 +48,8 @@ Comandos:
   iniciar      inicia o serviço
   parar        para o serviço
   reiniciar    reinicia o serviço
+  atualizar-agora  procura e aplica a versão publicada no servidor (Windows; requer administrador)
+  atualizacao-automatica  liga ou desliga a atualização automática (-ligada=true ou -ligada=false)
   impressora   cadastra no sistema uma impressora deste computador (-nome, -linguagem, -dpi, -metodo, -endereco)
   status       mostra o estado do serviço
   versao       mostra a versão
@@ -58,6 +63,8 @@ type programa struct {
 	cancelar      context.CancelFunc
 	fim           chan struct{}
 	fimEstado     chan struct{}
+	// Impressões em andamento: a atualização espera terminar.
+	ocupado atomic.Int64
 }
 
 func (p *programa) Start(s service.Service) error {
@@ -89,11 +96,15 @@ func (p *programa) Start(s service.Service) error {
 		defer close(p.fimEstado)
 		st.Manter(ctx)
 	}()
+	if atualizacaoSuportada && !service.Interactive() && versao != "dev" {
+		go p.manterAtualizado(ctx, st)
+	}
 	go func() {
 		defer close(p.fim)
 		for {
 			c := cliente.Novo(*cfg, p.caminhoConfig, versao, log)
 			c.Estado = st
+			c.Ocupado = &p.ocupado
 			err := c.Executar(ctx)
 			if err == nil {
 				return // parada pedida
@@ -153,6 +164,8 @@ func main() {
 	codigo := flags.String("codigo", "", "código de ativação gerado no painel (ativar)")
 	arquivoLog := flags.String("log", "", "grava o log neste arquivo além da saída padrão")
 	oculto := flags.Bool("oculto", false, "painel: só mostra a janela se o agente precisar de atenção (início com o Windows)")
+	versaoNova := flags.String("para", "", "versão nova (uso interno da atualização)")
+	ligada := flags.Bool("ligada", true, "atualizacao-automatica: ligar ou desligar")
 	var nova cliente.NovaImpressora
 	flags.StringVar(&nova.Nome, "nome", "", "impressora: nome no sistema")
 	flags.StringVar(&nova.Linguagem, "linguagem", "", "impressora: ZPL, PPLA, PPLB, ESCPOS ou PDF")
@@ -251,6 +264,28 @@ func main() {
 			sair(err)
 		}
 		concluir("Agente reiniciado.")
+	case "concluir-atualizacao":
+		if *versaoNova == "" {
+			sair(errors.New("informe -para"))
+		}
+		if err := concluirAtualizacao(svc, *versaoNova, *caminhoConfig, log); err != nil {
+			sair(err)
+		}
+	case "atualizar-agora":
+		mensagem, err := atualizarAgora(*caminhoConfig)
+		if err != nil {
+			sair(err)
+		}
+		concluir(mensagem)
+	case "atualizacao-automatica":
+		if err := definirAtualizacaoAutomatica(*caminhoConfig, *ligada); err != nil {
+			sair(err)
+		}
+		if *ligada {
+			concluir("Atualização automática ligada.")
+		} else {
+			concluir("Atualização automática desligada.")
+		}
 	case "impressora":
 		// Cadastra no servidor uma impressora entregue por este agente (o painel usa quando
 		// não consegue ler a configuração sem ser administrador).
@@ -389,7 +424,8 @@ func abrirLog(caminho string) (*slog.Logger, func(), error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		saida = io.MultiWriter(os.Stderr, f)
+		// O arquivo primeiro: sem console, escrever no stderr falha e interromperia o resto.
+		saida = io.MultiWriter(f, os.Stderr)
 		fechar = func() { f.Close() }
 	}
 	return slog.New(slog.NewTextHandler(saida, nil)), fechar, nil

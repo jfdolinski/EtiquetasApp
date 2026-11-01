@@ -15,6 +15,7 @@ import (
 
 	"fyne.io/systray"
 
+	"etiquetas/agente/internal/atualizacao"
 	"etiquetas/agente/internal/config"
 	"etiquetas/agente/internal/estado"
 	"etiquetas/agente/internal/icone"
@@ -34,6 +35,7 @@ type Painel struct {
 	executavel string
 	instancia  *instanciaUnica
 	icones     map[color.RGBA][]byte
+	iniciadoEm time.Time
 
 	mu       sync.Mutex
 	operacao Operacao
@@ -59,7 +61,7 @@ func Executar(op Opcoes) error {
 		return nil // já aberto: a outra instância mostra a janela
 	}
 	ajustarDPI()
-	p := &Painel{op: op, executavel: exe, instancia: inst, icones: map[color.RGBA][]byte{}}
+	p := &Painel{op: op, executavel: exe, instancia: inst, icones: map[color.RGBA][]byte{}, iniciadoEm: time.Now()}
 	systray.Run(p.aoIniciar, inst.liberar)
 	return nil
 }
@@ -145,7 +147,9 @@ func (p *Painel) aoIniciar() {
 	}
 	go func() {
 		for range time.Tick(2 * time.Second) {
-			p.atualizarIcone(p.visao())
+			v := p.visao()
+			p.atualizarIcone(v)
+			p.acompanharVersao(v)
 		}
 	}()
 }
@@ -213,6 +217,46 @@ func (p *Painel) visao() Visao {
 		v.CopiasAntigas = copiasNaInicializacao()
 	}
 	return v
+}
+
+// acompanharVersao: o serviço atualizou o executável instalado; este painel ainda roda a
+// versão anterior. Abre a nova no lugar, mantendo a janela aberta se estava aberta.
+func (p *Painel) acompanharVersao(v Visao) {
+	if !ehInstalado(p.executavel) || !v.AgenteRodando || v.Status == nil || !atualizacao.MaisNova(v.Status.Versao, p.op.Versao) {
+		return
+	}
+	// Só se o arquivo mudou depois que este painel abriu: reabrir o mesmo arquivo seria um ciclo.
+	if info, err := os.Stat(config.ExecutavelInstalado()); err != nil || !info.ModTime().After(p.iniciadoEm) {
+		return
+	}
+	p.mu.Lock()
+	h := p.janela
+	ocupado := p.operacao.Andamento
+	p.mu.Unlock()
+	if ocupado {
+		return
+	}
+	if h != 0 {
+		fecharJanela(h)
+	}
+	p.instancia.liberar()
+	args := []string{"painel"}
+	if h == 0 {
+		args = append(args, "-oculto")
+	}
+	if err := abrir(config.ExecutavelInstalado(), args...); err != nil {
+		return
+	}
+	systray.Quit()
+}
+
+// atualizacaoAutomatica liga ou desliga; a configuração só se altera como administrador.
+func (p *Painel) atualizacaoAutomatica(ligada bool) {
+	go p.acaoAdmin("Alterando a atualização automática…", "Pronto.", "atualizacao-automatica", fmt.Sprintf("-ligada=%t", ligada))
+}
+
+func (p *Painel) procurarAtualizacao() {
+	go p.acaoAdmin("Procurando versão nova…", "Pronto.", "atualizar-agora")
 }
 
 // instalar: já ativado (versão antiga ou `ativar`), só falta o serviço.

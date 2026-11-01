@@ -64,6 +64,11 @@ type Instantaneo struct {
 	ErrosImpressao int       `json:"errosImpressao"`
 	UltimoTrabalho *Trabalho `json:"ultimoTrabalho,omitempty"`
 
+	// Atualização do agente; nil = versão ou ambiente sem atualização automática.
+	AtualizacaoAutomatica *bool      `json:"atualizacaoAutomatica,omitempty"`
+	UltimaVerificacao     *time.Time `json:"ultimaVerificacao,omitempty"`
+	VersaoDisponivel      string     `json:"versaoDisponivel,omitempty"`
+
 	// Mais recente primeiro.
 	Eventos      []Evento  `json:"eventos"`
 	AtualizadoEm time.Time `json:"atualizadoEm"`
