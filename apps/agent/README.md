@@ -36,6 +36,7 @@ Como funciona por dentro:
 - Na primeira execução, o painel marca o ícone para ficar visível na barra. O Windows 11 aplica isso no próximo login. Antes disso, o link **Ícone ao lado do relógio** abre a configuração da barra de tarefas.
 - Se houver uma cópia antiga do agente na pasta Inicializar do usuário, o painel avisa e oferece removê-la. Ela disputaria a conexão com o serviço.
 - **Atualização automática (Windows):** o serviço confere a cada 6 horas o `/downloads/versao.txt` do servidor. Havendo versão mais nova, baixa na pasta de instalação, confere o SHA-256 e se ela executa, espera terminar a impressão em andamento e troca o arquivo. Um processo à parte reinicia o serviço; se a versão nova não ficar 30 segundos de pé em até 3 minutos, ele volta para a anterior e essa versão não é tentada de novo. O painel tem **Desligar/Ligar** e **Procurar agora**. O histórico fica em `%ProgramData%\EtiquetasAgente\atualizacao.log`.
+- **De onde vem a versão:** a data e hora do build. Publicar o web sem mudança em `apps/agent` reaproveita o build anterior e não gera versão nova, então os agentes não reiniciam à toa.
 - **Atualizar à mão:** abra o `.exe` novo (baixado do sistema) com dois cliques. Fora de Arquivos de Programas, ele fecha o painel aberto (inclusive de versões antigas) e mostra **Atualizar o agente**, que roda `instalar` como administrador: para o serviço, troca o executável e inicia de novo. **Reiniciar** não troca a versão.
 
 **Aba Impressoras** (também no menu do ícone: **Impressoras…**):
