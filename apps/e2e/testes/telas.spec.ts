@@ -83,6 +83,7 @@ test('Minha conta: QR do celular aparece e some quando o celular vincula', async
   await page.goto('/minha-conta');
   await page.getByRole('button', { name: 'Mostrar QR code' }).click();
   await expect(page.getByText('Abra o aplicativo e leia este QR code.')).toBeVisible();
+  await page.screenshot({ path: 'test-results/minha-conta.png', fullPage: true });
   const codigo = (await page.locator('p.font-mono.text-lg').innerText()).trim();
   expect(codigo).toMatch(/^[A-Z2-9]{10}$/);
 

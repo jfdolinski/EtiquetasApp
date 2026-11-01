@@ -19,7 +19,8 @@ env:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    # Versão fixa: o emulador e o Android SDK dependem da imagem.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     defaults:
       run:
@@ -35,7 +36,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-          cache: gradle
       - run: npm ci
       - run: npm test
       - run: npm run typecheck

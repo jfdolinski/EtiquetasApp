@@ -135,6 +135,25 @@ test('criar empresa sem administrador é erro de validação, não erro interno'
   expect(JSON.stringify(r.j.message)).toContain('administrador');
 });
 
+test('erro inesperado responde sem detalhes e aparece na saúde do sistema', async () => {
+  const outra = await criarEmpresa(tokenSuper);
+  // Tabela fora do lugar: o jeito mais simples de um 500 de verdade, sem rota de teste na API.
+  await sql('ALTER TABLE produtos_banidos RENAME TO produtos_banidos_fora');
+  let r;
+  try {
+    r = await pedir('GET', '/banidos?segredo=nao-guardar', { token: outra.adminToken });
+  } finally {
+    await sql('ALTER TABLE produtos_banidos_fora RENAME TO produtos_banidos');
+  }
+  expect(r.status).toBe(500);
+  expect(JSON.stringify(r.j)).not.toContain('produtos_banidos');
+  await expect.poll(async () => (await pedir('GET', '/sistema/saude', { token: tokenSuper })).j.erros.some((x: any) => x.rota === '/api/banidos')).toBe(true);
+  const [linha] = await sql(`SELECT rota, mensagem, empresa_id FROM erros_sistema WHERE rota = '/api/banidos' ORDER BY criado_em DESC LIMIT 1`);
+  expect(linha.empresa_id).toBe(outra.id);
+  expect(JSON.stringify(linha)).not.toContain('nao-guardar');
+  expect((await pedir('GET', '/banidos', { token: outra.adminToken })).status).toBe(200);
+});
+
 test('saúde do sistema: só o super-admin, com erros inesperados registrados', async () => {
   expect((await pedir('GET', '/sistema/saude', { token: await login(e.adminEmail, e.adminSenha) })).status).toBe(403);
   const s = await pedir('GET', '/sistema/saude', { token: tokenSuper });

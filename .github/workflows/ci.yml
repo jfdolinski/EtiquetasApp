@@ -81,7 +81,8 @@ jobs:
 
   e2e:
     name: Telas e API de ponta a ponta
-    runs-on: ubuntu-latest
+    # Versão fixa: o Playwright só instala dependências em sistemas que conhece.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16-alpine
