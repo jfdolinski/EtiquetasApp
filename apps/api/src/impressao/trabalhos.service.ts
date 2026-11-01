@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
+  codigosDoRegistro,
   limitesPorFolha,
   lotesDeEtiquetas,
   problemaNasFolhas,
@@ -110,6 +111,7 @@ export class TrabalhosService {
             origem: grupo.origem,
             quantidadeEtiquetas: lote.length,
             conteudo: emBytes(saida.conteudo, saida.codificacao),
+            codigosProdutos: [...new Set(lote.flatMap(codigosDoRegistro))],
             status: ehPdf ? 'CONCLUIDO' : 'PENDENTE',
             concluidoEm: ehPdf ? agora : null,
             criadoPorId: usuarioId,
@@ -175,6 +177,9 @@ export class TrabalhosService {
     const t = await this.buscar(empresaId, id);
     if (t.linguagem === 'PDF') throw new BadRequestException('Trabalhos em PDF são impressos pelo navegador: baixe o arquivo.');
     if (t.status !== 'ERRO' && t.status !== 'CANCELADO') throw new BadRequestException('Só trabalhos com erro ou cancelados podem ser reenviados.');
+    const banidos = await this.banidos.conjunto(empresaId);
+    const nele = t.codigosProdutos.filter((c) => banidos.has(c));
+    if (nele.length) throw new BadRequestException(`Este trabalho tem produto banido depois de gerado (${nele.slice(0, 5).join(', ')}). Cancele e imprima de novo.`);
     const atualizado = await this.prisma.$transaction(async (tx) => {
       await tx.itemLista.updateMany({ where: { trabalhoId: id, empresaId, status: 'PENDENTE' }, data: { status: 'NA_FILA' } });
       const r = await tx.trabalhoImpressao.update({ where: { id }, data: { status: 'PENDENTE', erro: null }, select: SELECAO_TRABALHO });
@@ -203,7 +208,7 @@ export class TrabalhosService {
   }
 
   private async buscar(empresaId: string, id: string) {
-    const t = await this.prisma.trabalhoImpressao.findFirst({ where: { id, empresaId }, select: { id: true, status: true, linguagem: true } });
+    const t = await this.prisma.trabalhoImpressao.findFirst({ where: { id, empresaId }, select: { id: true, status: true, linguagem: true, codigosProdutos: true } });
     if (!t) throw new NotFoundException('Trabalho não encontrado.');
     return t;
   }

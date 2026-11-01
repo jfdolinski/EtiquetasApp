@@ -6,6 +6,8 @@ export interface UsuarioRequisicao {
   empresaId: string | null;
   superAdmin: boolean;
   permissoes: string[];
+  /** Sessão do navegador; token antigo, sem sessão, fica sem. */
+  sessaoId?: string;
 }
 
 export interface RequisicaoAutenticada extends Request {

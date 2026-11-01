@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateIf, ValidateNested } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateIf, ValidateNested, IsDefined } from 'class-validator';
 import { STATUS_ASSINATURA, type StatusAssinatura } from '@etiquetas/shared';
 
 export class AdminInicialDto {
@@ -46,6 +46,7 @@ export class CriarEmpresaDto {
   @IsUUID('all', { message: 'ERP inválido.' })
   sistemaErpId?: string;
 
+  @IsDefined({ message: 'Informe o administrador inicial da empresa.' })
   @ValidateNested()
   @Type(() => AdminInicialDto)
   admin: AdminInicialDto;

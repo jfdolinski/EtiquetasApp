@@ -3,6 +3,7 @@ import { JwtModule, type JwtSignOptions } from '@nestjs/jwt';
 import { config } from '../config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { ContaService } from './conta.service';
 import { InicializacaoService } from './inicializacao.service';
 
 @Module({
@@ -15,7 +16,7 @@ import { InicializacaoService } from './inicializacao.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, InicializacaoService],
+  providers: [AuthService, ContaService, InicializacaoService],
   // JwtModule é exportado para o AuthGuard global (registrado no AppModule).
   exports: [JwtModule],
 })

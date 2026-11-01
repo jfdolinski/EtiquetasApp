@@ -9,6 +9,7 @@ import { BanidosModule } from './banidos/banidos.module';
 import { CobrancaModule } from './cobranca/cobranca.module';
 import { ConsultasModule } from './consultas/consultas.module';
 import { PermissoesGuard } from './auth/permissoes.guard';
+import { EmailModule } from './email/email.service';
 import { EmpresasModule } from './empresas/empresas.module';
 import { ErpsModule } from './erps/erps.module';
 import { HealthController } from './health.controller';
@@ -25,6 +26,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     PrismaModule,
     AuditoriaModule,
+    EmailModule,
     AuthModule,
     EmpresasModule,
     UsuariosModule,

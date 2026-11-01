@@ -69,6 +69,15 @@ model Usuario {
   superAdmin    Boolean   @default(false) @map("super_admin")
   ativo         Boolean   @default(true)
   ultimoLoginEm DateTime? @map("ultimo_login_em")
+  /// Verificação em duas etapas: ativa quando totpAtivoEm está preenchido.
+  totpSegredoCifrado     String?   @map("totp_segredo_cifrado")
+  totpAtivoEm            DateTime? @map("totp_ativo_em")
+  /// Último passo aceito: o mesmo código não entra duas vezes.
+  totpUltimoPasso        BigInt?   @map("totp_ultimo_passo")
+  totpFalhas             Int       @default(0) @map("totp_falhas")
+  totpBloqueadoAte       DateTime? @map("totp_bloqueado_ate")
+  /// SHA-256 dos códigos de recuperação ainda não usados.
+  totpCodigosRecuperacao String[]  @default([]) @map("totp_codigos_recuperacao")
   criadoEm      DateTime  @default(now()) @map("criado_em")
   atualizadoEm  DateTime  @updatedAt @map("atualizado_em")
 
@@ -78,9 +87,44 @@ model Usuario {
   trabalhos    TrabalhoImpressao[]
   pagamentos   PagamentoAssinatura[]
   agendamentos AgendamentoModelo[]
+  sessoes      SessaoUsuario[]
+  redefinicoes RedefinicaoSenha[]
 
   @@index([empresaId])
   @@map("usuarios")
+}
+
+/// Um login no navegador. O JWT carrega o id: encerrar aqui derruba o token na hora.
+model SessaoUsuario {
+  id          String    @id @default(uuid()) @db.Uuid
+  usuarioId   String    @map("usuario_id") @db.Uuid
+  descricao   String?
+  ip          String?
+  criadoEm    DateTime  @default(now()) @map("criado_em")
+  ultimoUsoEm DateTime  @default(now()) @map("ultimo_uso_em")
+  expiraEm    DateTime  @map("expira_em")
+  encerradaEm DateTime? @map("encerrada_em")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, encerradaEm])
+  @@index([expiraEm])
+  @@map("sessoes_usuario")
+}
+
+/// Pedido de "esqueci minha senha": só o hash do token fica guardado.
+model RedefinicaoSenha {
+  id        String    @id @default(uuid()) @db.Uuid
+  usuarioId String    @map("usuario_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiraEm  DateTime  @map("expira_em")
+  usadoEm   DateTime? @map("usado_em")
+  criadoEm  DateTime  @default(now()) @map("criado_em")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, criadoEm])
+  @@map("redefinicoes_senha")
 }
 
 model Perfil {
@@ -384,6 +428,8 @@ model TrabalhoImpressao {
   origem              OrigemTrabalho
   quantidadeEtiquetas Int                 @map("quantidade_etiquetas")
   conteudo            Bytes
+  /// Códigos dos produtos do trabalho, para reconferir o banimento ao reenviar (os bytes não dizem).
+  codigosProdutos     String[]            @default([]) @map("codigos_produtos")
   status              StatusTrabalho      @default(PENDENTE)
   tentativas          Int                 @default(0)
   erro                String?

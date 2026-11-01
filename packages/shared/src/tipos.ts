@@ -43,6 +43,28 @@ export interface UsuarioLogado {
   empresa: Pick<EmpresaResumo, 'id' | 'razaoSocial' | 'nomeFantasia' | 'cnpj' | 'statusAssinatura'> | null;
   perfil: { id: string; nome: string } | null;
   permissoes: CodigoPermissao[];
+  /** Verificação em duas etapas ativa. */
+  doisFatores: boolean;
+}
+
+/** Senha certa, falta o código da verificação em duas etapas: reenviar o login com `codigo`. */
+export interface LoginDesafio {
+  precisaCodigo: true;
+}
+
+export interface SessaoResumo {
+  id: string;
+  descricao: string | null;
+  ip: string | null;
+  criadoEm: string;
+  ultimoUsoEm: string;
+  /** É a sessão desta requisição. */
+  atual: boolean;
+}
+
+export interface IniciarDoisFatoresResposta {
+  segredo: string;
+  uri: string;
 }
 
 export interface LoginResposta {

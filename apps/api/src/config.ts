@@ -14,6 +14,10 @@ export interface Config {
   /** Fuso usado em {data_hoje} e {data_hora_agora}. */
   fusoHorario: string;
   superAdmin: { email: string; senha: string; nome: string } | null;
+  /** Sem SMTP_HOST o sistema não envia e-mail e esconde o "Esqueci minha senha". */
+  smtp: { host: string; porta: number; usuario: string; senha: string; remetente: string } | null;
+  /** Endereço público do site, para links em e-mails. */
+  urlPublica: string | null;
 }
 
 let cache: Config | null = null;
@@ -42,7 +46,7 @@ export function config(): Config {
     throw new Error(`FUSO_HORARIO inválido: ${fusoHorario}`);
   }
 
-  const { SUPERADMIN_EMAIL, SUPERADMIN_SENHA } = process.env;
+  const { SUPERADMIN_EMAIL, SUPERADMIN_SENHA, SMTP_HOST } = process.env;
 
   cache = {
     porta: Number(process.env.PORTA ?? 3000),
@@ -60,6 +64,16 @@ export function config(): Config {
             nome: process.env.SUPERADMIN_NOME || 'Administrador da Plataforma',
           }
         : null,
+    smtp: SMTP_HOST
+      ? {
+          host: SMTP_HOST,
+          porta: Number(process.env.SMTP_PORTA ?? 587),
+          usuario: process.env.SMTP_USUARIO ?? '',
+          senha: process.env.SMTP_SENHA ?? '',
+          remetente: process.env.SMTP_REMETENTE || process.env.SMTP_USUARIO || '',
+        }
+      : null,
+    urlPublica: process.env.URL_PUBLICA?.replace(/\/+$/, '') || null,
   };
   return cache;
 }

@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Post } from '@nestjs/co
 import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { BanidosService } from './banidos.service';
-import { BanirDto } from './dto';
+import { BanirDto, LiberarBanidosDto } from './dto';
 
 @Controller('banidos')
 export class BanidosController {
@@ -19,6 +19,13 @@ export class BanidosController {
   @RequerPermissao('produto_banido.editar')
   banir(@EmpresaAtual() empresaId: string, @Body() dto: BanirDto, @UsuarioAtual() usuario: UsuarioRequisicao) {
     return this.banidos.banir(empresaId, dto, usuario.id);
+  }
+
+  @Post('liberar')
+  @HttpCode(200)
+  @RequerPermissao('produto_banido.editar')
+  liberarVarios(@EmpresaAtual() empresaId: string, @Body() dto: LiberarBanidosDto, @UsuarioAtual() usuario: UsuarioRequisicao) {
+    return this.banidos.liberarVarios(empresaId, dto.codigos, usuario.id);
   }
 
   @Delete(':codigo')

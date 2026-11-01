@@ -47,6 +47,14 @@ export class BanidosService {
     return { incluidos: count, jaBanidos: codigos.length - count };
   }
 
+  /** Libera vários de uma vez; o que já não estava banido é ignorado. */
+  async liberarVarios(empresaId: string, codigos: string[], autorId: string) {
+    const lista = [...new Set(codigos.map(normalizarCodigoBarras).filter(Boolean))];
+    const { count } = await this.prisma.produtoBanido.deleteMany({ where: { empresaId, codigoBarras: { in: lista } } });
+    if (count > 0) await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'produto_banido.excluir', entidade: 'ProdutoBanido', detalhes: { liberados: count, codigos: lista.slice(0, 100) } });
+    return { liberados: count };
+  }
+
   async liberar(empresaId: string, codigo: string, autorId: string) {
     const codigoBarras = normalizarCodigoBarras(codigo);
     const { count } = await this.prisma.produtoBanido.deleteMany({ where: { empresaId, codigoBarras } });

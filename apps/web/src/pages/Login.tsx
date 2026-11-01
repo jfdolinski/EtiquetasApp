@@ -1,4 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Link } from 'react-router';
+import { api } from '../api';
 import { useAuth } from '../auth';
 import { Alerta, Botao, Campo } from '../components/ui';
 
@@ -6,15 +8,25 @@ export function Login() {
   const { entrar } = useAuth();
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [codigo, setCodigo] = useState('');
+  const [precisaCodigo, setPrecisaCodigo] = useState(false);
+  const [esqueciSenha, setEsqueciSenha] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+
+  useEffect(() => {
+    api<{ esqueciSenha: boolean }>('/auth/opcoes')
+      .then((o) => setEsqueciSenha(o.esqueciSenha))
+      .catch(() => undefined);
+  }, []);
 
   async function enviar(e: FormEvent) {
     e.preventDefault();
     setErro(null);
     setEnviando(true);
     try {
-      await entrar(email, senha);
+      const entrou = await entrar(email, senha, precisaCodigo ? codigo : undefined);
+      if (!entrou) setPrecisaCodigo(true);
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Não foi possível entrar.');
     } finally {
@@ -27,14 +39,25 @@ export function Login() {
       <form onSubmit={enviar} className="w-full max-w-sm space-y-4 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         <div>
           <h1 className="text-xl font-semibold text-blue-700">Etiquetas</h1>
-          <p className="text-sm text-slate-500">Entre com seu e-mail e senha.</p>
+          <p className="text-sm text-slate-500">{precisaCodigo ? 'Digite o código do seu aplicativo autenticador.' : 'Entre com seu e-mail e senha.'}</p>
         </div>
         {erro && <Alerta>{erro}</Alerta>}
-        <Campo rotulo="E-mail" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
-        <Campo rotulo="Senha" type="password" autoComplete="current-password" required value={senha} onChange={(e) => setSenha(e.target.value)} />
+        {precisaCodigo ? (
+          <Campo rotulo="Código" autoComplete="one-time-code" autoFocus required value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="6 dígitos ou código de recuperação" />
+        ) : (
+          <>
+            <Campo rotulo="E-mail" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Campo rotulo="Senha" type="password" autoComplete="current-password" required value={senha} onChange={(e) => setSenha(e.target.value)} />
+          </>
+        )}
         <Botao type="submit" className="w-full" disabled={enviando}>
           {enviando ? 'Entrando…' : 'Entrar'}
         </Botao>
+        {esqueciSenha && !precisaCodigo && (
+          <p className="text-center text-sm">
+            <Link to="/esqueci-senha" className="text-blue-700 hover:underline">Esqueci minha senha</Link>
+          </p>
+        )}
       </form>
     </div>
   );

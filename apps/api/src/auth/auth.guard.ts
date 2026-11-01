@@ -9,7 +9,11 @@ import type { RequisicaoAutenticada } from './usuario-requisicao';
 
 export interface PayloadToken {
   sub: string;
+  /** Sessão: encerrada ela, o token deixa de valer. */
+  sid?: string;
 }
+
+const INTERVALO_ULTIMO_USO_MS = 5 * 60_000;
 
 /**
  * Valida o JWT e recarrega o usuário do banco a cada requisição, para que desativação,
@@ -39,6 +43,8 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException('Sessão expirada ou inválida.');
     }
 
+    if (payload.sid) await this.conferirSessao(payload.sid, payload.sub);
+
     const usuario = await this.prisma.usuario.findUnique({
       where: { id: payload.sub },
       select: {
@@ -62,7 +68,16 @@ export class AuthGuard implements CanActivate {
       empresaId: usuario.empresaId,
       superAdmin: usuario.superAdmin,
       permissoes: usuario.perfil?.permissoes.map((p) => p.permissaoCodigo) ?? [],
+      sessaoId: payload.sid,
     };
     return true;
+  }
+
+  private async conferirSessao(id: string, usuarioId: string) {
+    const sessao = await this.prisma.sessaoUsuario.findUnique({ where: { id }, select: { usuarioId: true, encerradaEm: true, ultimoUsoEm: true } });
+    if (!sessao || sessao.encerradaEm || sessao.usuarioId !== usuarioId) throw new UnauthorizedException('Sessão encerrada. Entre novamente.');
+    if (Date.now() - sessao.ultimoUsoEm.getTime() > INTERVALO_ULTIMO_USO_MS) {
+      void this.prisma.sessaoUsuario.update({ where: { id }, data: { ultimoUsoEm: new Date() } }).catch(() => undefined);
+    }
   }
 }
