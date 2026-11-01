@@ -1,3 +1,4 @@
+import type { EmailService } from '../email/email.service';
 import { PARAMETROS_COBRANCA_PADRAO } from '@etiquetas/shared';
 import type { AuditoriaService } from '../auditoria/auditoria.service';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -27,6 +28,7 @@ function montar(empresa: Record<string, unknown>, ultimoAviso: Date | null = nul
     prisma as unknown as PrismaService,
     auditoria as unknown as AuditoriaService,
     mensagens as unknown as MensagensCobrancaService,
+    { enderecosComPermissao: jest.fn(async () => []), enviar: jest.fn(async () => false) } as unknown as EmailService,
   );
   return { servico, prisma, auditoria };
 }

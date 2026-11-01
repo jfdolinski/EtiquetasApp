@@ -135,6 +135,7 @@ export class ContaService {
       if (count === 0) throw new BadRequestException('Este link já foi usado ou expirou. Peça um novo.');
       await tx.usuario.update({ where: { id: pedido.usuarioId }, data: { senhaHash } });
       await tx.sessaoUsuario.updateMany({ where: { usuarioId: pedido.usuarioId, encerradaEm: null }, data: { encerradaEm: agora } });
+      await tx.dispositivoMovel.updateMany({ where: { usuarioId: pedido.usuarioId, revogadoEm: null }, data: { revogadoEm: agora, pushToken: null } });
       await this.auditoria.registrar({ empresaId: pedido.usuario.empresaId, usuarioId: pedido.usuarioId, acao: 'auth.redefinir_senha', entidade: 'Usuario', entidadeId: pedido.usuarioId }, tx);
     });
   }

@@ -1,3 +1,5 @@
+import type { DispositivosService } from '../app-movel/app-movel.module';
+import type { EmailService } from '../email/email.service';
 import type { AgentesGateway } from '../agentes/agentes.gateway';
 import type { AuditoriaService } from '../auditoria/auditoria.service';
 import { completarDias, inicioDoPeriodo } from '../painel/painel.service';
@@ -23,7 +25,7 @@ function montar(opcoes: { abertas?: Aberta[]; regra?: Record<string, unknown>; u
   const entregas: { agente: string; dados: { id: string } }[] = [];
   const prisma = {
     regraNotificacao: {
-      findMany: jest.fn(async () => [{ evento: 'sem_etiquetas', ativo: true, limite: 24, canalAgente: true, canalSistema: true, repetirMinutos: 60, agenteIds: [], ...opcoes.regra }]),
+      findMany: jest.fn(async () => [{ evento: 'sem_etiquetas', ativo: true, limite: 24, canalAgente: true, canalSistema: true, canalEmail: false, canalCelular: false, repetirMinutos: 60, agenteIds: [], ...opcoes.regra }]),
     },
     janelaNotificacao: { findUnique: jest.fn(async () => null) },
     notificacao: {
@@ -41,8 +43,10 @@ function montar(opcoes: { abertas?: Aberta[]; regra?: Record<string, unknown>; u
     estaOnline: (id: string) => online.has(id),
     sessao: (agente: string) => ({ requisitar: jest.fn(async (_t: string, dados: { id: string }) => (entregas.push({ agente, dados }), {})) }),
   };
-  const servico = new NotificacoesService(prisma as unknown as PrismaService, { registrar: jest.fn() } as unknown as AuditoriaService, gateway as unknown as AgentesGateway);
-  return { servico, prisma, criadas, entregas };
+  const email = { disponivel: true, enderecosComPermissao: jest.fn(async () => ['ana@x.com']), enviar: jest.fn(async () => true) };
+  const dispositivos = { avisarEmpresa: jest.fn(async () => 1) };
+  const servico = new NotificacoesService(prisma as unknown as PrismaService, { registrar: jest.fn() } as unknown as AuditoriaService, gateway as unknown as AgentesGateway, email as unknown as EmailService, dispositivos as unknown as DispositivosService);
+  return { servico, prisma, criadas, entregas, email, dispositivos };
 }
 
 const aberta = (extra: Record<string, unknown> = {}): Aberta => ({
@@ -134,5 +138,30 @@ describe('períodos do painel', () => {
       { dia: '2026-11-01', etiquetas: 5 },
       { dia: '2026-11-02', etiquetas: 0 },
     ]);
+  });
+});
+
+describe('canais de celular e e-mail', () => {
+  const agora = new Date('2026-11-02T14:00:00Z');
+
+  it('problema novo vai para o celular e para o e-mail quando a regra pede', async () => {
+    const { servico, email, dispositivos } = montar({ regra: { canalCelular: true, canalEmail: true } });
+    await servico.avaliarEmpresa(EMPRESA, agora);
+    expect(dispositivos.avisarEmpresa).toHaveBeenCalledWith(EMPRESA, expect.objectContaining({ titulo: 'Sem gerar etiquetas' }));
+    expect(email.enviar).toHaveBeenCalledWith(['ana@x.com'], expect.stringContaining('Sem gerar etiquetas'), expect.any(String));
+  });
+
+  it('com os canais desligados, nada sai por eles', async () => {
+    const { servico, email, dispositivos } = montar();
+    await servico.avaliarEmpresa(EMPRESA, agora);
+    expect(dispositivos.avisarEmpresa).not.toHaveBeenCalled();
+    expect(email.enviar).not.toHaveBeenCalled();
+  });
+
+  it('celular fora do ar não impede o e-mail', async () => {
+    const { servico, email, dispositivos } = montar({ regra: { canalCelular: true, canalEmail: true } });
+    dispositivos.avisarEmpresa.mockRejectedValueOnce(new Error('Firebase fora'));
+    await servico.avaliarEmpresa(EMPRESA, agora);
+    expect(email.enviar).toHaveBeenCalled();
   });
 });

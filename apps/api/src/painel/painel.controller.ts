@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { PERIODOS_PAINEL } from '@etiquetas/shared';
-import { ApenasSuperAdmin, EmpresaAtual, RequerPermissao } from '../auth/decorators';
+import { ApenasSuperAdmin, EmpresaAtual, PermitidoNoApp, RequerPermissao } from '../auth/decorators';
 import { PainelService } from './painel.service';
 
 function periodo(valor: string | undefined): number {
@@ -13,6 +13,7 @@ export class PainelController {
   constructor(private readonly painel: PainelService) {}
 
   @Get()
+  @PermitidoNoApp()
   @RequerPermissao('painel.ver')
   empresa(@EmpresaAtual() empresaId: string, @Query('dias') dias?: string) {
     return this.painel.empresa(empresaId, periodo(dias));

@@ -53,6 +53,7 @@ model Empresa {
   regrasNotificacao  RegraNotificacao[]
   janelaNotificacao  JanelaNotificacao?
   notificacoes       Notificacao[]
+  dispositivos DispositivoMovel[]
 
   @@map("empresas")
 }
@@ -88,6 +89,8 @@ model Usuario {
   pagamentos   PagamentoAssinatura[]
   agendamentos AgendamentoModelo[]
   sessoes      SessaoUsuario[]
+  dispositivos DispositivoMovel[]
+  vinculosApp  CodigoVinculoApp[]
   redefinicoes RedefinicaoSenha[]
 
   @@index([empresaId])
@@ -110,6 +113,63 @@ model SessaoUsuario {
   @@index([usuarioId, encerradaEm])
   @@index([expiraEm])
   @@map("sessoes_usuario")
+}
+
+/// Celular vinculado a um usuário pelo QR code de Minha conta. Só o hash do token fica guardado.
+model DispositivoMovel {
+  id          String    @id @default(uuid()) @db.Uuid
+  usuarioId   String    @map("usuario_id") @db.Uuid
+  /// Empresa em que o app opera: a do usuário ou a selecionada pelo super-admin ao gerar o QR.
+  empresaId   String    @map("empresa_id") @db.Uuid
+  nome        String
+  plataforma  String
+  versaoApp   String?   @map("versao_app")
+  tokenHash   String    @unique @map("token_hash")
+  /// Token do Firebase para avisos com o app fechado.
+  pushToken   String?   @map("push_token")
+  criadoEm    DateTime  @default(now()) @map("criado_em")
+  ultimoUsoEm DateTime  @default(now()) @map("ultimo_uso_em")
+  revogadoEm  DateTime? @map("revogado_em")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, revogadoEm])
+  @@index([empresaId, revogadoEm])
+  @@index([pushToken])
+  @@map("dispositivos_moveis")
+}
+
+/// Código de uso único mostrado no QR, válido por poucos minutos.
+model CodigoVinculoApp {
+  id         String    @id @default(uuid()) @db.Uuid
+  usuarioId  String    @map("usuario_id") @db.Uuid
+  empresaId  String    @map("empresa_id") @db.Uuid
+  codigoHash String    @unique @map("codigo_hash")
+  expiraEm   DateTime  @map("expira_em")
+  usadoEm    DateTime? @map("usado_em")
+  criadoEm   DateTime  @default(now()) @map("criado_em")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, usadoEm])
+  @@index([expiraEm])
+  @@map("codigos_vinculo_app")
+}
+
+/// Erro inesperado (500) da API, para a tela Saúde. Nunca guarda corpo nem query da requisição.
+model ErroSistema {
+  id        String   @id @default(uuid()) @db.Uuid
+  metodo    String
+  rota      String
+  mensagem  String
+  pilha     String?
+  empresaId String?  @map("empresa_id") @db.Uuid
+  usuarioId String?  @map("usuario_id") @db.Uuid
+  criadoEm  DateTime @default(now()) @map("criado_em")
+
+  @@index([criadoEm])
+  @@map("erros_sistema")
 }
 
 /// Pedido de "esqueci minha senha": só o hash do token fica guardado.
@@ -428,6 +488,8 @@ model TrabalhoImpressao {
   origem              OrigemTrabalho
   quantidadeEtiquetas Int                 @map("quantidade_etiquetas")
   conteudo            Bytes
+  /// Preenchido quando a faxina apagou os bytes: o histórico continua, o reenvio não.
+  conteudoApagadoEm   DateTime?           @map("conteudo_apagado_em")
   /// Códigos dos produtos do trabalho, para reconferir o banimento ao reenviar (os bytes não dizem).
   codigosProdutos     String[]            @default([]) @map("codigos_produtos")
   status              StatusTrabalho      @default(PENDENTE)
@@ -693,6 +755,8 @@ model RegraNotificacao {
   limite         Int      @default(0)
   canalAgente    Boolean  @default(true) @map("canal_agente")
   canalSistema   Boolean  @default(true) @map("canal_sistema")
+  canalEmail     Boolean  @default(false) @map("canal_email")
+  canalCelular   Boolean  @default(false) @map("canal_celular")
   repetirMinutos Int      @default(0) @map("repetir_minutos")
   /// Ids dos agentes que recebem o balão; vazio = todos.
   agenteIds      Json     @default("[]") @map("agente_ids")
@@ -729,6 +793,8 @@ model Notificacao {
   nivel           String
   canalAgente     Boolean   @map("canal_agente")
   canalSistema    Boolean   @map("canal_sistema")
+  canalEmail      Boolean   @default(false) @map("canal_email")
+  canalCelular    Boolean   @default(false) @map("canal_celular")
   /// Agentes que devem receber (vazio = todos) e os que confirmaram o último envio.
   agenteIds       Json      @default("[]") @map("agente_ids")
   entregueAgentes Json      @default("[]") @map("entregue_agentes")

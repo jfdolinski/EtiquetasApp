@@ -101,6 +101,10 @@ export interface RegraNotificacaoDados {
   canalAgente: boolean;
   /** Central de notificações do sistema (sino). */
   canalSistema: boolean;
+  /** E-mail para quem pode ver as notificações (exige SMTP configurado). */
+  canalEmail: boolean;
+  /** Aviso no celular vinculado de quem pode ver as notificações. */
+  canalCelular: boolean;
   /** Repete enquanto o problema continuar; 0 = avisa uma vez. */
   repetirMinutos: number;
   /** Agentes que recebem o balão; vazio = todos. */
@@ -120,6 +124,9 @@ export const JANELA_PADRAO: JanelaNotificacao = { horaInicio: '08:00', horaFim: 
 export interface ConfiguracaoNotificacoes {
   janela: JanelaNotificacao;
   regras: RegraNotificacaoDados[];
+  /** O servidor consegue enviar e-mail e push? Sem isso os canais ficam indisponíveis na tela. */
+  emailDisponivel?: boolean;
+  pushDisponivel?: boolean;
 }
 
 export interface NotificacaoResumo {
@@ -146,13 +153,19 @@ export interface TesteNotificacaoResposta {
   entregues: number;
   /** Online, mas numa versão que não conhece notificações. */
   desatualizados: number;
+  /** Celulares que o Firebase aceitou avisar. */
+  celulares: number;
+  emailEnviado: boolean;
+  /** O que está configurado no servidor para os canais opcionais. */
+  emailDisponivel: boolean;
+  pushDisponivel: boolean;
 }
 
 /** Regra salva por cima do padrão do evento: as que nunca foram salvas ficam desligadas. */
 export function regrasComPadrao(salvas: readonly RegraNotificacaoDados[]): RegraNotificacaoDados[] {
   return EVENTOS_NOTIFICACAO.map((e) => {
     const salva = salvas.find((r) => r.evento === e.codigo);
-    return salva ?? { evento: e.codigo, ativo: false, limite: e.limitePadrao, canalAgente: true, canalSistema: true, repetirMinutos: e.repetirPadrao, agenteIds: [] };
+    return salva ?? { evento: e.codigo, ativo: false, limite: e.limitePadrao, canalAgente: true, canalSistema: true, canalEmail: false, canalCelular: false, repetirMinutos: e.repetirPadrao, agenteIds: [] };
   });
 }
 

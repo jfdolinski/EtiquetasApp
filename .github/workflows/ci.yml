@@ -4,7 +4,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, melhorias-e-app]
   pull_request:
 
 permissions:
@@ -39,6 +39,22 @@ jobs:
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U etiquetas" --health-interval 5s --health-timeout 5s --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: etiquetas
+          MYSQL_DATABASE: etiquetas
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -petiquetas" --health-interval 5s --health-timeout 5s --health-retries 30
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: Etiquetas-123
+        ports: ['1433:1433']
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P Etiquetas-123 -Q 'SELECT 1'" --health-interval 10s --health-timeout 10s --health-retries 30
     defaults:
       run:
         working-directory: apps/agent
@@ -54,11 +70,49 @@ jobs:
       - run: go test ./...
         env:
           AGENTE_TESTE_PG: localhost:5432:etiquetas:etiquetas:etiquetas
+          AGENTE_TESTE_MYSQL: 127.0.0.1:3306:root:etiquetas:etiquetas
+          AGENTE_TESTE_MSSQL: 127.0.0.1:1433:sa:Etiquetas-123:master
+      - name: Bancos de verdade realmente rodaram (sem Skip)
+        run: go test ./internal/banco -run 'TestMySQLReal|TestSQLServerReal|TestPostgresReal' -v | tee /dev/stderr | grep -c -- '--- PASS' | grep -qx 3
+        env:
+          AGENTE_TESTE_PG: localhost:5432:etiquetas:etiquetas:etiquetas
+          AGENTE_TESTE_MYSQL: 127.0.0.1:3306:root:etiquetas:etiquetas
+          AGENTE_TESTE_MSSQL: 127.0.0.1:1433:sa:Etiquetas-123:master
+
+  e2e:
+    name: Telas e API de ponta a ponta
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: etiquetas
+          POSTGRES_PASSWORD: etiquetas
+          POSTGRES_DB: etiquetas_e2e
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U etiquetas" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      E2E_DATABASE_URL: postgresql://etiquetas:etiquetas@localhost:5432/etiquetas_e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @etiquetas/e2e exec playwright install --with-deps chromium
+      - run: pnpm --filter @etiquetas/e2e e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-resultados
+          path: apps/e2e/test-results
 
   docker:
     name: Imagens Docker
     runs-on: ubuntu-latest
-    needs: [node, agente]
+    needs: [node, agente, e2e]
     steps:
       - uses: actions/checkout@v4
       - name: Build da API

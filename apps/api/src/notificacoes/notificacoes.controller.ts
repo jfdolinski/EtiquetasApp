@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
-import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
+import { EmpresaAtual, PermitidoNoApp, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { SalvarNotificacoesDto } from './dto';
 import { NotificacoesService } from './notificacoes.service';
@@ -9,18 +9,21 @@ export class NotificacoesController {
   constructor(private readonly notificacoes: NotificacoesService) {}
 
   @Get()
+  @PermitidoNoApp()
   @RequerPermissao('notificacao.ver')
   listar(@EmpresaAtual() empresaId: string) {
     return this.notificacoes.listar(empresaId);
   }
 
   @Get('nao-lidas')
+  @PermitidoNoApp()
   @RequerPermissao('notificacao.ver')
   naoLidas(@EmpresaAtual() empresaId: string) {
     return this.notificacoes.naoLidas(empresaId);
   }
 
   @Post('lidas')
+  @PermitidoNoApp()
   @HttpCode(204)
   @RequerPermissao('notificacao.ver')
   async marcarTodas(@EmpresaAtual() empresaId: string) {
@@ -28,6 +31,7 @@ export class NotificacoesController {
   }
 
   @Post(':id/lida')
+  @PermitidoNoApp()
   @HttpCode(204)
   @RequerPermissao('notificacao.ver')
   async marcar(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string) {

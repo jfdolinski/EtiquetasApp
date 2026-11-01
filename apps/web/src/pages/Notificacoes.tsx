@@ -135,6 +135,8 @@ function Regras({ podeEditar }: { podeEditar: boolean }) {
     setJanela({ ...janela, ...parte });
   };
   const agentes = data?.agentes ?? [];
+  const emailDisponivel = data?.emailDisponivel ?? false;
+  const pushDisponivel = data?.pushDisponivel ?? false;
   const t = testar.data;
 
   return (
@@ -222,6 +224,14 @@ function Regras({ podeEditar }: { podeEditar: boolean }) {
                       <input type="checkbox" checked={r.canalSistema} onChange={(x) => mudar(e.codigo, { canalSistema: x.target.checked })} />
                       Sino aqui no sistema
                     </label>
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" checked={r.canalCelular} onChange={(x) => mudar(e.codigo, { canalCelular: x.target.checked })} />
+                      Aviso no celular{!pushDisponivel && <span className="text-xs text-slate-500">(falta configurar no servidor: só aparece com o app aberto)</span>}
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" disabled={!emailDisponivel} checked={r.canalEmail} onChange={(x) => mudar(e.codigo, { canalEmail: x.target.checked })} />
+                      E-mail{!emailDisponivel && <span className="text-xs text-slate-500">(falta configurar no servidor)</span>}
+                    </label>
                   </div>
                   {r.canalAgente && agentes.length > 1 && (
                     <div className="text-xs text-slate-600">
@@ -260,11 +270,13 @@ function Regras({ podeEditar }: { podeEditar: boolean }) {
             ? 'Nenhum agente ativado nesta empresa.'
             : `${t.online} de ${t.agentes} agente(s) online, ${t.entregues} recebeu(ram) o teste.` + (t.desatualizados ? ` ${t.desatualizados} precisa(m) atualizar o agente para receber notificações.` : '')}
           {t.entregues > 0 && ' O balão só aparece se o ícone do agente estiver aberto no computador.'}
+          {t.celulares > 0 && ` Avisamos ${t.celulares} celular(es).`}
+          {t.emailEnviado && ' Mandamos um e-mail de teste para você.'}
         </Alerta>
       )}
       {podeEditar && (
         <div className="sticky bottom-0 flex flex-wrap justify-end gap-2 rounded-lg border border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
-          <Botao variante="secundario" disabled={testar.isPending} onClick={() => testar.mutate()}>{testar.isPending ? 'Enviando…' : 'Enviar teste aos agentes'}</Botao>
+          <Botao variante="secundario" disabled={testar.isPending} onClick={() => testar.mutate()}>{testar.isPending ? 'Enviando…' : 'Enviar teste'}</Botao>
           <Botao disabled={salvar.isPending} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : 'Salvar'}</Botao>
         </div>
       )}

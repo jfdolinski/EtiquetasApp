@@ -18,6 +18,11 @@ export interface Config {
   smtp: { host: string; porta: number; usuario: string; senha: string; remetente: string } | null;
   /** Endereço público do site, para links em e-mails. */
   urlPublica: string | null;
+  /** Conta de serviço do Firebase, para avisos com o app fechado. */
+  fcm: { projeto: string; email: string; chavePrivada: string } | null;
+  /** Dias até apagar os bytes dos trabalhos de impressão terminados. */
+  retencaoConteudoDias: number;
+  retencaoAuditoriaDias: number;
 }
 
 let cache: Config | null = null;
@@ -46,7 +51,22 @@ export function config(): Config {
     throw new Error(`FUSO_HORARIO inválido: ${fusoHorario}`);
   }
 
-  const { SUPERADMIN_EMAIL, SUPERADMIN_SENHA, SMTP_HOST } = process.env;
+  const { SUPERADMIN_EMAIL, SUPERADMIN_SENHA, SMTP_HOST, FCM_CONTA_SERVICO } = process.env;
+
+  let fcm: Config['fcm'] = null;
+  if (FCM_CONTA_SERVICO) {
+    try {
+      const conta = JSON.parse(Buffer.from(FCM_CONTA_SERVICO, 'base64').toString('utf8')) as { project_id: string; client_email: string; private_key: string };
+      fcm = { projeto: conta.project_id, email: conta.client_email, chavePrivada: conta.private_key };
+    } catch {
+      throw new Error('FCM_CONTA_SERVICO inválida (JSON da conta de serviço em base64).');
+    }
+    if (!fcm.projeto || !fcm.email || !fcm.chavePrivada) throw new Error('FCM_CONTA_SERVICO incompleta: faltam project_id, client_email ou private_key.');
+  }
+  const diasDe = (valor: string | undefined, padrao: number) => {
+    const n = Number(valor);
+    return Number.isInteger(n) && n >= 1 ? n : padrao;
+  };
 
   cache = {
     porta: Number(process.env.PORTA ?? 3000),
@@ -74,6 +94,9 @@ export function config(): Config {
         }
       : null,
     urlPublica: process.env.URL_PUBLICA?.replace(/\/+$/, '') || null,
+    fcm,
+    retencaoConteudoDias: diasDe(process.env.RETENCAO_CONTEUDO_DIAS, 90),
+    retencaoAuditoriaDias: diasDe(process.env.RETENCAO_AUDITORIA_DIAS, 730),
   };
   return cache;
 }

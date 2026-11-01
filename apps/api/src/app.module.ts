@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AgentesModule } from './agentes/agentes.module';
+import { AppMovelModule, DispositivosModule } from './app-movel/app-movel.module';
 import { AuditoriaModule } from './auditoria/auditoria.module';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthModule } from './auth/auth.module';
@@ -19,6 +20,7 @@ import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { PainelModule } from './painel/painel.module';
 import { PerfisModule } from './perfis/perfis.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { SistemaModule } from './sistema/sistema.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 
 @Module({
@@ -27,6 +29,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     PrismaModule,
     AuditoriaModule,
     EmailModule,
+    DispositivosModule,
     AuthModule,
     EmpresasModule,
     UsuariosModule,
@@ -40,6 +43,8 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     CobrancaModule,
     NotificacoesModule,
     PainelModule,
+    AppMovelModule,
+    SistemaModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -1,10 +1,11 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { MensagensCobrancaService } from '../cobranca/mensagens-cobranca.service';
 import { empresaBloqueada } from './acesso-empresa';
-import { CHAVE_PUBLICO } from './decorators';
+import { CHAVE_APP, CHAVE_PUBLICO } from './decorators';
 import type { RequisicaoAutenticada } from './usuario-requisicao';
 
 export interface PayloadToken {
@@ -14,6 +15,7 @@ export interface PayloadToken {
 }
 
 const INTERVALO_ULTIMO_USO_MS = 5 * 60_000;
+const PREFIXO_TOKEN_APP = 'app_';
 
 /**
  * Valida o JWT e recarrega o usuário do banco a cada requisição, para que desativação,
@@ -37,13 +39,22 @@ export class AuthGuard implements CanActivate {
     if (tipo !== 'Bearer' || !token) throw new UnauthorizedException('Token ausente.');
 
     let payload: PayloadToken;
-    try {
-      payload = await this.jwt.verifyAsync<PayloadToken>(token);
-    } catch {
-      throw new UnauthorizedException('Sessão expirada ou inválida.');
+    let dispositivoId: string | undefined;
+    if (token.startsWith(PREFIXO_TOKEN_APP)) {
+      if (!this.reflector.getAllAndOverride<boolean>(CHAVE_APP, [ctx.getHandler(), ctx.getClass()])) {
+        throw new ForbiddenException('Esta função não está disponível no aplicativo.');
+      }
+      const dispositivo = await this.conferirDispositivo(token);
+      payload = { sub: dispositivo.usuarioId };
+      dispositivoId = dispositivo.id;
+    } else {
+      try {
+        payload = await this.jwt.verifyAsync<PayloadToken>(token);
+      } catch {
+        throw new UnauthorizedException('Sessão expirada ou inválida.');
+      }
+      if (payload.sid) await this.conferirSessao(payload.sid, payload.sub);
     }
-
-    if (payload.sid) await this.conferirSessao(payload.sid, payload.sub);
 
     const usuario = await this.prisma.usuario.findUnique({
       where: { id: payload.sub },
@@ -69,8 +80,19 @@ export class AuthGuard implements CanActivate {
       superAdmin: usuario.superAdmin,
       permissoes: usuario.perfil?.permissoes.map((p) => p.permissaoCodigo) ?? [],
       sessaoId: payload.sid,
+      dispositivoId,
     };
     return true;
+  }
+
+  private async conferirDispositivo(token: string) {
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const d = await this.prisma.dispositivoMovel.findUnique({ where: { tokenHash }, select: { id: true, usuarioId: true, revogadoEm: true, ultimoUsoEm: true } });
+    if (!d || d.revogadoEm) throw new UnauthorizedException('Este celular foi desvinculado. Vincule de novo em Minha conta.');
+    if (Date.now() - d.ultimoUsoEm.getTime() > INTERVALO_ULTIMO_USO_MS) {
+      void this.prisma.dispositivoMovel.update({ where: { id: d.id }, data: { ultimoUsoEm: new Date() } }).catch(() => undefined);
+    }
+    return d;
   }
 
   private async conferirSessao(id: string, usuarioId: string) {

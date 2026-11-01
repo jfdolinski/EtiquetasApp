@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
+import { EmpresaAtual, PermitidoNoApp, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { AgendamentosService } from './agendamentos.service';
 import { AtualizarAgendamentoDto, AtualizarItemDto, BuscarAvulsaDto, CriarAgendamentoDto, DescartarItensDto, ImprimirAvulsaDto, ImprimirListaDto } from './dto';
@@ -15,12 +15,14 @@ export class ListasController {
   constructor(private readonly listas: ListasService) {}
 
   @Get('hoje')
+  @PermitidoNoApp()
   @RequerPermissao('imprimir')
   async hoje(@EmpresaAtual() empresaId: string) {
     return { lista: await this.listas.deHoje(empresaId) };
   }
 
   @Post('hoje/gerar')
+  @PermitidoNoApp()
   @HttpCode(200)
   @RequerPermissao('imprimir')
   gerar(@EmpresaAtual() empresaId: string, @UsuarioAtual() usuario: UsuarioRequisicao) {
@@ -89,6 +91,7 @@ export class TrabalhosController {
 
   /** Histórico; com `ids=a,b` devolve só esses (acompanhamento após imprimir). */
   @Get()
+  @PermitidoNoApp()
   @RequerPermissao('imprimir')
   listar(@EmpresaAtual() empresaId: string, @Query('ids') ids?: string, @Query('limite') limite?: string) {
     if (ids) return this.trabalhos.situacao(empresaId, ids.split(',').filter((i) => /^[0-9a-f-]{36}$/i.test(i)));

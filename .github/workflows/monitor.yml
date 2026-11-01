@@ -1,0 +1,32 @@
+# Vigia de fora: se o servidor cair, ele não consegue avisar sozinho. Este job roda no GitHub a
+# cada 15 minutos e falha quando o site não responde; o GitHub manda e-mail de execução com falha.
+# O horário do GitHub pode atrasar alguns minutos, e ele desliga agendamentos depois de 60 dias
+# sem commits: nesse caso, reative em Actions > Monitor.
+name: Monitor
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  site:
+    name: Site e API no ar
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      URL: ${{ vars.URL_MONITOR || 'https://etiquetas-saas-web.b6nhiy.easypanel.host' }}
+    steps:
+      - name: Confere a API e o banco
+        # Três tentativas: um deploy derruba a API por alguns instantes e não é motivo para alarme.
+        run: |
+          for i in 1 2 3; do
+            if curl -fsS --max-time 20 "$URL/api/health" | grep -q '"banco":"ok"'; then echo "API ok"; exit 0; fi
+            sleep 60
+          done
+          echo "::error::$URL/api/health não respondeu com o banco ok em 3 tentativas"
+          exit 1
+      - name: Confere o site
+        run: curl -fsS --max-time 20 -o /dev/null "$URL/"

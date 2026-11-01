@@ -31,6 +31,7 @@ export const PERMISSOES = [
   { codigo: 'painel.ver', grupo: 'Painel', descricao: 'Ver o painel técnico e o uso por usuário na página Início' },
   { codigo: 'notificacao.ver', grupo: 'Notificações', descricao: 'Ver as notificações da empresa' },
   { codigo: 'notificacao.editar', grupo: 'Notificações', descricao: 'Escolher o que e como notificar' },
+  { codigo: 'app.aprovar', grupo: 'Aplicativo', descricao: 'Aprovar e descartar a lista do dia pelo celular (também exige Imprimir etiquetas)' },
 ] as const;
 
 export type CodigoPermissao = (typeof PERMISSOES)[number]['codigo'];

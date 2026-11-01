@@ -5,7 +5,7 @@ import { EmailService } from '../email/email.service';
 import { config } from '../config';
 import { AuthService } from './auth.service';
 import { ContaService } from './conta.service';
-import { Publico, UsuarioAtual } from './decorators';
+import { PermitidoNoApp, Publico, UsuarioAtual } from './decorators';
 import { CodigoDto, DesativarDoisFatoresDto, EsqueciSenhaDto, LoginDto, RedefinirSenhaDto, SenhaDto, TrocarSenhaDto } from './dto';
 import type { UsuarioRequisicao } from './usuario-requisicao';
 
@@ -49,6 +49,7 @@ export class AuthController {
   }
 
   @Get('me')
+  @PermitidoNoApp()
   me(@UsuarioAtual() usuario: UsuarioRequisicao) {
     return this.auth.usuarioLogado(usuario.id);
   }

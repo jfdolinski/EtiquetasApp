@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, GoneException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   codigosDoRegistro,
@@ -166,9 +166,10 @@ export class TrabalhosService {
   async conteudo(empresaId: string, id: string) {
     const t = await this.prisma.trabalhoImpressao.findFirst({
       where: { id, empresaId },
-      select: { conteudo: true, linguagem: true, modeloNome: true, criadoEm: true },
+      select: { conteudo: true, conteudoApagadoEm: true, linguagem: true, modeloNome: true, criadoEm: true },
     });
     if (!t) throw new NotFoundException('Trabalho não encontrado.');
+    if (t.conteudoApagadoEm) throw new GoneException('O conteúdo deste trabalho já foi apagado por ser antigo. Imprima de novo.');
     return t;
   }
 
@@ -177,6 +178,7 @@ export class TrabalhosService {
     const t = await this.buscar(empresaId, id);
     if (t.linguagem === 'PDF') throw new BadRequestException('Trabalhos em PDF são impressos pelo navegador: baixe o arquivo.');
     if (t.status !== 'ERRO' && t.status !== 'CANCELADO') throw new BadRequestException('Só trabalhos com erro ou cancelados podem ser reenviados.');
+    if (t.conteudoApagadoEm) throw new BadRequestException('O conteúdo deste trabalho já foi apagado por ser antigo. Imprima de novo.');
     const banidos = await this.banidos.conjunto(empresaId);
     const nele = t.codigosProdutos.filter((c) => banidos.has(c));
     if (nele.length) throw new BadRequestException(`Este trabalho tem produto banido depois de gerado (${nele.slice(0, 5).join(', ')}). Cancele e imprima de novo.`);
@@ -208,7 +210,7 @@ export class TrabalhosService {
   }
 
   private async buscar(empresaId: string, id: string) {
-    const t = await this.prisma.trabalhoImpressao.findFirst({ where: { id, empresaId }, select: { id: true, status: true, linguagem: true, codigosProdutos: true } });
+    const t = await this.prisma.trabalhoImpressao.findFirst({ where: { id, empresaId }, select: { id: true, status: true, linguagem: true, codigosProdutos: true, conteudoApagadoEm: true } });
     if (!t) throw new NotFoundException('Trabalho não encontrado.');
     return t;
   }

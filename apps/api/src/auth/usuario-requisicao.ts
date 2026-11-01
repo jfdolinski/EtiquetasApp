@@ -8,6 +8,8 @@ export interface UsuarioRequisicao {
   permissoes: string[];
   /** Sessão do navegador; token antigo, sem sessão, fica sem. */
   sessaoId?: string;
+  /** Preenchido quando a requisição veio do aplicativo de celular. */
+  dispositivoId?: string;
 }
 
 export interface RequisicaoAutenticada extends Request {

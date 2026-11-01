@@ -18,6 +18,8 @@ import {
   type TesteNotificacaoResposta,
 } from '@etiquetas/shared';
 import { AgentesGateway } from '../agentes/agentes.gateway';
+import { DispositivosService } from '../app-movel/app-movel.module';
+import { EmailService } from '../email/email.service';
 import type { DadosNotificar } from '../agentes/protocolo';
 import { empresaBloqueada } from '../auth/acesso-empresa';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -63,6 +65,8 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
     private readonly gateway: AgentesGateway,
+    private readonly email: EmailService,
+    private readonly dispositivos: DispositivosService,
   ) {}
 
   onApplicationBootstrap() {
@@ -86,7 +90,7 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
       this.janela(empresaId),
       this.prisma.agente.findMany({ where: { empresaId, ativo: true }, select: { id: true, nome: true }, orderBy: { nome: 'asc' } }),
     ]);
-    return { janela, regras: regrasComPadrao(regras), agentes };
+    return { janela, regras: regrasComPadrao(regras), agentes, emailDisponivel: this.email.disponivel, pushDisponivel: config().fcm !== null };
   }
 
   async salvar(empresaId: string, dto: SalvarNotificacoesDto, autorId: string) {
@@ -94,15 +98,16 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
     const validos = new Set(agentes.map((a) => a.id));
     for (const r of dto.regras) {
       const evento = EVENTOS_NOTIFICACAO.find((e) => e.codigo === r.evento)!;
-      if (r.ativo && !r.canalAgente && !r.canalSistema) throw new BadRequestException(`${evento.titulo}: escolha ao menos um jeito de avisar.`);
+      if (r.ativo && !r.canalAgente && !r.canalSistema && !r.canalEmail && !r.canalCelular) throw new BadRequestException(`${evento.titulo}: escolha ao menos um jeito de avisar.`);
       if (evento.unidade && r.limite < 1) throw new BadRequestException(`${evento.titulo}: informe o limite em ${evento.unidade}.`);
+      if (r.ativo && r.canalEmail && !this.email.disponivel) throw new BadRequestException(`${evento.titulo}: o envio de e-mail não está configurado no servidor.`);
       if (r.agenteIds.some((id) => !validos.has(id))) throw new BadRequestException(`${evento.titulo}: agente não encontrado.`);
     }
     const janela = { horaInicio: dto.janela.horaInicio, horaFim: dto.janela.horaFim, diasSemana: [...new Set(dto.janela.diasSemana)].sort() };
     await this.prisma.$transaction(async (tx) => {
       await tx.janelaNotificacao.upsert({ where: { empresaId }, create: { empresaId, ...janela }, update: janela });
       for (const r of dto.regras) {
-        const dados = { ativo: r.ativo, limite: r.limite, canalAgente: r.canalAgente, canalSistema: r.canalSistema, repetirMinutos: r.repetirMinutos, agenteIds: r.agenteIds };
+        const dados = { ativo: r.ativo, limite: r.limite, canalAgente: r.canalAgente, canalSistema: r.canalSistema, canalEmail: r.canalEmail ?? false, canalCelular: r.canalCelular ?? false, repetirMinutos: r.repetirMinutos, agenteIds: r.agenteIds };
         await tx.regraNotificacao.upsert({ where: { empresaId_evento: { empresaId, evento: r.evento } }, create: { empresaId, evento: r.evento, ...dados }, update: dados });
       }
       await this.auditoria.registrar(
@@ -162,7 +167,19 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
     const online = agentes.filter((a) => this.gateway.estaOnline(a.id));
     const r = await Promise.all(online.map((a) => this.entregar(a.id, dados)));
     await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'notificacao.testar', entidade: 'RegraNotificacao', detalhes: { online: online.length } });
-    return { agentes: agentes.length, online: online.length, entregues: r.filter((x) => x === 'ok').length, desatualizados: r.filter((x) => x === 'desatualizado').length };
+    const celulares = await this.dispositivos.avisarEmpresa(empresaId, { titulo: dados.titulo, mensagem: 'Se este aviso apareceu, as notificações estão chegando a este celular.' });
+    const autor = await this.prisma.usuario.findUnique({ where: { id: autorId }, select: { email: true } });
+    const emailEnviado = autor ? await this.email.enviar(autor.email, dados.titulo, 'Se este e-mail chegou, os avisos por e-mail do sistema de etiquetas estão funcionando.') : false;
+    return {
+      agentes: agentes.length,
+      online: online.length,
+      entregues: r.filter((x) => x === 'ok').length,
+      desatualizados: r.filter((x) => x === 'desatualizado').length,
+      celulares,
+      emailEnviado,
+      emailDisponivel: this.email.disponivel,
+      pushDisponivel: config().fcm !== null,
+    };
   }
 
   // ---- Avaliação ----
@@ -208,15 +225,15 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
         if (!pode) continue;
         if (!aberta) {
           const nova = await this.prisma.notificacao.create({
-            data: { empresaId, evento: regra.evento, chave: o.chave, titulo: o.titulo, mensagem: o.mensagem, nivel: evento.nivel, canalAgente: regra.canalAgente, canalSistema: regra.canalSistema, agenteIds: regra.agenteIds, ultimoEnvioEm: agora },
+            data: { empresaId, evento: regra.evento, chave: o.chave, titulo: o.titulo, mensagem: o.mensagem, nivel: evento.nivel, canalAgente: regra.canalAgente, canalSistema: regra.canalSistema, canalEmail: regra.canalEmail, canalCelular: regra.canalCelular, agenteIds: regra.agenteIds, ultimoEnvioEm: agora },
           });
-          await this.enviarAosAgentes(nova);
+          await this.enviarAosCanais(nova);
         } else if (deveRepetir(regra.repetirMinutos, aberta.ultimoEnvioEm, agora)) {
           const repetida = await this.prisma.notificacao.update({
             where: { id: aberta.id },
-            data: { titulo: o.titulo, mensagem: o.mensagem, vezes: { increment: 1 }, ultimoEnvioEm: agora, entregueAgentes: [], lidaEm: null, canalAgente: regra.canalAgente, canalSistema: regra.canalSistema, agenteIds: regra.agenteIds },
+            data: { titulo: o.titulo, mensagem: o.mensagem, vezes: { increment: 1 }, ultimoEnvioEm: agora, entregueAgentes: [], lidaEm: null, canalAgente: regra.canalAgente, canalSistema: regra.canalSistema, canalEmail: regra.canalEmail, canalCelular: regra.canalCelular, agenteIds: regra.agenteIds },
           });
-          await this.enviarAosAgentes(repetida);
+          await this.enviarAosCanais(repetida);
         }
       }
     }
@@ -315,7 +332,19 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
     }
   }
 
-  private async enviarAosAgentes(n: { id: string; empresaId: string; chave: string; agenteIds: unknown; canalAgente: boolean; vezes: number; titulo: string; mensagem: string; nivel: string; ultimoEnvioEm: Date }) {
+  /** Um canal fora do ar não atrapalha os outros nem a avaliação das regras seguintes. */
+  private async enviarAosCanais(n: Parameters<NotificacoesService['enviarAosAgentes']>[0] & { canalEmail: boolean; canalCelular: boolean }) {
+    await this.enviarAosAgentes(n).catch((e) => this.log.warn(`Envio aos agentes: ${(e as Error).message}`));
+    if (n.canalCelular) {
+      await this.dispositivos.avisarEmpresa(n.empresaId, { titulo: n.titulo, mensagem: n.mensagem, tela: n.evento === 'lista_pendente' ? 'lista' : 'avisos' }).catch((e) => this.log.warn(`Envio aos celulares: ${(e as Error).message}`));
+    }
+    if (n.canalEmail) {
+      const enderecos = await this.email.enderecosComPermissao(n.empresaId, 'notificacao.ver');
+      await this.email.enviar(enderecos, `${n.titulo} - Etiquetas`, n.mensagem);
+    }
+  }
+
+  private async enviarAosAgentes(n: { id: string; empresaId: string; evento: string; chave: string; agenteIds: unknown; canalAgente: boolean; vezes: number; titulo: string; mensagem: string; nivel: string; ultimoEnvioEm: Date }) {
     if (!n.canalAgente) return;
     const agentes = await this.prisma.agente.findMany({ where: { empresaId: n.empresaId, ativo: true, tokenHash: { not: null } }, select: { id: true } });
     const alvos = agentes.filter((a) => this.gateway.estaOnline(a.id) && this.paraEsteAgente(n, a.id));
@@ -347,7 +376,7 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
 
   private async regrasSalvas(empresaId: string): Promise<RegraNotificacaoDados[]> {
     const regras = await this.prisma.regraNotificacao.findMany({ where: { empresaId } });
-    return regras.map((r) => ({ evento: r.evento as EventoNotificacao, ativo: r.ativo, limite: r.limite, canalAgente: r.canalAgente, canalSistema: r.canalSistema, repetirMinutos: r.repetirMinutos, agenteIds: comoLista(r.agenteIds) }));
+    return regras.map((r) => ({ evento: r.evento as EventoNotificacao, ativo: r.ativo, limite: r.limite, canalAgente: r.canalAgente, canalSistema: r.canalSistema, canalEmail: r.canalEmail, canalCelular: r.canalCelular, repetirMinutos: r.repetirMinutos, agenteIds: comoLista(r.agenteIds) }));
   }
 
   private async janela(empresaId: string): Promise<JanelaNotificacao> {

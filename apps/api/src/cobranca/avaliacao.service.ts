@@ -7,6 +7,7 @@ import {
   renderizarMensagem,
   type ExecucaoAvaliacaoResumo,
 } from '@etiquetas/shared';
+import { EmailService } from '../email/email.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { config } from '../config';
 import { agoraNoFuso } from '../consultas/consultas.service';
@@ -41,6 +42,7 @@ export class AvaliacaoCobrancaService implements OnApplicationBootstrap, OnModul
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
     private readonly mensagens: MensagensCobrancaService,
+    private readonly email: EmailService,
   ) {}
 
   onApplicationBootstrap() {
@@ -158,20 +160,19 @@ export class AvaliacaoCobrancaService implements OnApplicationBootstrap, OnModul
       });
       const ultimoDia = ultimo ? agoraNoFuso(ultimo.criadoEm, config().fusoHorario).data : null;
       if (!ultimoDia || diasEntre(ultimoDia, hoje) >= efetivos.frequenciaAvisoDias) {
-        await this.prisma.avisoCobranca.create({
-          data: {
-            empresaId,
-            tipo,
-            vencimento: empresa.assinatura.vencimentoAtual,
-            mensagem: renderizarMensagem(modelo, {
-              empresa: empresa.nomeFantasia || empresa.razaoSocial,
-              valor: Number(empresa.assinatura.valorMensal),
-              vencimento,
-              avaliacao,
-            }),
-          },
+        const mensagem = renderizarMensagem(modelo, {
+          empresa: empresa.nomeFantasia || empresa.razaoSocial,
+          valor: Number(empresa.assinatura.valorMensal),
+          vencimento,
+          avaliacao,
         });
+        await this.prisma.avisoCobranca.create({ data: { empresaId, tipo, vencimento: empresa.assinatura.vencimentoAtual, mensagem } });
         r.aviso = true;
+        // Sem SMTP o aviso continua só no sistema; e-mail falhar não interrompe a avaliação.
+        void this.email
+          .enderecosComPermissao(empresaId, 'empresa.ver')
+          .then((enderecos) => this.email.enviar(enderecos, 'Aviso sobre a assinatura - Etiquetas', mensagem))
+          .catch(() => undefined);
       }
     }
     return r;

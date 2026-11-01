@@ -97,3 +97,43 @@ export interface PerfilResumo {
   permissoes: CodigoPermissao[];
   totalUsuarios: number;
 }
+
+export interface CodigoVinculoResposta {
+  /** Só existe nesta resposta: no banco fica o hash. */
+  codigo: string;
+  expiraEm: string;
+}
+
+export interface VincularAppResposta {
+  token: string;
+  /** Empresa em que o app opera (enviada em X-Empresa-Id quando o usuário é super-admin). */
+  empresaId: string;
+  usuario: UsuarioLogado;
+}
+
+export interface DispositivoResumo {
+  id: string;
+  nome: string;
+  plataforma: 'ANDROID' | 'IOS';
+  versaoApp: string | null;
+  recebeAvisos: boolean;
+  criadoEm: string;
+  ultimoUsoEm: string;
+  atual: boolean;
+}
+
+export interface SaudeSistema {
+  agora: string;
+  noArHaSegundos: number;
+  memoriaMb: number;
+  bancoBytes: number;
+  tabelas: { nome: string; bytes: number }[];
+  erros24h: number;
+  erros: { id: string; metodo: string; rota: string; mensagem: string; criadoEm: string }[];
+  filaImpressao: number;
+  agentes: { ativados: number; online: number };
+  emailConfigurado: boolean;
+  pushConfigurado: boolean;
+  retencao: { conteudoDias: number; auditoriaDias: number };
+  ultimaFaxina: { em: string; conteudos: number; auditoria: number; listas: number; erro?: string } | null;
+}

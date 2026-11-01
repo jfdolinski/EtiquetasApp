@@ -18,6 +18,6 @@ import { InicializacaoService } from './inicializacao.service';
   controllers: [AuthController],
   providers: [AuthService, ContaService, InicializacaoService],
   // JwtModule é exportado para o AuthGuard global (registrado no AppModule).
-  exports: [JwtModule],
+  exports: [JwtModule, AuthService],
 })
 export class AuthModule {}

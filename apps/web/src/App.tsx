@@ -26,6 +26,7 @@ import { Login } from './pages/Login';
 import { MinhaConta } from './pages/MinhaConta';
 import { Notificacoes } from './pages/Notificacoes';
 import { Perfis } from './pages/Perfis';
+import { Saude } from './pages/Saude';
 import { Usuarios } from './pages/Usuarios';
 
 // Konva e bwip-js são pesados: o editor só é baixado quando aberto.
@@ -62,6 +63,7 @@ export function App() {
         <Route path="erps" element={<Protegida superAdmin><Erps /></Protegida>} />
         <Route path="erps/:id" element={<Protegida superAdmin><EditorErp /></Protegida>} />
         <Route path="cobranca" element={<Protegida superAdmin><Cobranca /></Protegida>} />
+        <Route path="saude" element={<Protegida superAdmin><Saude /></Protegida>} />
         <Route path="assinatura" element={<Protegida permissao="empresa.ver"><Assinatura /></Protegida>} />
         <Route path="usuarios" element={<Protegida permissao="usuario.ver"><Usuarios /></Protegida>} />
         <Route path="perfis" element={<Protegida permissao="perfil.ver"><Perfis /></Protegida>} />

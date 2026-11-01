@@ -6,12 +6,16 @@ import type { RequisicaoAutenticada, UsuarioRequisicao } from './usuario-requisi
 export const CHAVE_PUBLICO = 'publico';
 export const CHAVE_PERMISSOES = 'permissoes';
 export const CHAVE_SUPER_ADMIN = 'apenasSuperAdmin';
+export const CHAVE_APP = 'permitidoNoApp';
 
 /** Rota acessível sem token. */
 export const Publico = () => SetMetadata(CHAVE_PUBLICO, true);
 
 /** Exige todas as permissões informadas (super-admin passa sempre). */
 export const RequerPermissao = (...codigos: CodigoPermissao[]) => SetMetadata(CHAVE_PERMISSOES, codigos);
+
+/** Token de celular só entra em rota marcada: perder o celular não entrega o sistema inteiro. */
+export const PermitidoNoApp = () => SetMetadata(CHAVE_APP, true);
 
 /** Rota da plataforma, restrita ao super-admin. */
 export const ApenasSuperAdmin = () => SetMetadata(CHAVE_SUPER_ADMIN, true);

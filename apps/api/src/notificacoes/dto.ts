@@ -1,6 +1,6 @@
 import { CODIGOS_EVENTO, type EventoNotificacao } from '@etiquetas/shared';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsUUID, Matches, Max, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsUUID, Matches, Max, Min, ValidateNested } from 'class-validator';
 
 const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -36,6 +36,14 @@ export class RegraDto {
 
   @IsBoolean()
   canalSistema: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  canalEmail?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  canalCelular?: boolean;
 
   @IsInt({ message: 'Repetição inválida.' })
   @Min(0)

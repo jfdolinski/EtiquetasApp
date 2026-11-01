@@ -3,7 +3,7 @@ import { deveRepetir, dentroDaJanela, diaDaSemana, EVENTOS_NOTIFICACAO, horaVali
 
 describe('notificações', () => {
   it('regras nunca salvas ficam desligadas; a salva prevalece', () => {
-    const regras = regrasComPadrao([{ evento: 'fila_parada', ativo: true, limite: 3, canalAgente: false, canalSistema: true, repetirMinutos: 0, agenteIds: [] }]);
+    const regras = regrasComPadrao([{ evento: 'fila_parada', ativo: true, limite: 3, canalAgente: false, canalSistema: true, canalEmail: false, canalCelular: false, repetirMinutos: 0, agenteIds: [] }]);
     expect(regras).toHaveLength(EVENTOS_NOTIFICACAO.length);
     expect(regras.filter((r) => r.ativo).map((r) => r.evento)).toEqual(['fila_parada']);
     expect(regras.find((r) => r.evento === 'fila_parada')?.limite).toBe(3);
