@@ -142,3 +142,47 @@ Cada conexão usa uma conta de serviço do Google, com acesso somente de leitura
 3. Na conta, abra **Chaves > Adicionar chave > JSON** e baixe o arquivo.
 4. No sistema, em **Conexões de dados > Nova conexão > Google Drive**, informe o link da pasta e envie o arquivo JSON. A chave fica criptografada.
 5. No Drive, compartilhe a pasta com o e-mail da conta de serviço (`...@....iam.gserviceaccount.com`) como **Leitor**.
+
+## Variáveis opcionais da API
+
+| Variável | Para quê |
+|---|---|
+| `SMTP_HOST`, `SMTP_PORTA`, `SMTP_USUARIO`, `SMTP_SENHA`, `SMTP_REMETENTE` | Envio de e-mail: senha esquecida, avisos de cobrança e notificações |
+| `URL_PUBLICA` | Endereço do site nos links dos e-mails. Sem ele não há "Esqueci minha senha" |
+| `FCM_CONTA_SERVICO` | Avisos no celular com o app fechado: JSON da conta de serviço do Firebase, em base64 |
+| `RETENCAO_CONTEUDO_DIAS`, `RETENCAO_AUDITORIA_DIAS` | Faxina diária; padrão 90 e 730 dias |
+
+A tela **Saúde do sistema** (super-admin) mostra o que está configurado.
+
+## Backup: conferir de verdade
+
+Backup que nunca foi restaurado é só uma esperança. Pelo menos uma vez, e a cada mudança grande:
+
+1. Confira em **Postgres > Backups** se há backup diário e a data do último.
+2. Restaure o último num banco separado: crie um serviço Postgres de teste e rode `pg_restore --no-owner -d <url-do-banco-de-teste> <arquivo>`.
+3. Confira: `SELECT count(*) FROM empresas;` e `SELECT max(criado_em) FROM trabalhos_impressao;`.
+4. Apague o serviço de teste.
+
+Guarde `CHAVE_CRIPTOGRAFIA` fora do servidor: o backup sem ela não decifra as senhas das conexões.
+
+## Monitor de servidor fora do ar
+
+O workflow **Monitor** confere o site a cada 15 minutos e, se falhar, o GitHub manda e-mail para o dono do repositório. Para outro endereço, crie a variável `URL_MONITOR` no repositório. Confira em GitHub > Settings > Notifications se "Actions" está ligado. O GitHub desliga agendamentos após 60 dias sem commits; reative em Actions > Monitor.
+
+## Assinar as atualizações do agente
+
+Hoje quem invadir o servidor consegue distribuir um agente falso, que roda como SYSTEM nos clientes. Com a assinatura, a chave fica fora do servidor.
+
+1. Gere as chaves, guardando o arquivo fora do repositório:
+   ```bash
+   cd apps/agent && go run ./cmd/assinar-versao gerar-chaves <caminho-fora-do-repositorio>/agente-chave.txt
+   ```
+2. No GitHub, em Settings > Secrets and variables > Actions, crie o segredo `AGENTE_CHAVE_PRIVADA` (conteúdo do arquivo) e as variáveis `AGENTE_CHAVE_PUBLICA` (mostrada pelo comando) e `SERVIDOR_PUBLICO` (endereço do site).
+3. Rode Actions > **Agente assinado** > Run workflow. Anote a versão criada.
+4. No Easypanel, no serviço web, em Build Args, adicione `AGENTE_RELEASE=<versão>` e faça o deploy.
+
+Depois disso, cada versão nova do agente repete os passos 3 e 4. **Sem `AGENTE_RELEASE`, o build volta a compilar sem assinatura, e os agentes já assinados recusam a atualização** com aviso na Atividade recente (seguem funcionando na versão atual). Perder a chave privada obriga a reinstalar os agentes.
+
+## Aplicativo de celular
+
+Ver [apps/mobile/README.md](../apps/mobile/README.md). O instalador é baixado no build do serviço web, a partir da versão em `apps/mobile/release-publicada.txt`.

@@ -8,3 +8,10 @@
 docs
 # O agente é compilado na imagem do web; os binários locais não entram.
 apps/agent/bin
+# O aplicativo de celular não entra nas imagens: o instalador vem do GitHub.
+apps/mobile/node_modules
+apps/mobile/dist
+apps/mobile/android
+apps/mobile/ios
+apps/mobile/src
+apps/mobile/assets

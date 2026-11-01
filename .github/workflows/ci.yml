@@ -101,8 +101,17 @@ jobs:
           node-version: 22
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      - name: Build web do aplicativo
+        working-directory: apps/mobile
+        run: |
+          npm ci
+          npm test
+          npm run typecheck
+          npx expo export -p web
       - run: pnpm --filter @etiquetas/e2e exec playwright install --with-deps chromium
       - run: pnpm --filter @etiquetas/e2e e2e
+        env:
+          E2E_APP_URL: http://localhost:8099
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

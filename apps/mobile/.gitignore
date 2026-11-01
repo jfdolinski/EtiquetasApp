@@ -1,0 +1,11 @@
+node_modules/
+.expo/
+dist/
+# Gerados por `expo prebuild` no CI.
+android/
+ios/
+# Nunca no repositório, que é público.
+google-services.json
+*.jks
+*.p12
+*.keystore

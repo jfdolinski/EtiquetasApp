@@ -40,13 +40,26 @@ RUN set -e; \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$flags" -o /downloads/etiquetas-agente-linux-amd64 ./cmd/etiquetas-agente; \
     cd /downloads && sha256sum etiquetas-agente.exe etiquetas-agente-linux-amd64 > SHA256SUMS.txt && echo "$v" > versao.txt
 
+# Aplicativo de celular: o instalador é gerado pelo workflow "Aplicativo" e publicado como Release do
+# GitHub; apps/mobile/release-publicada.txt diz qual versão servir. Vazio, ou Release fora do ar: o site sobe sem ele.
+FROM alpine:3.20 AS app
+ARG AGENTE_REPOSITORIO="jfdolinski/EtiquetasApp"
+COPY apps/mobile/release-publicada.txt /tmp/release.txt
+RUN set -e; \
+    mkdir -p /downloads; \
+    v="$(tr -d ' \r\n' < /tmp/release.txt)"; \
+    if [ -n "$v" ]; then \
+      base="https://github.com/$AGENTE_REPOSITORIO/releases/download/app-$v"; \
+      wget -q -O /tmp/etiquetas-app.apk "$base/etiquetas-app.apk" && wget -q -O /tmp/app-versao.txt "$base/app-versao.txt" && mv /tmp/etiquetas-app.apk /tmp/app-versao.txt /downloads/ \
+        || echo "AVISO: não foi possível baixar o aplicativo $v"; \
+    fi
+
 FROM nginx:1.27-alpine
 # O nginx substitui ${API_UPSTREAM} ao iniciar (apenas variáveis definidas no ambiente).
 ENV API_UPSTREAM=http://api:3000
 COPY apps/web/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=web /repo/apps/web/dist /usr/share/nginx/html
 COPY --from=agente /downloads /usr/share/nginx/html/downloads
-# Aplicativo de celular (instalador gerado à parte, ver apps/mobile/README.md).
-COPY apps/mobile/distribuicao/ /usr/share/nginx/html/downloads/
+COPY --from=app /downloads /usr/share/nginx/html/downloads
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD wget -qO- http://127.0.0.1/ >/dev/null || exit 1

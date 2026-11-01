@@ -1,0 +1,107 @@
+# Gera o APK do aplicativo. Só compila: quem o coloca no ar é apps/mobile/release-publicada.txt.
+# - Sem o segredo APP_KEYSTORE_BASE64, o APK é de TESTE: assinado com a chave pública de depuração.
+# - Com ele, é o de produção. A mesma chave é obrigatória em todas as versões (docs/DEPLOY.md).
+# Também instala o APK num emulador Android e confere que ele abre sem travar.
+name: Aplicativo
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, melhorias-e-app]
+    paths: ['apps/mobile/**', '.github/workflows/aplicativo.yml']
+
+permissions:
+  contents: write
+
+env:
+  # Sem a Release, ninguém baixa: comitar a versão em release-publicada.txt é o que publica.
+  VERSION_CODE: ${{ github.run_number }}
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+
+      - name: Firebase (opcional)
+        env:
+          GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES" ]; then echo "$GOOGLE_SERVICES" | base64 -d > google-services.json; else echo "::notice::Sem GOOGLE_SERVICES_JSON_BASE64: o APK não recebe avisos com o app fechado."; fi
+
+      - name: Gera o projeto Android
+        env:
+          APP_VERSION_CODE: ${{ env.VERSION_CODE }}
+        run: npx expo prebuild -p android --no-install
+
+      - name: Compila
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64
+
+      - name: Assina
+        env:
+          KEYSTORE: ${{ secrets.APP_KEYSTORE_BASE64 }}
+          SENHA: ${{ secrets.APP_KEYSTORE_SENHA }}
+        run: |
+          set -e
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          mkdir -p saida
+          if [ -n "$KEYSTORE" ]; then
+            echo "$KEYSTORE" | base64 -d > /tmp/chave.p12
+            bt="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+            "$bt/apksigner" sign --ks /tmp/chave.p12 --ks-type PKCS12 --ks-pass env:SENHA --out saida/etiquetas-app.apk "$apk"
+            rm -f /tmp/chave.p12
+            "$bt/apksigner" verify --print-certs saida/etiquetas-app.apk | head -3
+            echo "PRERELEASE=" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Sem APP_KEYSTORE_BASE64: APK de TESTE, assinado com a chave de depuração."
+            cp "$apk" saida/etiquetas-app.apk
+            echo "PRERELEASE=--prerelease" >> "$GITHUB_ENV"
+          fi
+          node -p "require('./package.json').version" > saida/app-versao.txt
+          echo "VERSAO=$(cat saida/app-versao.txt)" >> "$GITHUB_ENV"
+          echo "TAMANHO=$(du -m saida/etiquetas-app.apk | cut -f1)" >> "$GITHUB_ENV"
+          (cd saida && sha256sum etiquetas-app.apk > etiquetas-app.apk.sha256)
+
+      - name: Habilita o emulador
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Abre no emulador
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          working-directory: apps/mobile
+          script: bash scripts/conferir-no-emulador.sh saida/etiquetas-app.apk
+
+      - name: Publica como Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="app-$VERSAO-$VERSION_CODE"
+          gh release create "$tag" saida/* --target "$GITHUB_SHA" $PRERELEASE --title "Aplicativo $VERSAO ($VERSION_CODE)" \
+            --notes "APK de $TAMANHO MB. Para colocar no ar, grave \"$VERSAO-$VERSION_CODE\" em apps/mobile/release-publicada.txt."
+          echo "::notice title=Release::$tag"

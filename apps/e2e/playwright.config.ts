@@ -16,6 +16,8 @@ const ambienteApi = {
   // Um proxy: cada teste informa um IP próprio e o limite de logins por minuto não interfere.
   PROXIES_CONFIAVEIS: '1',
   PORTA: '3000',
+  // Build web do aplicativo, servido em outra porta nos testes de tela do celular.
+  CORS_ORIGEM: 'http://localhost:8099',
 };
 
 export default defineConfig({
@@ -41,5 +43,6 @@ export default defineConfig({
       timeout: 180_000,
       reuseExistingServer: !process.env.CI,
     },
+    ...(process.env.E2E_APP_URL ? [{ command: 'node servir-app.mjs', url: 'http://localhost:8099', reuseExistingServer: !process.env.CI }] : []),
   ],
 });
