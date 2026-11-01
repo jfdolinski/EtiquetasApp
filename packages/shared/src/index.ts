@@ -12,3 +12,4 @@ export * from './placeholders';
 export * from './permissoes';
 export * from './tipos';
 export * from './planilhas';
+export * from './banidos';

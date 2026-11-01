@@ -38,6 +38,7 @@ model Empresa {
   agentes            Agente[]
   conexoes           ConexaoBanco[]
   consultas          ConsultaSql[]
+  produtosBanidos    ProdutoBanido[]
   modelos            ModeloEtiqueta[]
   impressoras        Impressora[]
   listas             ListaDiaria[]
@@ -597,4 +598,19 @@ model AgendamentoModelo {
   @@index([empresaId])
   @@index([ativo, proximaExecucaoEm])
   @@map("agendamentos")
+}
+
+/// Código de barras que não sai em etiqueta. Chave: empresa + código normalizado (normalizarCodigoBarras).
+model ProdutoBanido {
+  empresaId    String   @map("empresa_id") @db.Uuid
+  codigoBarras String   @map("codigo_barras")
+  motivo       String?
+  /// Nome de quem baniu, como estava na hora.
+  criadoPor    String?  @map("criado_por")
+  criadoEm     DateTime @default(now()) @map("criado_em")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@id([empresaId, codigoBarras])
+  @@map("produtos_banidos")
 }

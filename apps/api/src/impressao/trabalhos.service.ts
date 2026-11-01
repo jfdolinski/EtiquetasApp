@@ -1,7 +1,18 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { LayoutEtiqueta, LinguagemImpressora, OrigemTrabalho, Registro, TrabalhoResumo } from '@etiquetas/shared';
+import {
+  limitesPorFolha,
+  lotesDeEtiquetas,
+  problemaNasFolhas,
+  registroBanido,
+  type LayoutEtiqueta,
+  type LinguagemImpressora,
+  type OrigemTrabalho,
+  type Registro,
+  type TrabalhoResumo,
+} from '@etiquetas/shared';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { BanidosService } from '../banidos/banidos.service';
 import { config } from '../config';
 import { agoraNoFuso } from '../consultas/consultas.service';
 import { gerarSaida } from '../modelos/modelos.service';
@@ -55,11 +66,13 @@ export class TrabalhosService {
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
     private readonly despacho: DespachoService,
+    private readonly banidos: BanidosService,
   ) {}
 
   /**
    * Gera o conteúdo na linguagem da impressora e grava os trabalhos (fila durável).
    * PDF não passa pelo agente: fica concluído e é baixado/impresso pelo navegador.
+   * Toda impressão passa por aqui: produto banido sai fora e o mínimo/máximo por folha vale.
    */
   async criar(empresaId: string, usuarioId: string, grupo: GrupoImpressao): Promise<{ trabalhos: TrabalhoResumo[]; avisos: string[] }> {
     const hoje = agoraNoFuso(new Date(), config().fusoHorario).data;
@@ -67,9 +80,22 @@ export class TrabalhosService {
     const avisos: string[] = [];
     const ehPdf = grupo.impressora.linguagem === 'PDF';
 
-    for (let i = 0; i < grupo.registros.length; i += ETIQUETAS_POR_TRABALHO) {
-      const lote = grupo.registros.slice(i, i + ETIQUETAS_POR_TRABALHO);
-      const saida = await gerarSaida(grupo.modelo.layout, lote, grupo.impressora.linguagem, grupo.impressora.dpi, hoje, i);
+    const banidos = await this.banidos.conjunto(empresaId);
+    const registros = grupo.registros.filter((r) => !registroBanido(r, banidos));
+    if (registros.length < grupo.registros.length) {
+      avisos.push(`${grupo.modelo.nome}: ${grupo.registros.length - registros.length} etiqueta(s) de produto banido ficaram de fora.`);
+    }
+    if (registros.length === 0) return { trabalhos, avisos };
+    const limites = limitesPorFolha(grupo.modelo.layout);
+    const problema = problemaNasFolhas(registros.length, limites);
+    if (problema) throw new BadRequestException(`${grupo.modelo.nome}: ${problema}`);
+
+    let i = 0;
+    for (const tamanho of lotesDeEtiquetas(registros.length, limites, ETIQUETAS_POR_TRABALHO)) {
+      const inicio = i;
+      i += tamanho;
+      const lote = registros.slice(inicio, i);
+      const saida = await gerarSaida(grupo.modelo.layout, lote, grupo.impressora.linguagem, grupo.impressora.dpi, hoje, inicio);
       avisos.push(...saida.avisos.map((a) => `${grupo.modelo.nome}: ${a}`));
       const agora = new Date();
 
@@ -91,7 +117,7 @@ export class TrabalhosService {
           select: SELECAO_TRABALHO,
         });
         // Os itens ficam ligados ao primeiro lote; os demais lotes do mesmo grupo só levam etiquetas.
-        if (i === 0 && grupo.itemIds.length) {
+        if (inicio === 0 && grupo.itemIds.length) {
           await tx.itemLista.updateMany({
             where: { id: { in: grupo.itemIds }, empresaId },
             data: { trabalhoId: t.id, status: ehPdf ? 'IMPRESSO' : 'NA_FILA', impressoEm: ehPdf ? agora : null },

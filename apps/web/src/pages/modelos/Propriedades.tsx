@@ -19,6 +19,7 @@ import {
   type OrigemValor,
   type Rotacao,
   type Simbologia,
+  paginar,
 } from '@etiquetas/shared';
 import { cssFonte } from './fontes';
 import { lerImagem } from './imagens';
@@ -694,6 +695,15 @@ export function PropriedadesLayout({ layout, aoMudar }: { layout: LayoutEtiqueta
             <Linha rotulo="Altura da folha">
               <Numero valor={layout.papel.alturaMm} aoMudar={(alturaMm) => layout.papel.tipo === 'folha' && aoMudar({ papel: { ...layout.papel, alturaMm } })} />
             </Linha>
+            <Linha rotulo="Mínimo por folha">
+              <Numero valor={layout.minimoPorFolha ?? NaN} min={1} max={paginar(layout).porPagina} passo={1} aoMudar={(v) => aoMudar({ minimoPorFolha: Number.isFinite(v) && v > 0 ? v : undefined })} />
+            </Linha>
+            <Linha rotulo="Máximo por folha">
+              <Numero valor={layout.maximoPorFolha ?? NaN} min={1} max={paginar(layout).porPagina} passo={1} aoMudar={(v) => aoMudar({ maximoPorFolha: Number.isFinite(v) && v > 0 ? v : undefined })} />
+            </Linha>
+            <p className="col-span-2 text-xs text-slate-500">
+              Cabem {paginar(layout).porPagina} etiqueta(s) por folha. Abaixo do mínimo, a impressão não sai: assim nenhuma folha é gasta quase vazia. Em branco, sem limite.
+            </p>
           </>
         )}
         <Linha rotulo="Espaço entre colunas">

@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
 import { AgentesModule } from '../agentes/agentes.module';
+import { BanidosModule } from '../banidos/banidos.module';
 import { ConsultasModule } from '../consultas/consultas.module';
 import { ImpressorasService } from './impressoras.service';
 import { ImpressorasAgenteController, ImpressorasController, ModelosController } from './modelos.controller';
 import { ModelosService } from './modelos.service';
 
 @Module({
-  imports: [ConsultasModule, AgentesModule],
+  imports: [ConsultasModule, AgentesModule, BanidosModule],
   controllers: [ModelosController, ImpressorasController, ImpressorasAgenteController],
   providers: [ModelosService, ImpressorasService],
   exports: [ModelosService, ImpressorasService],

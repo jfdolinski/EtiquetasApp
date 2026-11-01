@@ -5,6 +5,7 @@ import { AgentesModule } from './agentes/agentes.module';
 import { AuditoriaModule } from './auditoria/auditoria.module';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthModule } from './auth/auth.module';
+import { BanidosModule } from './banidos/banidos.module';
 import { CobrancaModule } from './cobranca/cobranca.module';
 import { ConsultasModule } from './consultas/consultas.module';
 import { PermissoesGuard } from './auth/permissoes.guard';
@@ -28,6 +29,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     PerfisModule,
     AgentesModule,
     ConsultasModule,
+    BanidosModule,
     ModelosModule,
     ImpressaoModule,
     ErpsModule,

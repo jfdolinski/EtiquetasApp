@@ -1,5 +1,5 @@
 import { corEscura, FONTE_PADRAO } from './design';
-import { emPaginas, paginar } from './layout';
+import { emPaginas, limitesPorFolha, paginar, tamanhosDasFolhas } from './layout';
 import { dadosCodigoBarras, mmParaPontos, textoDoElemento, type ContextoValor } from './valores';
 import type { ElementoEtiqueta, LayoutEtiqueta, Registro, Rotacao, Simbologia } from './tipos';
 
@@ -59,7 +59,15 @@ export function posicionar(layout: LayoutEtiqueta, registros: Registro[], opcoes
   const p = paginar(layout);
   const pt = (mm: number) => mmParaPontos(mm, opcoes.dpi);
   let indice = opcoes.indiceInicial ?? 0;
-  return emPaginas(registros, p.porPagina).map((registrosPagina) => ({
+  // Mínimo e máximo por folha valem aqui, para todas as linguagens. Quantidade fora dos limites
+  // só chega na pré-visualização (com aviso): a impressão é recusada antes.
+  const limites = limitesPorFolha(layout);
+  const tamanhos = limites && tamanhosDasFolhas(registros.length, limites);
+  let inicio = 0;
+  const paginas = tamanhos
+    ? tamanhos.map((t) => registros.slice(inicio, (inicio += t)))
+    : emPaginas(registros, limites?.maximo ?? p.porPagina);
+  return paginas.map((registrosPagina) => ({
     larguraPontos: pt(p.larguraPaginaMm),
     alturaPontos: pt(p.alturaPaginaMm),
     elementos: registrosPagina.flatMap((registro, posicao) => {

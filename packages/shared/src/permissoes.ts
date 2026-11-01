@@ -25,6 +25,8 @@ export const PERMISSOES = [
   { codigo: 'imprimir', grupo: 'Impressão', descricao: 'Imprimir etiquetas' },
   { codigo: 'agendamento.ver', grupo: 'Agendamentos', descricao: 'Ver agendamentos de modelos' },
   { codigo: 'agendamento.editar', grupo: 'Agendamentos', descricao: 'Criar, editar, executar e excluir agendamentos (inclusive com impressão automática)' },
+  { codigo: 'produto_banido.ver', grupo: 'Produtos banidos', descricao: 'Ver os produtos banidos' },
+  { codigo: 'produto_banido.editar', grupo: 'Produtos banidos', descricao: 'Banir e liberar produtos' },
   { codigo: 'auditoria.ver', grupo: 'Auditoria', descricao: 'Consultar o registro de auditoria da empresa' },
 ] as const;
 

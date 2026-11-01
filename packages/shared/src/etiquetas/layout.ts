@@ -56,6 +56,72 @@ export function emPaginas<T>(itens: T[], porPagina: number): T[][] {
   return paginas;
 }
 
+export interface LimitesFolha {
+  minimo: number;
+  maximo: number;
+}
+
+/** Limites de etiquetas por folha do modelo; null em rolo ou sem limite definido. */
+export function limitesPorFolha(l: LayoutEtiqueta): LimitesFolha | null {
+  if (l?.papel?.tipo !== 'folha' || (l.minimoPorFolha === undefined && l.maximoPorFolha === undefined)) return null;
+  const capacidade = paginar(l).porPagina;
+  return { minimo: l.minimoPorFolha ?? 1, maximo: Math.min(l.maximoPorFolha ?? capacidade, capacidade) };
+}
+
+/**
+ * Quantas etiquetas em cada folha, todas dentro dos limites, usando o menor número de folhas;
+ * null se não existir divisão possível. As folhas saem cheias e a sobra é tirada das últimas:
+ * 25 etiquetas de 8 a 21 por folha viram 17 + 8, não 21 + 4.
+ */
+export function tamanhosDasFolhas(total: number, { minimo, maximo }: LimitesFolha): number[] | null {
+  if (total <= 0) return [];
+  if (minimo > maximo) return null;
+  const folhas = Math.ceil(total / maximo);
+  if (folhas * minimo > total) return null;
+  const tamanhos = Array<number>(folhas).fill(maximo);
+  let sobra = folhas * maximo - total;
+  for (let i = folhas - 1; i >= 0 && sobra > 0; i--) {
+    const tirar = Math.min(sobra, maximo - minimo);
+    tamanhos[i] -= tirar;
+    sobra -= tirar;
+  }
+  return tamanhos;
+}
+
+/** Mensagem se esta quantidade não puder sair dentro dos limites; null se puder. */
+export function problemaNasFolhas(total: number, limites: LimitesFolha | null): string | null {
+  if (!limites || tamanhosDasFolhas(total, limites)) return null;
+  const { minimo, maximo } = limites;
+  const faixa = minimo === maximo ? `exatamente ${minimo}` : `de ${minimo} a ${maximo}`;
+  const folhas = Math.ceil(total / maximo);
+  const acima = folhas * minimo;
+  const abaixo = (folhas - 1) * maximo;
+  return (
+    `${total} etiqueta(s) não fecham ${faixa} por folha: ` +
+    (abaixo > 0 ? `use ${abaixo} ou ${acima}.` : `faltam ${acima - total} para o mínimo.`)
+  );
+}
+
+/** Divide um lote grande em trabalhos sem cortar uma folha ao meio. */
+export function lotesDeEtiquetas(total: number, limites: LimitesFolha | null, porLote: number): number[] {
+  const tamanhos = limites ? tamanhosDasFolhas(total, limites) : null;
+  const lotes: number[] = [];
+  if (!tamanhos) {
+    for (let r = total; r > 0; r -= porLote) lotes.push(Math.min(r, porLote));
+    return lotes;
+  }
+  let atual = 0;
+  for (const t of tamanhos) {
+    if (atual > 0 && atual + t > porLote) {
+      lotes.push(atual);
+      atual = 0;
+    }
+    atual += t;
+  }
+  if (atual > 0) lotes.push(atual);
+  return lotes;
+}
+
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const entre = (v: unknown, min: number, max: number) => num(v) && v >= min && v <= max;
 
@@ -197,6 +263,13 @@ export function validarLayout(l: LayoutEtiqueta): string[] {
       const larguraOcupada = m.esquerda + l.colunas * l.larguraMm + (l.colunas - 1) * l.espacamentoHorizontalMm + m.direita;
       if (larguraOcupada > l.papel.larguraMm + 0.01) erros.push(`As ${l.colunas} colunas não cabem na largura da folha.`);
       if (m.superior + l.alturaMm + m.inferior > l.papel.alturaMm + 0.01) erros.push('A etiqueta não cabe na altura da folha.');
+      const capacidade = paginar(l).porPagina;
+      const minimo = l.minimoPorFolha ?? 1;
+      const maximo = l.maximoPorFolha ?? capacidade;
+      if (!Number.isInteger(minimo) || minimo < 1) erros.push('O mínimo por folha deve ser um número inteiro a partir de 1.');
+      if (!Number.isInteger(maximo) || maximo < 1) erros.push('O máximo por folha deve ser um número inteiro a partir de 1.');
+      if (maximo > capacidade) erros.push(`O máximo por folha é ${capacidade}: é o que cabe nesta folha.`);
+      if (minimo > Math.min(maximo, capacidade)) erros.push('O mínimo por folha não pode passar do máximo.');
     }
   }
   if (!Array.isArray(l.elementos)) return [...erros, 'Lista de elementos ausente.'];

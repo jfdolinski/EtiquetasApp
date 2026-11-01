@@ -215,6 +215,10 @@ export interface LayoutEtiqueta {
   espacamentoVerticalMm: number;
   margens: { superior: number; inferior: number; esquerda: number; direita: number };
   papel: Papel;
+  /** Só em folha: menos que isso numa folha é desperdício, e não sai. Padrão: 1. */
+  minimoPorFolha?: number;
+  /** Só em folha: quantas etiquetas no máximo. Padrão: todas as que couberem. */
+  maximoPorFolha?: number;
   /** Cor de fundo de cada etiqueta (padrão: branco/sem fundo). Só no PDF. */
   corFundo?: Cor | null;
   elementos: ElementoEtiqueta[];

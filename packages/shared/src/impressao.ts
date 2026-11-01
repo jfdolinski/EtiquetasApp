@@ -1,4 +1,5 @@
 import type { LinguagemImpressora, Registro } from './etiquetas/tipos';
+import type { LimitesFolha } from './etiquetas/layout';
 
 /**
  * Lista do dia, etiquetas avulsas e trabalhos de impressão.
@@ -58,6 +59,8 @@ export interface ItemListaResumo {
   impressoraId: string | null;
   chave: string;
   descricao: string;
+  /** Linha da consulta: todas as colunas do modelo. */
+  registro: Registro;
   quantidade: number;
   status: StatusItemLista;
   impressoEm: string | null;
@@ -79,7 +82,13 @@ export interface ListaDiariaResumo {
   erros: ErroLista[];
   itens: ItemListaResumo[];
   /** Nomes para agrupar a tela por impressora → modelo. */
-  modelos: { id: string; nome: string }[];
+  modelos: {
+    id: string;
+    nome: string;
+    folha: LimitesFolha | null;
+    /** Colunas da consulta do modelo, na ordem dela (o banco reordena as chaves de `registro`). */
+    colunas: string[];
+  }[];
   impressoras: { id: string; nome: string; linguagem: LinguagemImpressora }[];
 }
 
@@ -113,10 +122,14 @@ export interface ModeloAvulso {
   parametros: string[];
   /** Campos do modelo: colunas da consulta e campos usados no layout (para incluir linhas à mão). */
   campos: string[];
+  /** Mínimo e máximo de etiquetas por folha do modelo. */
+  folha: LimitesFolha | null;
 }
 
 export interface BuscaAvulsaResposta {
   registros: Registro[];
   /** Colunas para mostrar o resultado. */
   colunas: string[];
+  /** Produtos encontrados que estão banidos e ficaram de fora. */
+  banidos: number;
 }

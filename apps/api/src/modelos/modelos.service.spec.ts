@@ -55,7 +55,7 @@ function montar() {
     impressora: { findFirst: jest.fn(async (_: unknown) => null as unknown) },
   };
   const auditoria = { registrar: jest.fn(async () => undefined) } as unknown as AuditoriaService;
-  return { servico: new ModelosService(prisma as unknown as PrismaService, auditoria, {} as ConsultasService), prisma };
+  return { servico: new ModelosService(prisma as unknown as PrismaService, auditoria, {} as ConsultasService, { conjunto: async () => new Set<string>() } as never), prisma };
 }
 
 describe('ModelosService', () => {

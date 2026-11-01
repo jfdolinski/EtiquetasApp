@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   colunaDeBusca,
   parametrosDaBusca,
+  problemaNasFolhas,
   registrosDoCodigo,
   somarResultados,
   textoCelula,
@@ -118,7 +119,7 @@ function EtiquetaAvulsa() {
     mutationFn: () => api<BuscaAvulsaResposta>('/avulsa/buscar', { metodo: 'POST', corpo: { modeloId: modelo!.id, parametros: valores } }),
     onSuccess: (r) => {
       setEnvio(null);
-      if (r.registros.length === 0) return setAviso('Nenhum produto encontrado.');
+      if (r.registros.length === 0) return setAviso(r.banidos ? 'Este produto está banido: a etiqueta dele não é impressa.' : 'Nenhum produto encontrado.');
       const umSo = r.registros.length === 1;
       if (somar && umSo) {
         // Leitor de código de barras: o mesmo produto de novo soma uma etiqueta.
@@ -164,7 +165,7 @@ function EtiquetaAvulsa() {
         corpo: { modeloId: modelo.id, parametros: parametrosDaBusca(modelo.parametros, valor) },
       });
       const achados = registrosDoCodigo(r.registros, colunaBusca, valor);
-      if (achados.length === 0) setAviso(`Nenhum produto com “${valor}”: preencha os dados à mão, se quiser.`);
+      if (achados.length === 0) setAviso(r.banidos ? `O produto “${valor}” está banido: a etiqueta dele não é impressa.` : `Nenhum produto com “${valor}”: preencha os dados à mão, se quiser.`);
       else if (achados.length === 1) {
         preencherLinha(linhaId, achados[0]);
         setAviso(`Dados de “${valor}” preenchidos pela consulta. Pode editar o que quiser.`);
@@ -307,7 +308,9 @@ function EtiquetaAvulsa() {
                   ? `No máximo ${MAXIMO_LINHAS} linhas por impressão; filtre ou imprima em partes.`
                   : total > MAXIMO_ETIQUETAS
                     ? `No máximo ${MAXIMO_ETIQUETAS.toLocaleString('pt-BR')} etiquetas por vez.`
-                    : null;
+                    : total > 0
+                      ? problemaNasFolhas(total, modelo?.folha ?? null)
+                      : null;
               return (
                 <div className="flex flex-wrap items-end justify-end gap-3 pt-2">
                   {ocultas > 0 && (

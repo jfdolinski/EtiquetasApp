@@ -69,7 +69,7 @@ function montarModelos(opcoes: { nomes?: string[]; porTemplate?: unknown; porNom
     },
   };
   const auditoria = { registrar: jest.fn(async () => undefined) } as unknown as AuditoriaService;
-  return { servico: new ModelosService(prisma as unknown as PrismaService, auditoria, {} as ConsultasService), prisma, criados };
+  return { servico: new ModelosService(prisma as unknown as PrismaService, auditoria, {} as ConsultasService, { conjunto: async () => new Set<string>() } as never), prisma, criados };
 }
 
 describe('importar/copiar modelo', () => {

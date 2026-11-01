@@ -1,6 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { QUANTIDADE_MAXIMA_ITEM, type ImprimirResposta, type ItemListaResumo, type ListaDiariaResumo } from '@etiquetas/shared';
+import {
+  problemaNasFolhas,
+  QUANTIDADE_MAXIMA_ITEM,
+  textoCelula,
+  type ImprimirResposta,
+  type ItemListaResumo,
+  type LimitesFolha,
+  type ListaDiariaResumo,
+} from '@etiquetas/shared';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { ExigeEmpresa } from '../components/ExigeEmpresa';
@@ -20,11 +28,14 @@ interface Grupo {
   impressora: string;
   modelo: string;
   semImpressora: boolean;
+  folha: LimitesFolha | null;
   itens: ItemListaResumo[];
+  /** Todas as colunas que a consulta do modelo trouxe, na ordem dela. */
+  colunas: string[];
 }
 
 function agrupar(lista: ListaDiariaResumo, itens: ItemListaResumo[]): Grupo[] {
-  const nomeModelo = new Map(lista.modelos.map((m) => [m.id, m.nome]));
+  const modelos = new Map(lista.modelos.map((m) => [m.id, m]));
   const impressora = new Map(lista.impressoras.map((i) => [i.id, `${i.nome} (${i.linguagem})`]));
   const grupos = new Map<string, Grupo>();
   for (const item of itens) {
@@ -33,12 +44,16 @@ function agrupar(lista: ListaDiariaResumo, itens: ItemListaResumo[]): Grupo[] {
       grupos.set(chave, {
         chave,
         impressora: item.impressoraId ? (impressora.get(item.impressoraId) ?? 'Impressora excluída') : 'Sem impressora',
-        modelo: nomeModelo.get(item.modeloId) ?? 'Modelo',
+        modelo: modelos.get(item.modeloId)?.nome ?? 'Modelo',
         semImpressora: !item.impressoraId,
+        folha: modelos.get(item.modeloId)?.folha ?? null,
         itens: [],
+        colunas: [...(modelos.get(item.modeloId)?.colunas ?? [])],
       });
     }
-    grupos.get(chave)!.itens.push(item);
+    const grupo = grupos.get(chave)!;
+    grupo.itens.push(item);
+    for (const c of Object.keys(item.registro)) if (!grupo.colunas.includes(c)) grupo.colunas.push(c);
   }
   return [...grupos.values()].sort((a, b) => a.impressora.localeCompare(b.impressora) || a.modelo.localeCompare(b.modelo));
 }
@@ -132,6 +147,8 @@ function ListaDoDia() {
         {grupos.map((g) => {
           const ids = g.itens.map((i) => i.id);
           const todos = ids.every((id) => !desmarcados.has(id));
+          const etiquetasDoGrupo = g.itens.filter((i) => !desmarcados.has(i.id)).reduce((s, i) => s + qtd(i), 0);
+          const problemaFolha = etiquetasDoGrupo > 0 ? problemaNasFolhas(etiquetasDoGrupo, g.folha) : null;
           return (
             <section key={g.chave} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
               <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
@@ -141,7 +158,8 @@ function ListaDoDia() {
                   <span className="font-normal text-slate-500">→ {g.impressora}</span>
                 </label>
                 <span className="text-xs text-slate-500">
-                  {g.itens.filter((i) => !desmarcados.has(i.id)).reduce((s, i) => s + qtd(i), 0)} etiqueta(s)
+                  {etiquetasDoGrupo} etiqueta(s)
+                  {g.folha && ` · ${g.folha.minimo === g.folha.maximo ? g.folha.minimo : `${g.folha.minimo} a ${g.folha.maximo}`} por folha`}
                 </span>
               </header>
               {g.semImpressora && (
@@ -149,18 +167,29 @@ function ListaDoDia() {
                   <Alerta tipo="aviso">Defina a impressora deste modelo (Modelos de etiqueta) para imprimir estes itens.</Alerta>
                 </div>
               )}
+              {problemaFolha && (
+                <div className="px-4 pt-3">
+                  <Alerta tipo="aviso">{problemaFolha} Sem ajuste, este modelo não será enviado.</Alerta>
+                </div>
+              )}
+              <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
+                <thead className="bg-white text-left text-xs text-slate-500">
+                  <tr className="border-b border-slate-200">
+                    <th className="w-10 px-4 py-2" />
+                    <th className="w-28 px-2 py-2 font-medium">Etiquetas</th>
+                    {g.colunas.map((c) => (
+                      <th key={c} className="whitespace-nowrap px-2 py-2 font-medium">{c}</th>
+                    ))}
+                    <th className="w-24 px-4 py-2" />
+                  </tr>
+                </thead>
                 <tbody className="divide-y divide-slate-100">
                   {g.itens.map((i) => (
                     <tr key={i.id} className={desmarcados.has(i.id) ? 'text-slate-400' : ''}>
                       <td className="w-10 px-4 py-2">
                         <input type="checkbox" checked={!desmarcados.has(i.id)} onChange={(e) => alternar([i.id], e.target.checked)} aria-label={`Imprimir ${i.descricao}`} />
                       </td>
-                      <td className="px-2 py-2">
-                        {i.descricao}
-                        {i.trabalhoId && <span className="ml-2"><Selo cor="vermelho">Falhou antes</Selo></span>}
-                      </td>
-                      <td className="px-2 py-2 font-mono text-xs text-slate-500">{i.chave}</td>
                       <td className="w-28 px-2 py-2">
                         <input
                           type="number"
@@ -175,6 +204,12 @@ function ListaDoDia() {
                           aria-label="Quantidade"
                         />
                       </td>
+                      {g.colunas.map((c, n) => (
+                        <td key={c} className="whitespace-nowrap px-2 py-2">
+                          {textoCelula(i.registro[c])}
+                          {n === 0 && i.trabalhoId && <span className="ml-2"><Selo cor="vermelho">Falhou antes</Selo></span>}
+                        </td>
+                      ))}
                       <td className="w-24 px-4 py-2 text-right">
                         <button type="button" className="text-xs text-slate-500 hover:text-red-700" onClick={() => mudarItem.mutate({ id: i.id, status: 'DESCARTADO' })}>
                           Descartar
@@ -184,6 +219,7 @@ function ListaDoDia() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </section>
           );
         })}

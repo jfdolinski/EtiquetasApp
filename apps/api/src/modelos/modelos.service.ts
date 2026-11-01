@@ -7,6 +7,9 @@ import {
   PREFIXO_PARAMETRO,
   type ConsultaParaModelo,
   linhasParaRegistros,
+  limitesPorFolha,
+  problemaNasFolhas,
+  registroBanido,
   validarLayout,
   type AmostraModelo,
   type CampoDinamico,
@@ -20,6 +23,7 @@ import {
 } from '@etiquetas/shared';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { config } from '../config';
+import { BanidosService } from '../banidos/banidos.service';
 import { agoraNoFuso, ConsultasService } from '../consultas/consultas.service';
 import { ehViolacaoUnica } from '../prisma/erros';
 import { PrismaService } from '../prisma/prisma.service';
@@ -51,6 +55,7 @@ export class ModelosService {
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
     private readonly consultas: ConsultasService,
+    private readonly banidos: BanidosService,
   ) {}
 
   async listar(empresaId: string): Promise<ModeloEtiquetaResumo[]> {
@@ -313,7 +318,16 @@ export class ModelosService {
     }
     if (!linguagem) throw new BadRequestException('Informe a impressora ou a linguagem.');
     const hoje = agoraNoFuso(new Date(), config().fusoHorario).data;
-    return gerarSaida(dto.layout, dto.registros, linguagem, dpi ?? 203, hoje);
+    // O arquivo gerado também é imprimível: banido fica de fora; limite por folha vira aviso, para
+    // não impedir de ver o modelo com poucos registros de exemplo.
+    const banidos = await this.banidos.conjunto(empresaId);
+    const registros = dto.registros.filter((r) => !registroBanido(r, banidos));
+    const avisos: string[] = [];
+    if (registros.length < dto.registros.length) avisos.push(`${dto.registros.length - registros.length} registro(s) de produto banido ficaram de fora.`);
+    const problema = problemaNasFolhas(registros.length, limitesPorFolha(dto.layout));
+    if (problema) avisos.push(`${problema} Na impressão, essa quantidade seria recusada.`);
+    const saida = await gerarSaida(dto.layout, registros, linguagem, dpi ?? 203, hoje);
+    return { ...saida, avisos: [...avisos, ...saida.avisos] };
   }
 
   private async exigirImpressoraDaEmpresa(empresaId: string, impressoraId: string) {

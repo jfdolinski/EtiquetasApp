@@ -61,7 +61,7 @@ function montar() {
   };
   const auditoria = { registrar: jest.fn(async () => undefined) } as unknown as AuditoriaService;
   const trabalhos = { criar: jest.fn() } as unknown as TrabalhosService;
-  const servico = new ListasService(prisma as unknown as PrismaService, auditoria, consultas as unknown as ConsultasService, trabalhos);
+  const servico = new ListasService(prisma as unknown as PrismaService, auditoria, consultas as unknown as ConsultasService, trabalhos, { conjunto: async () => new Set<string>() } as never);
   return { servico, prisma, consultas, criados, tx };
 }
 

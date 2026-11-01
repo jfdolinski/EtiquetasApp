@@ -10,6 +10,9 @@ import {
   ehConexaoSql,
   PARAMETRO_PLANILHA,
   PREFIXO_PARAMETRO,
+  limitesPorFolha,
+  problemaNasFolhas,
+  registroBanido,
   quantidadeDoRegistro,
   type BuscaAvulsaResposta,
   type ErroLista,
@@ -21,6 +24,7 @@ import {
   type ResultadoConsulta,
 } from '@etiquetas/shared';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { BanidosService } from '../banidos/banidos.service';
 import { config } from '../config';
 import { agoraNoFuso, ConsultasService } from '../consultas/consultas.service';
 import { validarRegistros } from '../modelos/modelos.service';
@@ -38,6 +42,7 @@ const SELECAO_ITEM = {
   impressoraId: true,
   chave: true,
   descricao: true,
+  registro: true,
   quantidade: true,
   status: true,
   impressoEm: true,
@@ -62,6 +67,7 @@ export class ListasService {
     private readonly auditoria: AuditoriaService,
     private readonly consultas: ConsultasService,
     private readonly trabalhos: TrabalhosService,
+    private readonly banidos: BanidosService,
   ) {}
 
   private hoje() {
@@ -77,7 +83,7 @@ export class ListasService {
     });
     if (!lista) return null;
     const [modelos, impressoras] = await Promise.all([
-      this.prisma.modeloEtiqueta.findMany({ where: { empresaId }, select: { id: true, nome: true } }),
+      this.prisma.modeloEtiqueta.findMany({ where: { empresaId }, select: { id: true, nome: true, layout: true, consulta: { select: { campos: true } } } }),
       this.prisma.impressora.findMany({ where: { empresaId }, select: { id: true, nome: true, linguagem: true } }),
     ]);
     return {
@@ -85,8 +91,13 @@ export class ListasService {
       data: dia,
       atualizadaEm: lista.atualizadoEm.toISOString(),
       erros: lista.erros as unknown as ErroLista[],
-      itens: lista.itens.map((i) => ({ ...i, impressoEm: i.impressoEm?.toISOString() ?? null })),
-      modelos,
+      itens: lista.itens.map((i) => ({ ...i, registro: i.registro as Registro, impressoEm: i.impressoEm?.toISOString() ?? null })),
+      modelos: modelos.map((m) => ({
+        id: m.id,
+        nome: m.nome,
+        folha: limitesPorFolha(m.layout as unknown as LayoutEtiqueta),
+        colunas: Array.isArray(m.consulta?.campos) ? (m.consulta.campos as { nome?: unknown }[]).map((c) => String(c?.nome ?? '')).filter(Boolean) : [],
+      })),
       impressoras,
     };
   }
@@ -143,10 +154,30 @@ export class ListasService {
     const listaId = await this.listaDeHoje(empresaId);
     const itens = await this.prisma.itemLista.findMany({
       where: { listaId, empresaId, modeloId, status: 'PENDENTE', trabalhoId: null, quantidade: { gt: 0 } },
-      select: { id: true, quantidade: true },
+      orderBy: { descricao: 'asc' },
+      select: { id: true, quantidade: true, registro: true, modelo: { select: { nome: true, layout: true } } },
     });
     if (itens.length === 0) return { trabalhos: [], avisos: [] };
-    return this.imprimirLista(empresaId, listaId, { itens: itens.map((i) => ({ id: i.id, quantidade: i.quantidade })) }, usuarioId, 'AGENDAMENTO');
+
+    // Sem ninguém para ajustar quantidades: imprime o que fecha folhas e o resto espera o próximo ciclo.
+    const banidos = await this.banidos.conjunto(empresaId);
+    const limites = limitesPorFolha(itens[0].modelo.layout as unknown as LayoutEtiqueta);
+    const validos = itens.filter((i) => !registroBanido(i.registro as Registro, banidos));
+    let aceitos = validos.length;
+    let total = validos.reduce((s, i) => s + i.quantidade, 0);
+    while (aceitos > 0 && problemaNasFolhas(total, limites)) {
+      aceitos--;
+      total -= validos[aceitos].quantidade;
+    }
+    const avisos: string[] = [];
+    if (aceitos < validos.length) {
+      avisos.push(`${itens[0].modelo.nome}: ${validos.length - aceitos} produto(s) aguardando completar o mínimo de ${limites!.minimo} por folha.`);
+    }
+    const ids = new Set(validos.slice(0, aceitos).map((i) => i.id));
+    const enviar = itens.filter((i) => ids.has(i.id) || !validos.includes(i)).map((i) => ({ id: i.id, quantidade: i.quantidade }));
+    if (enviar.length === 0) return { trabalhos: [], avisos };
+    const r = await this.imprimirLista(empresaId, listaId, { itens: enviar }, usuarioId, 'AGENDAMENTO');
+    return { trabalhos: r.trabalhos, avisos: [...avisos, ...r.avisos] };
   }
 
   private async listaDeHoje(empresaId: string): Promise<string> {
@@ -181,6 +212,7 @@ export class ListasService {
       select: { modeloId: true, chave: true },
     });
     const jaTratados = new Set(existentes.map((i) => `${i.modeloId}|${i.chave}`));
+    const banidos = await this.banidos.conjunto(empresaId);
 
     const erros: ErroLista[] = [];
     let falhou = false;
@@ -205,7 +237,12 @@ export class ListasService {
         erros.push({ modeloId: modelo.id, modeloNome: modelo.nome, mensagem: `A consulta devolveu mais de ${LIMITE_LINHAS_LISTA} linhas; só as primeiras entraram.` });
       }
       const vistos = new Set<string>();
+      let foraPorBanimento = 0;
       for (const registro of linhasParaRegistros(resultado.colunas, resultado.linhas)) {
+        if (registroBanido(registro, banidos)) {
+          foraPorBanimento++;
+          continue;
+        }
         const chave = chaveDoRegistro(registro);
         const k = `${modelo.id}|${chave}`;
         if (jaTratados.has(k) || vistos.has(k)) continue;
@@ -221,6 +258,7 @@ export class ListasService {
           quantidade: quantidadeDoRegistro(registro),
         });
       }
+      if (foraPorBanimento) erros.push({ modeloId: modelo.id, modeloNome: modelo.nome, mensagem: `${foraPorBanimento} produto(s) banido(s) ficaram de fora.` });
     }
     return { novos, erros, falhou };
   }
@@ -233,7 +271,7 @@ export class ListasService {
     if (dto.status) {
       await this.auditoria.registrar({ empresaId, usuarioId, acao: `lista.item.${dto.status.toLowerCase()}`, entidade: 'ItemLista', entidadeId: id });
     }
-    return { ...atualizado, impressoEm: atualizado.impressoEm?.toISOString() ?? null };
+    return { ...atualizado, registro: atualizado.registro as Registro, impressoEm: atualizado.impressoEm?.toISOString() ?? null };
   }
 
   /** Impressão em lote: separa os itens por modelo e impressora e cria um trabalho por grupo. */
@@ -260,13 +298,23 @@ export class ListasService {
     });
     if (itens.length === 0) throw new BadRequestException('Nenhum dos itens selecionados está pendente.');
 
+    const resposta: ImprimirResposta = { trabalhos: [], avisos: [] };
+
+    // Banido depois de a lista ser montada: sai da lista em vez de ficar voltando.
+    const banidos = await this.banidos.conjunto(empresaId);
+    const foraDaImpressao = itens.filter((i) => registroBanido(i.registro as Registro, banidos));
+    if (foraDaImpressao.length) {
+      await this.prisma.itemLista.updateMany({ where: { id: { in: foraDaImpressao.map((i) => i.id) }, empresaId }, data: { status: 'DESCARTADO' } });
+      resposta.avisos.push(`${foraDaImpressao.length} produto(s) banido(s) foram descartados da lista.`);
+    }
+
     const grupos = new Map<string, typeof itens>();
     for (const item of itens) {
+      if (foraDaImpressao.includes(item)) continue;
       const k = `${item.modelo.id}|${item.impressora?.id ?? ''}`;
       grupos.set(k, [...(grupos.get(k) ?? []), item]);
     }
 
-    const resposta: ImprimirResposta = { trabalhos: [], avisos: [] };
     for (const grupo of grupos.values()) {
       const { modelo, impressora } = grupo[0];
       if (!impressora) {
@@ -275,6 +323,13 @@ export class ListasService {
       }
       if (!impressora.ativo) {
         resposta.avisos.push(`${modelo.nome}: a impressora ${impressora.nome} está desativada.`);
+        continue;
+      }
+      // Fora dos limites por folha: este modelo espera, os outros seguem. Os itens ficam pendentes.
+      const totalGrupo = grupo.reduce((s, i) => s + quantidades.get(i.id)!, 0);
+      const problema = problemaNasFolhas(totalGrupo, limitesPorFolha(modelo.layout as unknown as LayoutEtiqueta));
+      if (problema) {
+        resposta.avisos.push(`${modelo.nome}: ${problema} Nada foi enviado deste modelo.`);
         continue;
       }
       // Grava as quantidades ajustadas pelo operador antes de gerar.
@@ -323,7 +378,7 @@ export class ListasService {
       // Campos da consulta (na ordem dela) e os que o layout usa: o operador pode digitar qualquer um.
       const daConsulta = Array.isArray(m.consulta!.campos) ? (m.consulta!.campos as { nome?: unknown }[]).map((c) => String(c?.nome ?? '')) : [];
       const campos = [...new Set([...daConsulta, ...camposUsados(m.layout as unknown as LayoutEtiqueta)].filter(Boolean))];
-      return { id: m.id, nome: m.nome, impressoraId: m.impressoraId, parametros, campos };
+      return { id: m.id, nome: m.nome, impressoraId: m.impressoraId, parametros, campos, folha: limitesPorFolha(m.layout as unknown as LayoutEtiqueta) };
     });
   }
 
@@ -333,7 +388,10 @@ export class ListasService {
     if (!modelo) throw new NotFoundException('Modelo não encontrado.');
     if (!modelo.consultaId) throw new BadRequestException('Este modelo não tem consulta vinculada.');
     const r = await this.consultas.executar(empresaId, modelo.consultaId, usuarioId, parametros, LIMITE_LINHAS_BUSCA);
-    return { registros: linhasParaRegistros(r.colunas, r.linhas), colunas: r.colunas.map((c) => c.nome) };
+    const banidos = await this.banidos.conjunto(empresaId);
+    const todos = linhasParaRegistros(r.colunas, r.linhas);
+    const registros = todos.filter((x) => !registroBanido(x, banidos));
+    return { registros, colunas: r.colunas.map((c) => c.nome), banidos: todos.length - registros.length };
   }
 
   async imprimirAvulsa(empresaId: string, dto: ImprimirAvulsaDto, usuarioId: string): Promise<ImprimirResposta> {
