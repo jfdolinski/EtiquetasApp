@@ -23,6 +23,7 @@ import { Modelos } from './pages/modelos/Modelos';
 import { Inicio } from './pages/Inicio';
 import { Login } from './pages/Login';
 import { MinhaConta } from './pages/MinhaConta';
+import { Notificacoes } from './pages/Notificacoes';
 import { Perfis } from './pages/Perfis';
 import { Usuarios } from './pages/Usuarios';
 
@@ -73,6 +74,7 @@ export function App() {
         <Route path="historico" element={<Protegida permissao="imprimir"><Historico /></Protegida>} />
         <Route path="banidos" element={<Protegida permissao="produto_banido.ver"><Banidos /></Protegida>} />
         <Route path="agendamentos" element={<Protegida permissao="agendamento.ver"><Agendamentos /></Protegida>} />
+        <Route path="notificacoes" element={<Protegida permissao="notificacao.ver"><Notificacoes /></Protegida>} />
         <Route path="auditoria" element={<Protegida permissao="auditoria.ver"><Auditoria /></Protegida>} />
         <Route path="minha-conta" element={<MinhaConta />} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -176,6 +176,11 @@
     </form>
   </section>
 
+  <section class="cartao" id="cartaoNotificacoes" hidden>
+    <h3>Notificações</h3>
+    <ul class="eventos" id="notificacoes"></ul>
+  </section>
+
   <section class="cartao" id="atividade" hidden>
     <h3>Atividade recente</h3>
     <ul class="eventos" id="eventos"></ul>
@@ -312,6 +317,21 @@
     caixa.hidden = !(op.andamento || op.ok || op.erro);
     caixa.className = 'operacao ' + (op.andamento ? 'andamento' : op.erro ? 'erro' : 'ok');
     caixa.textContent = op.andamento ? op.titulo + ' Confirme a permissão de administrador, se o Windows pedir.' : op.erro || op.ok || '';
+
+    const avisos = (st && st.notificacoes) || [];
+    $('cartaoNotificacoes').hidden = !avisos.length;
+    $('notificacoes').replaceChildren(
+      ...avisos.slice(0, 10).map((n) => {
+        const li = document.createElement('li');
+        li.className = n.nivel;
+        const t = document.createElement('time');
+        t.textContent = hora(n.hora);
+        const s = document.createElement('span');
+        s.append(Object.assign(document.createElement('b'), { textContent: n.titulo + ': ' }), n.mensagem);
+        li.append(t, s);
+        return li;
+      }),
+    );
 
     const eventos = (st && st.eventos) || [];
     $('atividade').hidden = !temDados;

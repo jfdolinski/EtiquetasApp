@@ -400,6 +400,14 @@ func (c *Cliente) processar(ctx context.Context, msg protocolo.Mensagem) (any, e
 		c.Log.Info("trabalho impresso", "trabalho", req.TrabalhoID, "impressora", req.Endereco, "bytes", len(req.Dados), "ms", time.Since(inicio).Milliseconds())
 		return struct{}{}, nil
 
+	case protocolo.TipoNotificar:
+		var req protocolo.Notificar
+		if err := decodificar(msg.Dados, &req); err != nil || req.ID == "" {
+			return nil, errors.New("notificação inválida")
+		}
+		c.Estado.Notificacao(estado.Notificacao{ID: req.ID, Hora: time.Now(), Nivel: req.Nivel, Titulo: req.Titulo, Mensagem: req.Mensagem})
+		return struct{}{}, nil
+
 	case protocolo.TipoRotacionarToken:
 		var req protocolo.RotacionarToken
 		if err := decodificar(msg.Dados, &req); err != nil || req.Token == "" {

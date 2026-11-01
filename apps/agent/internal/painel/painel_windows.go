@@ -21,6 +21,8 @@ import (
 	"etiquetas/agente/internal/icone"
 )
 
+const espacoEntreBaloes = 6 * time.Second
+
 type Opcoes struct {
 	Versao         string
 	ServidorPadrao string
@@ -150,8 +152,36 @@ func (p *Painel) aoIniciar() {
 			v := p.visao()
 			p.atualizarIcone(v)
 			p.acompanharVersao(v)
+			p.acompanharNotificacoes(v)
 		}
 	}()
+}
+
+// acompanharNotificacoes mostra os balões novos. O ciclo espera entre um e outro: o Windows
+// troca o balão anterior se o próximo chegar logo em seguida.
+func (p *Painel) acompanharNotificacoes(v Visao) {
+	if v.Status == nil || len(v.Status.Notificacoes) == 0 {
+		return
+	}
+	caminho := caminhoVistas()
+	vistas := lerVistas(caminho)
+	mapa := make(map[string]bool, len(vistas))
+	for _, id := range vistas {
+		mapa[id] = true
+	}
+	baloes, excedentes := BaloesNovos(v.Status.Notificacoes, mapa, time.Now())
+	novas := LembrarVistas(vistas, v.Status.Notificacoes)
+	if len(novas) != len(vistas) || (len(vistas) > 0 && novas[len(novas)-1] != vistas[len(vistas)-1]) {
+		gravarVistas(caminho, novas) // grava antes: um balão que falhe não vira repetição infinita
+	}
+	if excedentes > 0 {
+		_ = mostrarBalao("Agente de Etiquetas", fmt.Sprintf("Mais %d avisos: veja no painel do agente.", excedentes), "aviso")
+		time.Sleep(espacoEntreBaloes)
+	}
+	for _, n := range baloes {
+		_ = mostrarBalao(n.Titulo, n.Mensagem, n.Nivel)
+		time.Sleep(espacoEntreBaloes)
+	}
 }
 
 func (p *Painel) atualizarIcone(v Visao) {
@@ -193,7 +223,7 @@ func (p *Painel) visao() Visao {
 		// só fica a atividade (ajuda a entender por que parou).
 		ativ := &estado.Instantaneo{Ativado: true, Servidor: cfg.Servidor, CNPJ: cfg.CNPJ, EmpresaNome: cfg.EmpresaNome, AgenteNome: cfg.AgenteNome}
 		if st != nil {
-			ativ.Eventos = st.Eventos
+			ativ.Eventos, ativ.Notificacoes = st.Eventos, st.Notificacoes
 		}
 		st = ativ
 	}

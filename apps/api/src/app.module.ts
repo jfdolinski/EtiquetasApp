@@ -14,6 +14,8 @@ import { ErpsModule } from './erps/erps.module';
 import { HealthController } from './health.controller';
 import { ImpressaoModule } from './impressao/impressao.module';
 import { ModelosModule } from './modelos/modelos.module';
+import { NotificacoesModule } from './notificacoes/notificacoes.module';
+import { PainelModule } from './painel/painel.module';
 import { PerfisModule } from './perfis/perfis.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
@@ -34,6 +36,8 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     ImpressaoModule,
     ErpsModule,
     CobrancaModule,
+    NotificacoesModule,
+    PainelModule,
   ],
   controllers: [HealthController],
   providers: [

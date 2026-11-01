@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { NavLink, Outlet } from 'react-router';
+import { Link, NavLink, Outlet } from 'react-router';
 import { formatarCnpj, type CodigoPermissao, type EmpresaResumo } from '@etiquetas/shared';
 import { api } from '../api';
 import { useAuth } from '../auth';
@@ -30,6 +30,7 @@ const MENU: ItemMenu[] = [
   { para: '/modelos', rotulo: 'Modelos de etiqueta', permissao: 'etiqueta.modelo.ver' },
   { para: '/impressoras', rotulo: 'Impressoras', permissao: 'impressora.ver' },
   { para: '/assinatura', rotulo: 'Assinatura', permissao: 'empresa.ver' },
+  { para: '/notificacoes', rotulo: 'Notificações', permissao: 'notificacao.ver' },
   { para: '/auditoria', rotulo: 'Auditoria', permissao: 'auditoria.ver' },
   { para: '/minha-conta', rotulo: 'Minha conta' },
 ];
@@ -55,6 +56,24 @@ function SeletorEmpresa() {
         </option>
       ))}
     </select>
+  );
+}
+
+function Sino() {
+  const { empresaId, pode } = useAuth();
+  const { data } = useQuery({
+    queryKey: ['notificacoes-nao-lidas', empresaId],
+    queryFn: () => api<{ quantidade: number }>('/notificacoes/nao-lidas'),
+    enabled: !!empresaId && pode('notificacao.ver'),
+    refetchInterval: 60_000,
+  });
+  if (!empresaId || !pode('notificacao.ver')) return null;
+  const n = data?.quantidade ?? 0;
+  return (
+    <Link to="/notificacoes" className="relative rounded-md px-2 py-1 text-sm text-slate-600 hover:bg-slate-100" aria-label={n ? `Notificações: ${n} sem ler` : 'Notificações'} title="Notificações">
+      🔔
+      {n > 0 && <span className="absolute -top-1 -right-1 min-w-4 rounded-full bg-red-600 px-1 text-center text-[11px] font-semibold leading-4 text-white">{n > 99 ? '99+' : n}</span>}
+    </Link>
   );
 }
 
@@ -92,6 +111,7 @@ export function Layout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex flex-wrap items-center justify-end gap-3 border-b border-slate-200 bg-white px-4 py-2.5 sm:px-6">
           {usuario.superAdmin && <SeletorEmpresa />}
+          <Sino />
           <span className="text-sm text-slate-600">{usuario.nome}</span>
           <button type="button" onClick={sair} className="rounded-md px-2 py-1 text-sm text-slate-600 hover:bg-slate-100">
             Sair

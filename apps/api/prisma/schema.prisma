@@ -49,6 +49,10 @@ model Empresa {
   pagamentos         PagamentoAssinatura[]
   avisosCobranca     AvisoCobranca[]
   agendamentos       AgendamentoModelo[]
+  execucoesConsulta  ExecucaoConsulta[]
+  regrasNotificacao  RegraNotificacao[]
+  janelaNotificacao  JanelaNotificacao?
+  notificacoes       Notificacao[]
 
   @@map("empresas")
 }
@@ -613,4 +617,84 @@ model ProdutoBanido {
 
   @@id([empresaId, codigoBarras])
   @@map("produtos_banidos")
+}
+
+/// Uma execução de consulta salva, para medir tempo e falhas. Apagada depois de 35 dias.
+model ExecucaoConsulta {
+  id           String   @id @default(uuid()) @db.Uuid
+  empresaId    String   @map("empresa_id") @db.Uuid
+  /// Sem chave estrangeira: o histórico sobrevive à exclusão da consulta, com o nome da época.
+  consultaId   String   @map("consulta_id") @db.Uuid
+  consultaNome String   @map("consulta_nome")
+  duracaoMs    Int      @map("duracao_ms")
+  linhas       Int      @default(0)
+  ok           Boolean
+  erro         String?
+  criadoEm     DateTime @default(now()) @map("criado_em")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@index([empresaId, criadoEm])
+  @@index([criadoEm])
+  @@map("execucoes_consulta")
+}
+
+/// O que notificar e como. Evento: EVENTOS_NOTIFICACAO de packages/shared. Sem registro = desligada.
+model RegraNotificacao {
+  empresaId      String   @map("empresa_id") @db.Uuid
+  evento         String
+  ativo          Boolean  @default(false)
+  limite         Int      @default(0)
+  canalAgente    Boolean  @default(true) @map("canal_agente")
+  canalSistema   Boolean  @default(true) @map("canal_sistema")
+  repetirMinutos Int      @default(0) @map("repetir_minutos")
+  /// Ids dos agentes que recebem o balão; vazio = todos.
+  agenteIds      Json     @default("[]") @map("agente_ids")
+  atualizadoEm   DateTime @updatedAt @map("atualizado_em")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@id([empresaId, evento])
+  @@index([ativo])
+  @@map("regras_notificacao")
+}
+
+/// Quando a empresa aceita receber avisos, no fuso FUSO_HORARIO. Sem registro = JANELA_PADRAO.
+model JanelaNotificacao {
+  empresaId  String @id @map("empresa_id") @db.Uuid
+  horaInicio String @map("hora_inicio")
+  horaFim    String @map("hora_fim")
+  /// 0 = domingo.
+  diasSemana Json   @map("dias_semana")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@map("janelas_notificacao")
+}
+
+/// Problema avisado. Fica aberto (resolvidaEm nulo) enquanto a condição continuar; (evento, chave) identifica o problema.
+model Notificacao {
+  id              String    @id @default(uuid()) @db.Uuid
+  empresaId       String    @map("empresa_id") @db.Uuid
+  evento          String
+  chave           String
+  titulo          String
+  mensagem        String
+  nivel           String
+  canalAgente     Boolean   @map("canal_agente")
+  canalSistema    Boolean   @map("canal_sistema")
+  /// Agentes que devem receber (vazio = todos) e os que confirmaram o último envio.
+  agenteIds       Json      @default("[]") @map("agente_ids")
+  entregueAgentes Json      @default("[]") @map("entregue_agentes")
+  vezes           Int       @default(1)
+  ultimoEnvioEm   DateTime  @default(now()) @map("ultimo_envio_em")
+  lidaEm          DateTime? @map("lida_em")
+  resolvidaEm     DateTime? @map("resolvida_em")
+  criadoEm        DateTime  @default(now()) @map("criado_em")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@index([empresaId, criadoEm])
+  @@index([empresaId, resolvidaEm])
+  @@map("notificacoes")
 }

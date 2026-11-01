@@ -100,6 +100,18 @@ export interface DadosImprimir {
   dados: string;
 }
 
+/**
+ * `notificar`: o agente guarda e o painel da bandeja mostra o balão do Windows. O `id` muda a cada
+ * repetição do aviso. Versão antiga do agente responde erro de tipo não suportado.
+ */
+export interface DadosNotificar {
+  id: string;
+  titulo: string;
+  mensagem: string;
+  nivel: 'info' | 'aviso' | 'erro';
+  em: string;
+}
+
 // Agente → servidor
 
 /** `ola`: primeira mensagem depois de conectar. */

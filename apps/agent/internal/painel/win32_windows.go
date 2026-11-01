@@ -25,6 +25,8 @@ var (
 	procSendMessageW                  = user32.NewProc("SendMessageW")
 	procCreateIconFromResourceEx      = user32.NewProc("CreateIconFromResourceEx")
 	procPostMessageW                  = user32.NewProc("PostMessageW")
+	procFindWindowExW                 = user32.NewProc("FindWindowExW")
+	procShellNotifyIconW              = shell32.NewProc("Shell_NotifyIconW")
 )
 
 const nomeServico = "EtiquetasAgente"
@@ -185,6 +187,83 @@ func trazerParaFrente(hwnd uintptr) {
 func fecharJanela(hwnd uintptr) {
 	const wmClose = 0x0010
 	_, _, _ = procPostMessageW.Call(hwnd, wmClose, 0, 0)
+}
+
+// notifyIconData espelha NOTIFYICONDATAW, a mesma estrutura que o fyne.io/systray usa.
+type notifyIconData struct {
+	Size                       uint32
+	Wnd                        windows.Handle
+	ID, Flags, CallbackMessage uint32
+	Icon                       windows.Handle
+	Tip                        [128]uint16
+	State, StateMask           uint32
+	Info                       [256]uint16
+	Timeout, Version           uint32
+	InfoTitle                  [64]uint16
+	InfoFlags                  uint32
+	GuidItem                   windows.GUID
+	BalloonIcon                windows.Handle
+}
+
+const (
+	classeBandeja  = "SystrayClass" // janela oculta criada pelo fyne.io/systray
+	idIconeBandeja = 100            // uID do ícone no fyne.io/systray
+	nimModify      = 1
+	nifInfo        = 0x10
+)
+
+// janelaDaBandeja acha a janela do ícone deste processo; outro programa pode usar a mesma biblioteca.
+func janelaDaBandeja() uintptr {
+	classe, _ := windows.UTF16PtrFromString(classeBandeja)
+	meu := windows.GetCurrentProcessId()
+	var h uintptr
+	for {
+		h, _, _ = procFindWindowExW.Call(0, h, uintptr(unsafe.Pointer(classe)), 0)
+		if h == 0 {
+			return 0
+		}
+		var pid uint32
+		if _, err := windows.GetWindowThreadProcessId(windows.HWND(h), &pid); err == nil && pid == meu {
+			return h
+		}
+	}
+}
+
+// copiarUTF16 corta sem partir um caractere e deixa o terminador nulo no fim.
+func copiarUTF16(destino []uint16, texto string) {
+	src := windows.StringToUTF16(texto)
+	src = src[:len(src)-1]
+	if len(src) > len(destino)-1 {
+		src = src[:len(destino)-1]
+		if n := len(src); n > 0 && src[n-1] >= 0xD800 && src[n-1] <= 0xDBFF {
+			src = src[:n-1]
+		}
+	}
+	copy(destino, src)
+}
+
+// mostrarBalao usa o ícone da bandeja que já existe; no Windows 10 e 11 o balão vira notificação do sistema.
+func mostrarBalao(titulo, texto, nivel string) error {
+	h := janelaDaBandeja()
+	if h == 0 {
+		return errors.New("ícone da bandeja não encontrado")
+	}
+	dados := notifyIconData{Wnd: windows.Handle(h), ID: idIconeBandeja, Flags: nifInfo}
+	dados.Size = uint32(unsafe.Sizeof(dados))
+	copiarUTF16(dados.InfoTitle[:], titulo)
+	copiarUTF16(dados.Info[:], texto)
+	switch nivel {
+	case "erro":
+		dados.InfoFlags = 3 // NIIF_ERROR
+	case "aviso":
+		dados.InfoFlags = 2 // NIIF_WARNING
+	default:
+		dados.InfoFlags = 1 // NIIF_INFO
+	}
+	if r, _, err := procShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&dados))); r == 0 {
+		return err
+	}
+	return nil
 }
 
 // definirIcone troca o ícone da janela pela etiqueta (PNG gerado em memória).

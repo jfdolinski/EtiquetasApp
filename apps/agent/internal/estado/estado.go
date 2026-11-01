@@ -24,7 +24,19 @@ const (
 	Parado       = "parado"
 )
 
-const maxEventos = 40
+const (
+	maxEventos      = 40
+	maxNotificacoes = 30
+)
+
+// Notificacao vem do servidor; o painel da bandeja mostra o balão e a lista.
+type Notificacao struct {
+	ID       string    `json:"id"`
+	Hora     time.Time `json:"hora"`
+	Nivel    string    `json:"nivel"` // info | aviso | erro
+	Titulo   string    `json:"titulo"`
+	Mensagem string    `json:"mensagem"`
+}
 
 type Evento struct {
 	Hora     time.Time `json:"hora"`
@@ -70,8 +82,9 @@ type Instantaneo struct {
 	VersaoDisponivel      string     `json:"versaoDisponivel,omitempty"`
 
 	// Mais recente primeiro.
-	Eventos      []Evento  `json:"eventos"`
-	AtualizadoEm time.Time `json:"atualizadoEm"`
+	Eventos      []Evento      `json:"eventos"`
+	Notificacoes []Notificacao `json:"notificacoes,omitempty"`
+	AtualizadoEm time.Time     `json:"atualizadoEm"`
 }
 
 // Estado é seguro para uso concorrente. Um Estado nil ignora tudo (testes, Linux sem painel).
@@ -121,12 +134,28 @@ func (e *Estado) Evento(nivel, mensagem string) {
 	})
 }
 
+// Notificacao publica o aviso para o painel; id já recebido é ignorado (reenvio do servidor).
+func (e *Estado) Notificacao(n Notificacao) {
+	e.Atualizar(func(i *Instantaneo) {
+		for _, x := range i.Notificacoes {
+			if x.ID == n.ID {
+				return
+			}
+		}
+		i.Notificacoes = append([]Notificacao{n}, i.Notificacoes...)
+		if len(i.Notificacoes) > maxNotificacoes {
+			i.Notificacoes = i.Notificacoes[:maxNotificacoes]
+		}
+	})
+}
+
 // Copia devolve um instantâneo atual (para testes e para gravar).
 func (e *Estado) Copia() Instantaneo {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	c := e.inst
 	c.Eventos = append([]Evento(nil), e.inst.Eventos...)
+	c.Notificacoes = append([]Notificacao(nil), e.inst.Notificacoes...)
 	return c
 }
 

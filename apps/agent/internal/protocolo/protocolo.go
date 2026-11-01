@@ -25,6 +25,7 @@ const (
 	TipoImprimir        = "imprimir"
 	TipoListarArquivos  = "listar_arquivos"
 	TipoLerArquivo      = "ler_arquivo"
+	TipoNotificar       = "notificar"
 )
 
 // Mensagem é o envelope de todo frame. Dados é decodificado conforme o Tipo.
@@ -117,6 +118,15 @@ type ResultadoArquivo struct {
 	Linhas    [][]any  `json:"linhas"`
 	Truncado  bool     `json:"truncado"`
 	DuracaoMs int64    `json:"duracaoMs"`
+}
+
+// Notificar: aviso para o usuário deste computador; o painel da bandeja mostra o balão.
+type Notificar struct {
+	ID       string `json:"id"`
+	Titulo   string `json:"titulo"`
+	Mensagem string `json:"mensagem"`
+	Nivel    string `json:"nivel"` // info | aviso | erro
+	Em       string `json:"em"`
 }
 
 type RotacionarToken struct {

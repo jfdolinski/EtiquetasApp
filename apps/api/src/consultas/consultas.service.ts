@@ -347,6 +347,24 @@ export class ConsultasService {
     parametros: ValoresParametros,
     limiteLinhas: number,
   ) {
+    const inicio = Date.now();
+    try {
+      const resultado = await this.executarSemMedir(empresaId, consulta, usuarioId, parametros, limiteLinhas);
+      this.registrarExecucao(empresaId, consulta, resultado.duracaoMs ?? Date.now() - inicio, resultado.linhas.length, null);
+      return resultado;
+    } catch (erro) {
+      this.registrarExecucao(empresaId, consulta, Date.now() - inicio, 0, (erro as Error).message);
+      throw erro;
+    }
+  }
+
+  private async executarSemMedir(
+    empresaId: string,
+    consulta: ConsultaSelecionada,
+    usuarioId: string,
+    parametros: ValoresParametros,
+    limiteLinhas: number,
+  ) {
     if (!ehConexaoSql(consulta.conexao.tipo)) {
       const leitura = await this.conexoes.lerPlanilha(empresaId, consulta.conexaoId, {
         arquivo: consulta.arquivo ?? '',
@@ -358,6 +376,15 @@ export class ConsultasService {
     }
     const compilado = await this.compilar(empresaId, usuarioId, consulta.sql, consulta.conexao.tipo, parametros);
     return this.conexoes.executar(empresaId, consulta.conexaoId, compilado.sql, compilado.parametros, limiteLinhas);
+  }
+
+  /** Medição para o painel: sem SQL nem parâmetros, e nunca atrapalha a consulta. */
+  private registrarExecucao(empresaId: string, consulta: ConsultaSelecionada, duracaoMs: number, linhas: number, erro: string | null) {
+    void this.prisma.execucaoConsulta
+      ?.create({
+        data: { empresaId, consultaId: consulta.id, consultaNome: consulta.nome, duracaoMs: Math.round(duracaoMs), linhas, ok: erro === null, erro: erro?.slice(0, 500) ?? null },
+      })
+      ?.catch(() => undefined);
   }
 
   /** Monta os valores dos placeholders a partir do banco próprio e compila o SQL. */

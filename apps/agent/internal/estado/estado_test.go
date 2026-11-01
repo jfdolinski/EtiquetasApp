@@ -27,6 +27,19 @@ func TestGravarELerSemSegredos(t *testing.T) {
 	}
 }
 
+func TestNotificacaoSemRepetirEComLimite(t *testing.T) {
+	e := Novo("", Instantaneo{})
+	e.Notificacao(Notificacao{ID: "a"})
+	e.Notificacao(Notificacao{ID: "a"})
+	for i := range maxNotificacoes + 5 {
+		e.Notificacao(Notificacao{ID: fmt.Sprint(i)})
+	}
+	lista := e.Copia().Notificacoes
+	if len(lista) != maxNotificacoes || lista[0].ID != fmt.Sprint(maxNotificacoes+4) {
+		t.Fatalf("lista inesperada: %d, primeira %q", len(lista), lista[0].ID)
+	}
+}
+
 func TestManterGravaParadoAoTerminar(t *testing.T) {
 	caminho := filepath.Join(t.TempDir(), "status.json")
 	e := Novo(caminho, Instantaneo{Ativado: true})

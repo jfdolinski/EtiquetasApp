@@ -58,6 +58,7 @@ Códigos de erro: `conexao_desconhecida`, `sql_recusado`, `banco`, `tempo_esgota
 
 | `listar_arquivos` | sim | `{ conexaoId }` | `{ arquivos: [{ caminho, tamanho, modificadoEm }] }` |
 | `ler_arquivo` | sim | `{ conexaoId, caminho, aba, termo, limiteLinhas }` | `{ abas, aba, linhas: any[][], truncado, duracaoMs }`; `linhas[0]` é o título |
+| `notificar` | sim | `{ id, titulo, mensagem, nivel: info \| aviso \| erro, em }` | `{}`, depois de publicar para o painel da bandeja; o `id` muda a cada repetição do aviso e `id` repetido é ignorado |
 
 Conexão `PASTA`: `banco` traz o caminho da pasta; o agente só lê csv, xls e xlsx dentro dela (recusa `..` e atalhos para fora). Em `testar_conexao`, `versaoServidor` diz quantas planilhas achou.
 

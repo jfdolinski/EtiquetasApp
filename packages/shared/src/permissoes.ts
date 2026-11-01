@@ -28,6 +28,9 @@ export const PERMISSOES = [
   { codigo: 'produto_banido.ver', grupo: 'Produtos banidos', descricao: 'Ver os produtos banidos' },
   { codigo: 'produto_banido.editar', grupo: 'Produtos banidos', descricao: 'Banir e liberar produtos' },
   { codigo: 'auditoria.ver', grupo: 'Auditoria', descricao: 'Consultar o registro de auditoria da empresa' },
+  { codigo: 'painel.ver', grupo: 'Painel', descricao: 'Ver o painel técnico e o uso por usuário na página Início' },
+  { codigo: 'notificacao.ver', grupo: 'Notificações', descricao: 'Ver as notificações da empresa' },
+  { codigo: 'notificacao.editar', grupo: 'Notificações', descricao: 'Escolher o que e como notificar' },
 ] as const;
 
 export type CodigoPermissao = (typeof PERMISSOES)[number]['codigo'];
