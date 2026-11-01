@@ -44,3 +44,8 @@ export class AtualizarUsuarioDto {
   @IsBoolean()
   ativo?: boolean;
 }
+
+export class AprovarCadastroDto {
+  @IsUUID('all', { message: 'Selecione um perfil.' })
+  perfilId: string;
+}

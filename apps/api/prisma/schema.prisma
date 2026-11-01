@@ -27,6 +27,10 @@ model Empresa {
   plano            String           @default("padrao")
   statusAssinatura StatusAssinatura @default(ATIVA) @map("status_assinatura")
   ativa            Boolean          @default(true)
+  /// Veio do "Cadastre-se" com CNPJ novo: fica inativa até o super-admin aprovar.
+  aprovacaoPendente Boolean         @default(false) @map("aprovacao_pendente")
+  /// Situação na Receita lida no cadastro; nula quando a consulta estava fora do ar.
+  situacaoReceita  String?          @map("situacao_receita")
   /// ERP usado pela empresa; o template dele pode ser copiado para as consultas da empresa.
   sistemaErpId     String?          @map("sistema_erp_id") @db.Uuid
   criadoEm         DateTime         @default(now()) @map("criado_em")
@@ -69,6 +73,8 @@ model Usuario {
   senhaHash     String    @map("senha_hash")
   superAdmin    Boolean   @default(false) @map("super_admin")
   ativo         Boolean   @default(true)
+  /// Veio do "Cadastre-se" e aguarda aprovação (sempre com ativo = false).
+  cadastroPendente Boolean  @default(false) @map("cadastro_pendente")
   ultimoLoginEm DateTime? @map("ultimo_login_em")
   /// Verificação em duas etapas: ativa quando totpAtivoEm está preenchido.
   totpSegredoCifrado     String?   @map("totp_segredo_cifrado")

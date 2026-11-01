@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
-import { formatarCnpj, normalizarCnpj, STATUS_ASSINATURA, validarCnpj, type DadosCnpj, type EmpresaResumo, type SistemaErpResumo, type StatusAssinatura } from '@etiquetas/shared';
+import { formatarCnpj, normalizarCnpj, STATUS_ASSINATURA, validarCnpj, type CadastrosPendentes, type DadosCnpj, type EmpresaResumo, type SistemaErpResumo, type StatusAssinatura } from '@etiquetas/shared';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Alerta, Botao, Cabecalho, Campo, Modal, Selecao, Selo, Tabela, formatarData } from '../components/ui';
@@ -35,6 +35,7 @@ export function Empresas() {
         acoes={<Botao onClick={() => setEdicao({ modo: 'nova' })}>Nova empresa</Botao>}
       />
       {error && <Alerta>{error.message}</Alerta>}
+      <CadastrosAguardando aoOperar={(id) => { selecionarEmpresa(id); navegar('/usuarios'); }} />
       {!isLoading && (
         <Tabela colunas={['Empresa', 'CNPJ', 'ERP', 'Plano', 'Assinatura', 'Usuários', 'Criada em', '']} vazio={empresas.length === 0}>
           {empresas.map((e) => (
@@ -47,9 +48,13 @@ export function Empresas() {
               <td className="px-4 py-2.5">{(e.sistemaErpId && nomeErp.get(e.sistemaErpId)) ?? '—'}</td>
               <td className="px-4 py-2.5">{e.plano}</td>
               <td className="px-4 py-2.5">
-                <Selo cor={e.ativa ? COR_STATUS[e.statusAssinatura] : 'cinza'}>
-                  {e.ativa ? ROTULO_STATUS[e.statusAssinatura] : 'Desativada'}
-                </Selo>
+                {e.aprovacaoPendente ? (
+                  <Selo cor="amarelo">Aguardando aprovação</Selo>
+                ) : (
+                  <Selo cor={e.ativa ? COR_STATUS[e.statusAssinatura] : 'cinza'}>
+                    {e.ativa ? ROTULO_STATUS[e.statusAssinatura] : 'Desativada'}
+                  </Selo>
+                )}
               </td>
               <td className="px-4 py-2.5">{e.totalUsuarios}</td>
               <td className="px-4 py-2.5 text-slate-500">{formatarData(e.criadoEm)}</td>
@@ -79,6 +84,65 @@ export function Empresas() {
         {edicao?.modo === 'editar' && <FormEditarEmpresa empresa={edicao.empresa} aoConcluir={() => setEdicao(null)} />}
       </Modal>
     </>
+  );
+}
+
+/** Fila do "Cadastre-se". Os dados vêm da busca de CNPJ; se ela falhou, Editar permite completar antes de aprovar. */
+function CadastrosAguardando({ aoOperar }: { aoOperar: (empresaId: string) => void }) {
+  const cliente = useQueryClient();
+  const { data } = useQuery({ queryKey: ['cadastros-pendentes'], queryFn: () => api<CadastrosPendentes>('/cadastros/pendentes') });
+  const atualizar = () => {
+    void cliente.invalidateQueries({ queryKey: ['cadastros-pendentes'] });
+    void cliente.invalidateQueries({ queryKey: ['empresas'] });
+  };
+  const aprovar = useMutation({ mutationFn: (id: string) => api(`/cadastros/empresas/${id}/aprovar`, { metodo: 'POST' }), onSuccess: atualizar });
+  const recusar = useMutation({ mutationFn: (id: string) => api(`/cadastros/empresas/${id}/recusar`, { metodo: 'POST' }), onSuccess: atualizar });
+  if (!data || (data.empresas.length === 0 && data.usuarios.length === 0)) return null;
+
+  return (
+    <section className="mb-4 space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+      <h2 className="font-medium">Aguardando aprovação</h2>
+      {(aprovar.error ?? recusar.error) && <Alerta>{(aprovar.error ?? recusar.error)!.message}</Alerta>}
+      {data.empresas.length > 0 && (
+        <ul className="divide-y divide-amber-200">
+          {data.empresas.map((e) => {
+            const irregular = e.situacaoReceita && !/^ativa$/i.test(e.situacaoReceita);
+            return (
+              <li key={e.id} className="flex flex-wrap items-center justify-between gap-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <p className="font-medium">{e.nomeFantasia || e.razaoSocial}</p>
+                  <p className="text-xs text-slate-600"><span className="font-mono">{formatarCnpj(e.cnpj)}</span> · pedido em {formatarData(e.criadoEm)}</p>
+                  <p className={`text-xs ${irregular || !e.situacaoReceita ? 'font-medium text-amber-900' : 'text-slate-600'}`}>
+                    {e.situacaoReceita ? `Situação na Receita: ${e.situacaoReceita}` : 'A consulta à Receita estava fora do ar: confira os dados em Editar.'}
+                  </p>
+                  <p className="text-xs text-slate-600">Administrador: {e.emails[0] ?? '—'}{e.emails.length > 1 && ` · mais ${e.emails.length - 1} pedido(s)`}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Botao aria-label={`Aprovar ${e.emails[0] ?? e.razaoSocial}`} disabled={aprovar.isPending} onClick={() => aprovar.mutate(e.id)}>Aprovar</Botao>
+                  <Botao aria-label={`Recusar ${e.emails[0] ?? e.razaoSocial}`} variante="secundario" disabled={recusar.isPending} onClick={() => window.confirm(`Recusar ${e.razaoSocial}? A empresa e os pedidos serão apagados.`) && recusar.mutate(e.id)}>Recusar</Botao>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {data.usuarios.length > 0 && (
+        <>
+          <p className="text-sm text-slate-600">Pedidos em empresas que já existem, mas estão desativadas ou bloqueadas. A empresa continua como está:</p>
+          <ul className="divide-y divide-amber-200">
+            {data.usuarios.map((u) => (
+              <li key={u.id} className="flex flex-wrap items-center justify-between gap-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <p className="font-medium">{u.email}</p>
+                  <p className="text-xs text-slate-600">{u.empresa.razaoSocial} · <span className="font-mono">{formatarCnpj(u.empresa.cnpj)}</span></p>
+                </div>
+                <Botao variante="secundario" onClick={() => aoOperar(u.empresa.id)}>Ver em Usuários</Botao>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
   );
 }
 

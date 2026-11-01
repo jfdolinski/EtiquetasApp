@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
-import { AtualizarUsuarioDto, CriarUsuarioDto } from './dto';
+import { AprovarCadastroDto, AtualizarUsuarioDto, CriarUsuarioDto } from './dto';
 import { UsuariosService } from './usuarios.service';
 
 @Controller('usuarios')
@@ -12,6 +12,27 @@ export class UsuariosController {
   @RequerPermissao('usuario.ver')
   listar(@EmpresaAtual() empresaId: string) {
     return this.usuarios.listar(empresaId);
+  }
+
+  /** Para o número ao lado de Usuários no menu. Antes de `:id`. */
+  @Get('pendentes/contagem')
+  @RequerPermissao('usuario.editar')
+  pendentes(@EmpresaAtual() empresaId: string) {
+    return this.usuarios.contarPendentes(empresaId);
+  }
+
+  @Post(':id/aprovar')
+  @HttpCode(200)
+  @RequerPermissao('usuario.editar')
+  aprovar(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AprovarCadastroDto, @UsuarioAtual() autor: UsuarioRequisicao) {
+    return this.usuarios.aprovarCadastro(empresaId, id, dto.perfilId, autor.id);
+  }
+
+  @Post(':id/recusar')
+  @HttpCode(204)
+  @RequerPermissao('usuario.editar')
+  async recusar(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() autor: UsuarioRequisicao) {
+    await this.usuarios.recusarCadastro(empresaId, id, autor.id);
   }
 
   @Get(':id')

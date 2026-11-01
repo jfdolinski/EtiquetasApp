@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, NavLink, Outlet } from 'react-router';
-import { formatarCnpj, type CodigoPermissao, type EmpresaResumo } from '@etiquetas/shared';
+import { formatarCnpj, type CadastrosPendentes, type CodigoPermissao, type EmpresaResumo } from '@etiquetas/shared';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { BannerCobranca } from './BannerCobranca';
@@ -78,8 +78,31 @@ function Sino() {
   );
 }
 
+/** Quantos pedidos do "Cadastre-se" esperam por quem está logado, em cada item do menu. */
+function usePendencias(): Record<string, number> {
+  const { usuario, empresaId, pode } = useAuth();
+  const podeAprovar = !!empresaId && pode('usuario.editar');
+  const { data: usuarios } = useQuery({
+    queryKey: ['usuarios-pendentes', empresaId],
+    queryFn: () => api<{ quantidade: number }>('/usuarios/pendentes/contagem'),
+    enabled: podeAprovar,
+    refetchInterval: 60_000,
+  });
+  const { data: plataforma } = useQuery({
+    queryKey: ['cadastros-pendentes'],
+    queryFn: () => api<CadastrosPendentes>('/cadastros/pendentes'),
+    enabled: !!usuario?.superAdmin,
+    refetchInterval: 60_000,
+  });
+  return {
+    '/usuarios': podeAprovar ? (usuarios?.quantidade ?? 0) : 0,
+    '/empresas': (plataforma?.empresas.length ?? 0) + (plataforma?.usuarios.length ?? 0),
+  };
+}
+
 export function Layout() {
   const { usuario, sair, pode } = useAuth();
+  const pendencias = usePendencias();
   if (!usuario) return null;
 
   const itens = MENU.filter((i) => (i.superAdmin ? usuario.superAdmin : !i.permissao || pode(i.permissao)));
@@ -104,6 +127,9 @@ export function Layout() {
               }
             >
               {i.rotulo}
+              {pendencias[i.para] > 0 && (
+                <span className="ml-2 rounded-full bg-red-600 px-1.5 text-[11px] font-semibold leading-4 text-white" title="Aguardando aprovação">{pendencias[i.para]}</span>
+              )}
             </NavLink>
           ))}
         </nav>

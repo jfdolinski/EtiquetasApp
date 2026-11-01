@@ -53,10 +53,17 @@ export function Login() {
         <Botao type="submit" className="w-full" disabled={enviando}>
           {enviando ? 'Entrando…' : 'Entrar'}
         </Botao>
-        {esqueciSenha && !precisaCodigo && (
-          <p className="text-center text-sm">
-            <Link to="/esqueci-senha" className="text-blue-700 hover:underline">Esqueci minha senha</Link>
-          </p>
+        {!precisaCodigo && (
+          <div className="space-y-1 text-center text-sm">
+            <p>
+              Ainda não tem acesso? <Link to="/cadastro" className="font-medium text-blue-700 hover:underline">Cadastre-se</Link>
+            </p>
+            {esqueciSenha && (
+              <p>
+                <Link to="/esqueci-senha" className="text-blue-700 hover:underline">Esqueci minha senha</Link>
+              </p>
+            )}
+          </div>
         )}
       </form>
     </div>

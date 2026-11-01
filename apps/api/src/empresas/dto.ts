@@ -92,3 +92,18 @@ export class AtualizarEmpresaDto {
   @IsUUID('all', { message: 'ERP inválido.' })
   sistemaErpId?: string | null;
 }
+
+export class CadastroDto {
+  /** Validado no serviço (aceita máscara e CNPJ alfanumérico). */
+  @IsString()
+  @MaxLength(30)
+  cnpj: string;
+
+  @IsEmail({}, { message: 'Informe um e-mail válido.' })
+  email: string;
+
+  @IsString()
+  @MinLength(8, { message: 'A senha deve ter ao menos 8 caracteres.' })
+  @MaxLength(200)
+  senha: string;
+}

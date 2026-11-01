@@ -32,7 +32,7 @@ export async function login(email: string, senha: string, codigo?: string): Prom
 
 export const superToken = () => login(SUPER.email, SUPER.senha);
 
-function cnpjValido(): string {
+export function cnpjValido(): string {
   const base = Array.from({ length: 8 }, () => Math.floor(Math.random() * 10)).concat([0, 0, 0, 1]);
   const dv = (d: number[]) => {
     const pesos = d.length === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];

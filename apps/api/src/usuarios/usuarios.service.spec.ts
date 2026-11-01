@@ -17,7 +17,7 @@ function montar() {
     perfil: { findFirst: jest.fn(async () => null as unknown) },
   };
   const auditoria = { registrar: jest.fn(async () => undefined) } as unknown as AuditoriaService;
-  return { servico: new UsuariosService(prisma as unknown as PrismaService, auditoria), prisma };
+  return { servico: new UsuariosService(prisma as unknown as PrismaService, auditoria, { enviar: jest.fn(async () => false) } as never), prisma };
 }
 
 describe('UsuariosService (isolamento por empresa)', () => {

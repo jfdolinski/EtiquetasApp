@@ -34,6 +34,7 @@ export class AuthService {
 
     const senhaOk = usuario ? await conferirSenha(senha, usuario.senhaHash) : await compararComHashFicticio(senha);
     if (!usuario || !senhaOk) throw new UnauthorizedException(CREDENCIAIS_INVALIDAS);
+    if (usuario.cadastroPendente) throw new UnauthorizedException('Seu cadastro aguarda a aprovação de um administrador.');
     if (!usuario.ativo) throw new UnauthorizedException('Usuário desativado. Fale com o administrador da empresa.');
 
     let aviso: string | null = null;

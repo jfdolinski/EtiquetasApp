@@ -21,6 +21,7 @@ import { Hoje } from './pages/Hoje';
 import { Impressoras } from './pages/Impressoras';
 import { Modelos } from './pages/modelos/Modelos';
 import { Inicio } from './pages/Inicio';
+import { Cadastro } from './pages/Cadastro';
 import { EsqueciSenha, RedefinirSenha } from './pages/EsqueciSenha';
 import { Login } from './pages/Login';
 import { MinhaConta } from './pages/MinhaConta';
@@ -48,6 +49,7 @@ export function App() {
   if (!usuario) {
     return (
       <Routes>
+        <Route path="cadastro" element={<Cadastro />} />
         <Route path="esqueci-senha" element={<EsqueciSenha />} />
         <Route path="redefinir-senha" element={<RedefinirSenha />} />
         <Route path="*" element={<Login />} />

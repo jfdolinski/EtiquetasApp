@@ -110,6 +110,7 @@ export class EmpresasService {
 
   async atualizar(id: string, dto: AtualizarEmpresaDto, autorId: string) {
     const atual = await this.obter(id);
+    if (atual.aprovacaoPendente && dto.ativa === true) throw new BadRequestException('Esta empresa aguarda aprovação: use Aprovar, em Empresas.');
     if (dto.sistemaErpId && dto.sistemaErpId !== atual.sistemaErpId) await this.exigirErpAtivo(dto.sistemaErpId);
     const data: Prisma.EmpresaUncheckedUpdateInput = {
       sistemaErpId: dto.sistemaErpId,

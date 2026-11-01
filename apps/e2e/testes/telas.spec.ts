@@ -8,6 +8,8 @@ test.beforeAll(async () => {
 });
 
 async function entrar(page: Page, email: string, senha: string) {
+  // Um IP por login: o limite de 10 logins por minuto é da API, não destes testes.
+  await page.setExtraHTTPHeaders({ 'x-forwarded-for': `10.77.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}` });
   await page.goto('/');
   await page.getByLabel('E-mail').fill(email);
   await page.getByLabel('Senha').fill(senha);

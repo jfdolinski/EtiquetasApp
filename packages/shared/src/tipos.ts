@@ -15,6 +15,9 @@ export interface EmpresaResumo {
   plano: string;
   statusAssinatura: StatusAssinatura;
   ativa: boolean;
+  /** Veio do "Cadastre-se" e aguarda o super-admin. */
+  aprovacaoPendente: boolean;
+  situacaoReceita: string | null;
   sistemaErpId: string | null;
   criadoEm: string;
   totalUsuarios?: number;
@@ -79,6 +82,8 @@ export interface UsuarioResumo {
   nome: string;
   email: string;
   ativo: boolean;
+  /** Veio do "Cadastre-se" e aguarda aprovação. */
+  cadastroPendente: boolean;
   perfil: { id: string; nome: string } | null;
   ultimoLoginEm: string | null;
   criadoEm: string;
@@ -136,4 +141,19 @@ export interface SaudeSistema {
   pushConfigurado: boolean;
   retencao: { conteudoDias: number; auditoriaDias: number };
   ultimaFaxina: { em: string; conteudos: number; auditoria: number; listas: number; erro?: string } | null;
+}
+
+/** Fila do super-admin: empresas novas do "Cadastre-se" e pedidos em empresas fora do ar. */
+export interface CadastrosPendentes {
+  empresas: {
+    id: string;
+    razaoSocial: string;
+    nomeFantasia: string | null;
+    cnpj: string;
+    situacaoReceita: string | null;
+    /** Quem pediu, do mais antigo ao mais novo; o primeiro vira administrador. */
+    emails: string[];
+    criadoEm: string;
+  }[];
+  usuarios: { id: string; email: string; criadoEm: string; empresa: { id: string; razaoSocial: string; cnpj: string } }[];
 }

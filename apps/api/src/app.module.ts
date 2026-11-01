@@ -25,7 +25,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
 
 @Module({
   imports: [
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
+    ThrottlerModule.forRoot({ throttlers: [{ ttl: 60_000, limit: 300 }], errorMessage: 'Muitas tentativas em pouco tempo. Aguarde um minuto e tente de novo.' }),
     PrismaModule,
     AuditoriaModule,
     EmailModule,
