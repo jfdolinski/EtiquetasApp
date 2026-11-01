@@ -1,0 +1,56 @@
+# Publica uma versão ASSINADA do agente como Release do GitHub. O servidor só copia esses arquivos
+# (build arg AGENTE_RELEASE no Easypanel): quem invadir o servidor não consegue assinar um agente falso.
+# Roda à mão em Actions > Agente assinado. Preparação: docs/DEPLOY.md, "Assinar as atualizações do agente".
+name: Agente assinado
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/agent/go.mod
+          cache-dependency-path: apps/agent/go.sum
+      - name: Confere a preparação
+        env:
+          CHAVE: ${{ secrets.AGENTE_CHAVE_PRIVADA }}
+          PUBLICA: ${{ vars.AGENTE_CHAVE_PUBLICA }}
+          SERVIDOR: ${{ vars.SERVIDOR_PUBLICO }}
+        run: |
+          test -n "$CHAVE" || { echo "::error::Falta o segredo AGENTE_CHAVE_PRIVADA"; exit 1; }
+          test -n "$PUBLICA" || { echo "::error::Falta a variável AGENTE_CHAVE_PUBLICA"; exit 1; }
+          test -n "$SERVIDOR" || { echo "::error::Falta a variável SERVIDOR_PUBLICO"; exit 1; }
+      - run: go test ./internal/atualizacao
+      - name: Compila e assina
+        env:
+          AGENTE_CHAVE_PRIVADA: ${{ secrets.AGENTE_CHAVE_PRIVADA }}
+          PUBLICA: ${{ vars.AGENTE_CHAVE_PUBLICA }}
+          SERVIDOR: ${{ vars.SERVIDOR_PUBLICO }}
+        run: |
+          set -e
+          v="$(TZ='<-03>3' date +%Y.%m.%d.%H%M)"
+          flags="-s -w -X main.versao=$v -X main.servidorPadrao=$SERVIDOR -X main.chavePublicaAtualizacao=$PUBLICA"
+          mkdir -p saida
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$flags -H windowsgui" -o saida/etiquetas-agente.exe ./cmd/etiquetas-agente
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$flags" -o saida/etiquetas-agente-linux-amd64 ./cmd/etiquetas-agente
+          go run ./cmd/assinar-versao assinar "$v" saida/etiquetas-agente.exe > saida/etiquetas-agente.exe.sig
+          cd saida
+          sha256sum etiquetas-agente.exe etiquetas-agente-linux-amd64 > SHA256SUMS.txt
+          echo "$v" > versao.txt
+          echo "VERSAO=$v" >> "$GITHUB_ENV"
+      - name: Publica
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "agente-$VERSAO" saida/* --title "Agente $VERSAO" \
+            --notes "Agente assinado. Para publicar: build arg AGENTE_RELEASE=$VERSAO no serviço web do Easypanel e deploy."

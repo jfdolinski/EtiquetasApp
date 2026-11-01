@@ -5,6 +5,8 @@
 #   SERVIDOR_PUBLICO  endereço gravado no agente, ex.: https://app.seudominio.com.br
 #                     (o técnico não precisa digitá-lo na ativação)
 #   VERSAO            versão exibida pelo agente (ex.: o hash do commit)
+#   AGENTE_RELEASE    versão assinada publicada no GitHub (ex.: 2026.11.02.1000): o agente é
+#                     copiado de lá em vez de compilado aqui. Ver docs/DEPLOY.md.
 
 FROM node:22-alpine AS web
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
@@ -18,14 +20,22 @@ RUN pnpm --filter @etiquetas/web build
 FROM golang:1.27-alpine AS agente
 ARG SERVIDOR_PUBLICO=""
 ARG VERSAO=""
+ARG AGENTE_RELEASE=""
+ARG AGENTE_REPOSITORIO="jfdolinski/EtiquetasApp"
 WORKDIR /src
 COPY apps/agent/go.mod apps/agent/go.sum ./
 RUN go mod download
 COPY apps/agent/ ./
 RUN set -e; \
+    mkdir -p /downloads; \
+    if [ -n "$AGENTE_RELEASE" ]; then \
+      base="https://github.com/$AGENTE_REPOSITORIO/releases/download/agente-$AGENTE_RELEASE"; \
+      for a in etiquetas-agente.exe etiquetas-agente.exe.sig etiquetas-agente-linux-amd64 SHA256SUMS.txt versao.txt; do wget -q -O "/downloads/$a" "$base/$a"; done; \
+      cd /downloads && sha256sum -c SHA256SUMS.txt; \
+      exit 0; \
+    fi; \
     v="${VERSAO:-$(TZ='<-03>3' date +%Y.%m.%d.%H%M)}"; \
     flags="-s -w -X main.versao=${v} -X main.servidorPadrao=${SERVIDOR_PUBLICO}"; \
-    mkdir -p /downloads; \
     CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$flags -H windowsgui" -o /downloads/etiquetas-agente.exe ./cmd/etiquetas-agente; \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$flags" -o /downloads/etiquetas-agente-linux-amd64 ./cmd/etiquetas-agente; \
     cd /downloads && sha256sum etiquetas-agente.exe etiquetas-agente-linux-amd64 > SHA256SUMS.txt && echo "$v" > versao.txt
@@ -36,5 +46,7 @@ ENV API_UPSTREAM=http://api:3000
 COPY apps/web/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=web /repo/apps/web/dist /usr/share/nginx/html
 COPY --from=agente /downloads /usr/share/nginx/html/downloads
+# Aplicativo de celular (instalador gerado à parte, ver apps/mobile/README.md).
+COPY apps/mobile/distribuicao/ /usr/share/nginx/html/downloads/
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD wget -qO- http://127.0.0.1/ >/dev/null || exit 1

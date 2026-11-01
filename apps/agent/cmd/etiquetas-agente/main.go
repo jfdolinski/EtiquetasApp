@@ -26,6 +26,7 @@ import (
 
 	"github.com/kardianos/service"
 
+	"etiquetas/agente/internal/atualizacao"
 	"etiquetas/agente/internal/cliente"
 	"etiquetas/agente/internal/config"
 	"etiquetas/agente/internal/estado"
@@ -35,6 +36,8 @@ import (
 var (
 	versao         = "dev"
 	servidorPadrao = ""
+	// Só nos builds assinados (.github/workflows/agente-release.yml).
+	chavePublicaAtualizacao = ""
 )
 
 const usoGeral = `Uso: etiquetas-agente [comando] [opções]
@@ -97,6 +100,7 @@ func (p *programa) Start(s service.Service) error {
 		st.Manter(ctx)
 	}()
 	if atualizacaoSuportada && !service.Interactive() && versao != "dev" {
+		atualizacao.ChavePublica = chavePublicaAtualizacao
 		go p.manterAtualizado(ctx, st)
 	}
 	go func() {

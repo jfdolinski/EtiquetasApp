@@ -12,8 +12,9 @@ import (
 )
 
 // Testes de integração, ligados no CI com bancos de verdade:
-//   AGENTE_TESTE_MYSQL=host:porta:usuario:senha:banco
-//   AGENTE_TESTE_MSSQL=host:porta:usuario:senha:banco
+//
+//	AGENTE_TESTE_MYSQL=host:porta:usuario:senha:banco
+//	AGENTE_TESTE_MSSQL=host:porta:usuario:senha:banco
 func conexaoDeTeste(t *testing.T, variavel, tipo string, opcoes protocolo.Opcoes) *Executor {
 	t.Helper()
 	partes := strings.Split(os.Getenv(variavel), ":")

@@ -194,6 +194,10 @@ func Preparar(ctx context.Context, servidor, executavel, versao string) error {
 	if err == nil && hex.EncodeToString(h.Sum(nil)) != esperado {
 		err = errors.New("o arquivo baixado não confere com o SHA-256 publicado")
 	}
+	// Assinatura antes de executar: conferir a versão já roda o arquivo.
+	if err == nil {
+		err = exigirAssinatura(ctx, servidor, versao, esperado)
+	}
 	if err == nil {
 		err = conferirExecutavel(ctx, novo, versao)
 	}
