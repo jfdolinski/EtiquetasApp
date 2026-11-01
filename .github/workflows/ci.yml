@@ -147,6 +147,10 @@ jobs:
           curl -fsS -o /dev/null http://localhost:8080/
           curl -fsS -o /dev/null http://localhost:8080/downloads/etiquetas-agente.exe
           curl -fsS http://localhost:8080/downloads/versao.txt
+          if [ -s apps/mobile/release-publicada.txt ]; then
+            curl -fsS http://localhost:8080/downloads/app-versao.txt
+            test "$(curl -fsS http://localhost:8080/downloads/etiquetas-app.apk | wc -c)" -gt 1000000
+          fi
           token=$(curl -fsS -X POST http://localhost:8080/api/auth/login -H 'Content-Type: application/json' \
             -d '{"email":"ci@exemplo.invalid","senha":"senha-do-ci-123"}' | sed -E 's/.*"token":"([^"]+)".*/\1/')
           test -n "$token"
