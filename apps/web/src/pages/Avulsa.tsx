@@ -4,9 +4,11 @@ import {
   colunaDeBusca,
   parametrosDaBusca,
   problemaNasFolhas,
+  registroBanido,
   registrosDoCodigo,
   somarResultados,
   textoCelula,
+  type BanirResposta,
   type BuscaAvulsaResposta,
   type ImpressoraResumo,
   type ImprimirResposta,
@@ -16,6 +18,7 @@ import {
 } from '@etiquetas/shared';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { BanirProdutos } from '../components/BanirProdutos';
 import { ExigeEmpresa } from '../components/ExigeEmpresa';
 import { AcompanharTrabalhos } from '../components/Trabalhos';
 import { Alerta, Botao, Cabecalho, Modal, Selecao } from '../components/ui';
@@ -102,6 +105,7 @@ function EtiquetaAvulsa() {
   const [buscando, setBuscando] = useState<ReadonlySet<string>>(new Set());
   const [erroLinha, setErroLinha] = useState<string | null>(null);
   const [escolha, setEscolha] = useState<{ linhaId: string; valor: string; registros: Registro[] } | null>(null);
+  const [banindo, setBanindo] = useState<LinhaAvulsa[] | null>(null);
   const primeiroParametro = useRef<HTMLInputElement>(null);
 
   const modelo = modelos.find((m) => m.id === modeloId) ?? modelos[0] ?? null;
@@ -179,6 +183,16 @@ function EtiquetaAvulsa() {
         return n;
       });
     }
+  }
+
+  /** Tudo o que ficou banido sai da lista, inclusive linhas repetidas que não estavam marcadas. */
+  function aposBanir(codigos: string[], r: BanirResposta) {
+    const banidos = new Set(codigos);
+    const restantes = listaAtual.current.filter((l) => !registroBanido(l.registro, banidos));
+    const fora = listaAtual.current.length - restantes.length;
+    lista.alterar(restantes);
+    setBanindo(null);
+    setAviso(`${r.incluidos} código(s) banido(s)` + (r.jaBanidos ? `, ${r.jaBanidos} já estava(m) banido(s)` : '') + `. ${fora} linha(s) saíram da lista.`);
   }
 
   function novaLinha() {
@@ -299,6 +313,7 @@ function EtiquetaAvulsa() {
             colunaBusca={colunaBusca}
             buscarProduto={(id, valor) => void buscarProduto(id, valor)}
             buscando={buscando}
+            banir={pode('produto_banido.editar') ? setBanindo : undefined}
             rodape={(visiveis) => {
               const itens = visiveis.filter((l) => l.quantidade > 0);
               const total = itens.reduce((s, l) => s + l.quantidade, 0);
@@ -336,6 +351,8 @@ function EtiquetaAvulsa() {
               );
             }}
           />
+
+          <BanirProdutos registros={banindo?.map((l) => l.registro) ?? null} aoFechar={() => setBanindo(null)} aoBanir={aposBanir} />
 
           {imprimir.error && <Alerta>{imprimir.error.message}</Alerta>}
           {envio && (

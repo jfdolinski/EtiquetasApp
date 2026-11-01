@@ -53,6 +53,14 @@ export class AtualizarItemDto {
   status?: 'PENDENTE' | 'DESCARTADO';
 }
 
+export class DescartarItensDto {
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Selecione ao menos um item.' })
+  @ArrayMaxSize(5000, { message: 'No máximo 5.000 itens por vez.' })
+  @IsUUID('all', { each: true })
+  ids: string[];
+}
+
 export class BuscarAvulsaDto {
   @IsUUID('all', { message: 'Selecione o modelo.' })
   modeloId: string;

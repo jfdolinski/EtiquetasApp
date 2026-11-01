@@ -3,7 +3,7 @@ import type { Response } from 'express';
 import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { AgendamentosService } from './agendamentos.service';
-import { AtualizarAgendamentoDto, AtualizarItemDto, BuscarAvulsaDto, CriarAgendamentoDto, ImprimirAvulsaDto, ImprimirListaDto } from './dto';
+import { AtualizarAgendamentoDto, AtualizarItemDto, BuscarAvulsaDto, CriarAgendamentoDto, DescartarItensDto, ImprimirAvulsaDto, ImprimirListaDto } from './dto';
 import { ListasService } from './listas.service';
 import { TrabalhosService } from './trabalhos.service';
 
@@ -25,6 +25,13 @@ export class ListasController {
   @RequerPermissao('imprimir')
   gerar(@EmpresaAtual() empresaId: string, @UsuarioAtual() usuario: UsuarioRequisicao) {
     return this.listas.gerar(empresaId, usuario.id);
+  }
+
+  @Post('itens/descartar')
+  @HttpCode(200)
+  @RequerPermissao('imprimir')
+  descartarItens(@EmpresaAtual() empresaId: string, @Body() dto: DescartarItensDto, @UsuarioAtual() usuario: UsuarioRequisicao) {
+    return this.listas.descartarItens(empresaId, dto.ids, usuario.id);
   }
 
   @Patch('itens/:id')

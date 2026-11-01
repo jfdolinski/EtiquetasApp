@@ -3,7 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   problemaNasFolhas,
   QUANTIDADE_MAXIMA_ITEM,
+  registroBanido,
   textoCelula,
+  type BanirResposta,
   type ImprimirResposta,
   type ItemListaResumo,
   type LimitesFolha,
@@ -11,6 +13,7 @@ import {
 } from '@etiquetas/shared';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { BanirProdutos } from '../components/BanirProdutos';
 import { ExigeEmpresa } from '../components/ExigeEmpresa';
 import { AcompanharTrabalhos } from '../components/Trabalhos';
 import { Alerta, Botao, Cabecalho, Selo, formatarData } from '../components/ui';
@@ -59,7 +62,7 @@ function agrupar(lista: ListaDiariaResumo, itens: ItemListaResumo[]): Grupo[] {
 }
 
 function ListaDoDia() {
-  const { empresaId } = useAuth();
+  const { empresaId, pode } = useAuth();
   const cliente = useQueryClient();
   const chave = ['lista-hoje', empresaId];
   const { data, isLoading, error } = useQuery({ queryKey: chave, queryFn: () => api<{ lista: ListaDiariaResumo | null }>('/listas/hoje') });
@@ -69,6 +72,8 @@ function ListaDoDia() {
   const [desmarcados, setDesmarcados] = useState<Set<string>>(new Set());
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
   const [envio, setEnvio] = useState<{ ids: string[]; avisos: string[] } | null>(null);
+  const [banindo, setBanindo] = useState<ItemListaResumo[] | null>(null);
+  const [resultado, setResultado] = useState<string | null>(null);
 
   const atualizarCache = (l: ListaDiariaResumo) => cliente.setQueryData(chave, { lista: l });
   const recarregar = () => void cliente.invalidateQueries({ queryKey: chave });
@@ -87,7 +92,12 @@ function ListaDoDia() {
     onSuccess: recarregar,
   });
 
-  const pendentes = useMemo(() => lista?.itens.filter((i) => i.status === 'PENDENTE') ?? [], [lista]);
+  const descartar = useMutation({
+    mutationFn: (ids: string[]) => api<{ descartados: number }>('/listas/itens/descartar', { metodo: 'POST', corpo: { ids } }),
+    onSuccess: recarregar,
+  });
+
+  const pendentes =useMemo(() => lista?.itens.filter((i) => i.status === 'PENDENTE') ?? [], [lista]);
   const grupos = useMemo(() => (lista ? agrupar(lista, pendentes) : []), [lista, pendentes]);
   const enviados = lista?.itens.filter((i) => i.status === 'NA_FILA' || i.status === 'IMPRESSO') ?? [];
   const descartados = lista?.itens.filter((i) => i.status === 'DESCARTADO') ?? [];
@@ -118,6 +128,21 @@ function ListaDoDia() {
     setDesmarcados(novo);
   }
 
+  function apagarSelecionados() {
+    if (!window.confirm(`Apagar ${selecionados.length} produto(s) da lista de hoje? Eles ficam em “Descartados hoje” e podem voltar à lista.`)) return;
+    setResultado(`${selecionados.length} produto(s) apagado(s) da lista.`);
+    descartar.mutate(selecionados.map((i) => i.id));
+  }
+
+  /** O produto pode estar em mais de um modelo: tudo o que ficou banido sai da lista, não só o marcado. */
+  function aposBanir(codigos: string[], r: BanirResposta) {
+    const banidos = new Set(codigos);
+    const ids = pendentes.filter((i) => registroBanido(i.registro, banidos)).map((i) => i.id);
+    setBanindo(null);
+    setResultado(`${r.incluidos} código(s) banido(s)` + (r.jaBanidos ? `, ${r.jaBanidos} já estava(m) banido(s)` : '') + `. ${ids.length} produto(s) saíram da lista.`);
+    if (ids.length) descartar.mutate(ids);
+  }
+
   if (isLoading) return <div className="text-sm text-slate-500">Carregando…</div>;
 
   return (
@@ -137,6 +162,7 @@ function ListaDoDia() {
       />
       <div className="space-y-4">
         {(error ?? gerar.error) && <Alerta>{(error ?? gerar.error)!.message}</Alerta>}
+        {descartar.error ? <Alerta>{descartar.error.message}</Alerta> : resultado && <Alerta tipo="info">{resultado}</Alerta>}
         {lista?.erros.map((e) => (
           <Alerta key={e.modeloId + e.mensagem} tipo="aviso">
             <strong>{e.modeloNome}:</strong> {e.mensagem}
@@ -226,6 +252,18 @@ function ListaDoDia() {
 
         {pendentes.length > 0 && (
           <div className="sticky bottom-0 flex flex-wrap items-center justify-end gap-3 rounded-lg border border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+            <label className="mr-auto flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={selecionados.length === pendentes.length} onChange={(e) => alternar(pendentes.map((i) => i.id), e.target.checked)} />
+              Marcar todos
+            </label>
+            {pode('produto_banido.editar') && (
+              <Botao variante="secundario" disabled={selecionados.length === 0} onClick={() => setBanindo(selecionados)}>
+                Banir selecionados
+              </Botao>
+            )}
+            <Botao variante="secundario" disabled={descartar.isPending || selecionados.length === 0} onClick={apagarSelecionados}>
+              Apagar selecionados
+            </Botao>
             <span className="text-sm text-slate-600">
               {selecionados.length} produto(s) · <strong>{totalEtiquetas}</strong> etiqueta(s)
             </span>
@@ -235,6 +273,7 @@ function ListaDoDia() {
           </div>
         )}
         {imprimir.error && <Alerta>{imprimir.error.message}</Alerta>}
+        <BanirProdutos registros={banindo?.map((i) => i.registro) ?? null} aoFechar={() => setBanindo(null)} aoBanir={aposBanir} />
 
         {envio && (
           <div className="space-y-2">

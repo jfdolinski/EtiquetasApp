@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { codigoBarrasValido, codigosDoRegistro, normalizarCodigoBarras, registroBanido } from './banidos';
+import { codigoBarrasValido, codigosDoRegistro, codigosValidosDoRegistro, normalizarCodigoBarras, registroBanido } from './banidos';
 
 describe('produtos banidos', () => {
   it('normaliza o código: espaços, traços e zeros à esquerda', () => {
@@ -26,5 +26,11 @@ describe('produtos banidos', () => {
     expect(registroBanido({ ean: 789 }, banidos)).toBe(true);
     expect(registroBanido({ ean: '790', codigo: '789' }, banidos)).toBe(false);
     expect(registroBanido({ ean: '789' }, new Set())).toBe(false);
+  });
+
+  it('para banir pela tela: sem repetir e sem o que o cadastro recusaria', () => {
+    expect(codigosValidosDoRegistro({ ean: '0789', gtin: '789' })).toEqual(['789']);
+    expect(codigosValidosDoRegistro({ ean: 'não é código!' })).toEqual([]);
+    expect(codigosValidosDoRegistro({ ean: '', descricao: 'linha sem código' })).toEqual([]);
   });
 });

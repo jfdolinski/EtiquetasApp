@@ -37,6 +37,8 @@ interface Props {
   buscarProduto?: (linhaId: string, valor: string) => void;
   /** Linhas com busca em andamento. */
   buscando?: ReadonlySet<string>;
+  /** Abre a confirmação para banir as linhas selecionadas (sem permissão, o botão não aparece). */
+  banir?: (linhas: LinhaAvulsa[]) => void;
   /** Abaixo da grade, com as linhas visíveis (a impressão usa as mesmas). */
   rodape?: (visiveis: LinhaAvulsa[]) => ReactNode;
 }
@@ -45,7 +47,7 @@ interface Props {
  * Grade editável da etiqueta avulsa: filtro geral e por coluna, ordenação pelo cabeçalho,
  * edição na célula, seleção, exclusão, duplicação e alteração em massa.
  */
-export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfazer, desfazer, novaLinha, focarId, colunaBusca, buscarProduto, buscando, rodape }: Props) {
+export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfazer, desfazer, novaLinha, focarId, colunaBusca, buscarProduto, buscando, banir, rodape }: Props) {
   const [busca, setBusca] = useState('');
   const [filtros, setFiltros] = useState<Record<string, string>>({});
   const [mostrarFiltros, setMostrarFiltros] = useState(false);
@@ -171,8 +173,13 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
           Alterar em massa
         </Botao>
         <Botao variante="secundario" onClick={() => excluir(selecionadasVisiveis)} disabled={selecionadasVisiveis.length === 0}>
-          Excluir selecionadas{selecionadasVisiveis.length ? ` (${selecionadasVisiveis.length})` : ''}
+          Apagar selecionadas{selecionadasVisiveis.length ? ` (${selecionadasVisiveis.length})` : ''}
         </Botao>
+        {banir && (
+          <Botao variante="secundario" onClick={() => banir(visiveis.filter((l) => selecionadas.has(l.id)))} disabled={selecionadasVisiveis.length === 0}>
+            Banir selecionadas{selecionadasVisiveis.length ? ` (${selecionadasVisiveis.length})` : ''}
+          </Botao>
+        )}
         <Botao variante="secundario" onClick={desfazer} disabled={!podeDesfazer} title="Desfaz a última alteração da lista">
           ↶ Desfazer
         </Botao>

@@ -108,6 +108,13 @@ function montarListas(itens: Record<string, unknown>[], banidos: string[] = []) 
 const item = (id: string, quantidade: number, ean = id, modelo: Record<string, unknown> = { id: 'm1', nome: 'Gôndola', layout: LAYOUT, ativo: true }) => ({ id, quantidade, registro: { ean }, modelo, impressora: IMPRESSORA });
 
 describe('Lista do dia', () => {
+  it('descartar em lote só mexe nos pendentes da empresa', async () => {
+    const { servico, prisma } = montarListas([]);
+    const r = await servico.descartarItens(EMPRESA, ['a', 'b'], 'u1');
+    expect(prisma.itemLista.updateMany).toHaveBeenCalledWith({ where: { id: { in: ['a', 'b'] }, empresaId: EMPRESA, status: 'PENDENTE' }, data: { status: 'DESCARTADO' } });
+    expect(r).toEqual({ descartados: 1 });
+  });
+
   it('modelo fora do limite fica pendente com aviso; o outro segue', async () => {
     const outro = { id: 'm2', nome: 'Livre', layout: { ...LAYOUT, minimoPorFolha: 1, maximoPorFolha: 6 }, ativo: true };
     const { servico, trabalhos, prisma } = montarListas([item('a', 3), item('b', 1, 'b', outro)]);

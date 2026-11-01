@@ -274,6 +274,15 @@ export class ListasService {
     return { ...atualizado, registro: atualizado.registro as Registro, impressoEm: atualizado.impressoEm?.toISOString() ?? null };
   }
 
+  /** Tira vários itens da lista de uma vez. Só os pendentes: o que já foi enviado fica como está. */
+  async descartarItens(empresaId: string, ids: string[], usuarioId: string) {
+    const { count } = await this.prisma.itemLista.updateMany({ where: { id: { in: ids }, empresaId, status: 'PENDENTE' }, data: { status: 'DESCARTADO' } });
+    if (count > 0) {
+      await this.auditoria.registrar({ empresaId, usuarioId, acao: 'lista.item.descartado', entidade: 'ItemLista', detalhes: { quantidade: count, ids: ids.slice(0, 100) } });
+    }
+    return { descartados: count };
+  }
+
   /** Impressão em lote: separa os itens por modelo e impressora e cria um trabalho por grupo. */
   async imprimirLista(
     empresaId: string,

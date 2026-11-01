@@ -42,3 +42,8 @@ export function codigosDoRegistro(registro: Registro): string[] {
 export function registroBanido(registro: Registro, banidos: ReadonlySet<string>): boolean {
   return banidos.size > 0 && codigosDoRegistro(registro).some((c) => banidos.has(c));
 }
+
+/** Códigos que dá para banir a partir de um registro (ignora o que o cadastro recusaria). */
+export function codigosValidosDoRegistro(registro: Registro): string[] {
+  return [...new Set(codigosDoRegistro(registro).filter(codigoBarrasValido))];
+}
