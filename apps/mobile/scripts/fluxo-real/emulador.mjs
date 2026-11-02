@@ -123,7 +123,9 @@ try {
 } catch {
   // Alguns emuladores recusam limpar o log; só fica mais comprido.
 }
-const link = `etiquetas://vincular?servidor=${encodeURIComponent('http://10.0.2.2:3000')}&codigo=${fluxo.codigo}`;
+// O código vale 5 minutos e o APK leva mais do que isso para compilar: pede agora.
+const vinculo = await fetch(`${API}/app/vinculos`, { method: 'POST', headers: { authorization: `Bearer ${fluxo.token}`, 'x-forwarded-for': '10.2.0.1' } }).then((r) => r.json());
+const link = `etiquetas://vincular?servidor=${encodeURIComponent('http://10.0.2.2:3000')}&codigo=${vinculo.codigo}`;
 adb(`shell am start -a android.intent.action.VIEW -d "'${link}'" ${PACOTE}`);
 await espera(3000);
 await confere('=Vincular', 90_000);
