@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Constants from 'expo-constants';
@@ -41,6 +41,8 @@ export function App() {
     <SafeAreaProvider>
       <StatusBar style="dark" />
       <SafeAreaView style={{ flex: 1, backgroundColor: cores.branco }} edges={['top', 'bottom']}>
+        {/* A tela encolhe com o teclado: no Android novo ele fica por cima do conteúdo. */}
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'web' ? undefined : 'padding'}>
         {carregando ? (
           <View style={estilos.centro}><ActivityIndicator size="large" color={cores.azul} /></View>
         ) : sessao ? (
@@ -48,6 +50,7 @@ export function App() {
         ) : (
           <TelaVincular motivo={motivo} aoVincular={(s) => { setMotivo(null); setSessao(s); }} />
         )}
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </SafeAreaProvider>
   );

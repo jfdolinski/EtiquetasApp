@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
-import { ActivityIndicator, Alert, FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useCameraPermissions } from 'expo-camera';
 import type { BuscaAvulsaResposta, ImprimirResposta, ModeloAvulso } from '../../../packages/shared/src/impressao';
 import { abrirPdfDoTrabalho, type Api, type Sessao } from './api';
@@ -79,6 +79,8 @@ export function TelaAvulsa({ api, sessao, memoria, setMemoria }: { api: Api; ses
   async function buscar(valor: string) {
     const termo = valor.trim();
     if (!modelo || !termo) return;
+    // Aberto, o teclado cobre a lista e o botão de imprimir.
+    Keyboard.dismiss();
     setBuscando(true);
     setErro(null);
     setAviso(null);
