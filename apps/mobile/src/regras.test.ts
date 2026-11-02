@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { adicionarProduto, colunasVisiveis, parametrosDaBusca, registrosDoCodigo, avisosNovos, chavesDosAvisos, codigoValido, lerQrDeVinculo, pendentesPorModelo, quantidadeValida, servidorValido, tempoDesde, versaoMaisNova } from './regras.ts';
+import { adicionarProduto, colunasVisiveis, corpoDaBusca, impressoraDoModelo, parametrosDaBusca, registrosDoCodigo, avisosNovos, chavesDosAvisos, codigoValido, lerQrDeVinculo, pendentesPorModelo, quantidadeValida, servidorValido, tempoDesde, versaoMaisNova } from './regras.ts';
 
 test('QR de vínculo: lê o formato certo', () => {
   assert.deepEqual(lerQrDeVinculo('etiquetas://vincular?servidor=https%3A%2F%2Fapp.exemplo.com&codigo=ABCDEFGH23'), { servidor: 'https://app.exemplo.com', codigo: 'ABCDEFGH23' });
@@ -80,10 +80,10 @@ test('avisos novos: a primeira carga não avisa; repetição e novo avisam; reso
   assert.deepEqual(avisosNovos([{ id: 'c', vezes: 1, resolvidaEm: 'x' }], vistos), []);
 });
 
-test('sempre as 3 primeiras colunas, na ordem do modelo', () => {
-  assert.deepEqual(colunasVisiveis(['codigo', 'descricao', 'preco', 'estoque'], [{ preco: 1, codigo: 2 }]), ['codigo', 'descricao', 'preco']);
-  // Modelo sem colunas cadastradas: usa as dos registros. Com menos de 3: completa.
-  assert.deepEqual(colunasVisiveis([], [{ a: 1, b: 2, c: 3, d: 4 }]), ['a', 'b', 'c']);
+test('sempre as 5 primeiras colunas, na ordem do modelo', () => {
+  assert.deepEqual(colunasVisiveis(['codigo', 'descricao', 'preco', 'unidade', 'marca', 'estoque'], [{ preco: 1, codigo: 2 }]), ['codigo', 'descricao', 'preco', 'unidade', 'marca']);
+  // Modelo sem colunas cadastradas: usa as dos registros. Com menos de 5: completa.
+  assert.deepEqual(colunasVisiveis([], [{ a: 1, b: 2, c: 3, d: 4, e: 5, f: 6 }]), ['a', 'b', 'c', 'd', 'e']);
   assert.deepEqual(colunasVisiveis(['a'], [{ a: 1, b: 2 }]), ['a', 'b']);
   assert.deepEqual(colunasVisiveis([], []), []);
 });
@@ -112,4 +112,19 @@ test('ler o mesmo produto soma uma etiqueta', () => {
   assert.equal(dois.linhas.length, 1);
   assert.equal(dois.linhas[0].quantidade, 2);
   assert.equal(adicionarProduto(dois.linhas, { ean: '2' }, () => 'z').linhas.length, 2);
+});
+
+test('impressora: a escolhida, depois a padrão, depois a única', () => {
+  const duas = [{ id: 'a', nome: 'A' }, { id: 'b', nome: 'B' }];
+  assert.equal(impressoraDoModelo('b', 'a', duas), 'b');
+  assert.equal(impressoraDoModelo(null, 'a', duas), 'a');
+  // Padrão que não existe mais: não há o que escolher sozinho entre duas.
+  assert.equal(impressoraDoModelo(null, 'pdf', duas), null);
+  assert.equal(impressoraDoModelo('sumiu', 'pdf', [duas[0]]), 'a');
+  assert.equal(impressoraDoModelo(null, null, []), null);
+});
+
+test('busca: com parâmetro vai nele; sem parâmetro, o termo vai para o servidor procurar', () => {
+  assert.deepEqual(corpoDaBusca('m', ['busca'], '789'), { modeloId: 'm', parametros: { busca: '789' } });
+  assert.deepEqual(corpoDaBusca('m', [], '789'), { modeloId: 'm', parametros: {}, termo: '789' });
 });

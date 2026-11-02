@@ -1,5 +1,7 @@
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import { Directory, File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import type { UsuarioLogado } from '../../../packages/shared/src/tipos';
 
 export interface Sessao {
@@ -101,4 +103,17 @@ export async function versaoPublicada(servidor: string): Promise<string | null> 
   } catch {
     return null;
   }
+}
+
+/** Baixa o PDF de um trabalho e abre a tela do Android para imprimir, salvar ou compartilhar. */
+export async function abrirPdfDoTrabalho(sessao: Sessao, trabalhoId: string): Promise<void> {
+  if (Platform.OS === 'web') return;
+  const pasta = new Directory(Paths.cache, 'pdf');
+  pasta.create({ idempotent: true, intermediates: true });
+  const destino = new File(pasta, `etiquetas-${trabalhoId.slice(0, 8)}.pdf`);
+  if (destino.exists) destino.delete();
+  const arquivo = await File.downloadFileAsync(`${sessao.servidor}/api/trabalhos/${trabalhoId}/conteudo`, destino, {
+    headers: { Authorization: `Bearer ${sessao.token}`, 'X-Empresa-Id': sessao.empresaId },
+  });
+  await Sharing.shareAsync(arquivo.uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: 'Imprimir ou compartilhar as etiquetas' });
 }

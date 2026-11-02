@@ -10,7 +10,7 @@ import { apagarSessao, clienteDa, gravarSessao, lerSessao, versaoPublicada, type
 import { avisarAgora, prepararNotificacoes, tokenDePush } from './avisos';
 import { avisosNovos, chavesDosAvisos, versaoMaisNova } from './regras';
 import { TelaAvisos } from './TelaAvisos';
-import { TelaAvulsa } from './TelaAvulsa';
+import { MEMORIA_AVULSA_VAZIA, TelaAvulsa, type MemoriaAvulsa } from './TelaAvulsa';
 import { TelaInicio } from './TelaInicio';
 import { TelaLista } from './TelaLista';
 import { TelaVincular } from './TelaVincular';
@@ -60,6 +60,8 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
   const [carregandoAvisos, setCarregandoAvisos] = useState(false);
   const [recebeFechado, setRecebeFechado] = useState(false);
   const [versaoNova, setVersaoNova] = useState<string | null>(null);
+  // Aqui, e não na tela: ir a outra guia e voltar não perde a lista que está sendo lida.
+  const [memoriaAvulsa, setMemoriaAvulsa] = useState<MemoriaAvulsa>(MEMORIA_AVULSA_VAZIA);
   const vistos = useRef<Set<string> | null>(null);
   const usuario = sessao.usuario;
   const podeVerAvisos = usuario.superAdmin || usuario.permissoes.includes('notificacao.ver');
@@ -167,12 +169,7 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
       <View style={{ flex: 1 }}>
         {aba === 'inicio' && <TelaInicio api={api} usuario={usuario} irParaLista={() => setAba('lista')} />}
         {aba === 'lista' && <TelaLista api={api} usuario={usuario} />}
-        {/* Fica montada: ir a outra guia e voltar não perde a lista que está sendo lida. */}
-        {podeImprimir && (
-          <View style={{ flex: 1, display: aba === 'avulsa' ? 'flex' : 'none' }}>
-            <TelaAvulsa api={api} />
-          </View>
-        )}
+        {aba === 'avulsa' && podeImprimir && <TelaAvulsa api={api} sessao={sessao} memoria={memoriaAvulsa} setMemoria={setMemoriaAvulsa} />}
         {aba === 'avisos' && (
           <TelaAvisos
             usuario={usuario}

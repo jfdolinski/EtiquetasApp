@@ -104,7 +104,13 @@ export interface LinhaAvulsa {
   quantidade: number;
 }
 
-export const COLUNAS_NO_CELULAR = 3;
+export const COLUNAS_NO_CELULAR = 5;
+
+export interface ImpressoraApp {
+  id: string;
+  nome: string;
+  linguagem: string;
+}
 
 export function textoCelula(v: unknown): string {
   if (v === null || v === undefined) return '';
@@ -141,4 +147,15 @@ export function adicionarProduto(linhas: readonly LinhaAvulsa[], registro: Regis
   const igual = linhas.find((l) => JSON.stringify(l.registro) === JSON.stringify(registro));
   if (igual) return { linhas: linhas.map((l) => (l === igual ? { ...l, quantidade: l.quantidade + 1 } : l)), repetida: igual };
   return { linhas: [{ id: novoId(), registro, quantidade: 1 }, ...linhas], repetida: null };
+}
+
+/** Com parâmetro, a consulta filtra; sem, o servidor lê as linhas e procura o termo nelas. */
+export function corpoDaBusca(modeloId: string, parametros: readonly string[], termo: string) {
+  return parametros.length ? { modeloId, parametros: parametrosDaBusca(parametros, termo) } : { modeloId, parametros: {}, termo };
+}
+
+/** A escolhida à mão, se ainda existir; senão a padrão do modelo; senão, havendo só uma, ela. */
+export function impressoraDoModelo(escolhida: string | null, padrao: string | null, disponiveis: readonly Pick<ImpressoraApp, 'id'>[]): string | null {
+  for (const id of [escolhida, padrao]) if (id && disponiveis.some((i) => i.id === id)) return id;
+  return disponiveis.length === 1 ? disponiveis[0].id : null;
 }

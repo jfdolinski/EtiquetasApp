@@ -3,7 +3,7 @@ import { Alert, FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text,
 import type { ImprimirResposta, ItemListaResumo, ListaDiariaResumo } from '../../../packages/shared/src/impressao';
 import type { UsuarioLogado } from '../../../packages/shared/src/tipos';
 import type { Api } from './api';
-import { TitulosColunas, ValoresColunas } from './colunas';
+import { CamposDoProduto } from './colunas';
 import { colunasVisiveis, pendentesPorModelo, quantidadeValida } from './regras';
 import { Alerta, Botao, cores } from './ui';
 
@@ -142,18 +142,10 @@ export function TelaLista({ api, usuario }: { api: Api; usuario: UsuarioLogado }
     if (l.tipo === 'modelo') {
       const todos = l.ids.every((id) => marcados.has(id));
       return (
-        <>
-          <View style={estilos.modelo}>
-            <Text accessibilityRole="header" style={estilos.modeloNome} numberOfLines={2}>{l.nome} ({l.ids.length})</Text>
-            {podeAprovar && <Text accessibilityRole="button" style={estilos.marcarTodos} onPress={() => alternar(l.ids, !todos)}>{todos ? 'Desmarcar' : 'Marcar todos'}</Text>}
-          </View>
-          <View style={estilos.titulos}>
-            {/* Alinhado com as linhas: caixa de marcar à esquerda, quantidade à direita. */}
-            {podeAprovar && <View style={{ width: 26 }} />}
-            <TitulosColunas colunas={l.colunas} />
-            <Text style={estilos.tituloQtd}>Qtd.</Text>
-          </View>
-        </>
+        <View style={estilos.modelo}>
+          <Text accessibilityRole="header" style={estilos.modeloNome} numberOfLines={2}>{l.nome} ({l.ids.length})</Text>
+          {podeAprovar && <Text accessibilityRole="button" style={estilos.marcarTodos} onPress={() => alternar(l.ids, !todos)}>{todos ? 'Desmarcar' : 'Marcar todos'}</Text>}
+        </View>
       );
     }
     const i = l.item;
@@ -170,10 +162,12 @@ export function TelaLista({ api, usuario }: { api: Api; usuario: UsuarioLogado }
       >
         {podeAprovar && <View style={[estilos.caixa, marcado && estilos.caixaMarcada]}>{marcado && <Text style={estilos.visto}>✓</Text>}</View>}
         <View style={{ flex: 1 }}>
-          <ValoresColunas colunas={l.colunas} registro={i.registro} />
+          <CamposDoProduto colunas={l.colunas} registro={i.registro} />
           {!i.impressoraId && <Text style={estilos.problema}>Modelo sem impressora</Text>}
           {emPdf && <Text style={estilos.problema}>Sai em PDF: imprima pelo computador</Text>}
         </View>
+        <View style={{ alignItems: 'center', gap: 4 }}>
+          <Text style={estilos.tituloQtd}>Qtd.</Text>
         <TextInput
           accessibilityLabel={`Quantidade de ${i.descricao}`}
           editable={podeAprovar}
@@ -184,6 +178,7 @@ export function TelaLista({ api, usuario }: { api: Api; usuario: UsuarioLogado }
           selectTextOnFocus
           onChangeText={(t) => setQuantidades((q) => ({ ...q, [i.id]: t }))}
         />
+        </View>
       </Pressable>
     );
   }
@@ -228,13 +223,12 @@ const estilos = StyleSheet.create({
   modelo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 16, marginBottom: 6 },
   modeloNome: { flex: 1, fontSize: 15, fontWeight: '600', color: cores.texto },
   marcarTodos: { color: cores.azul, fontSize: 14, fontWeight: '600', paddingVertical: 8 },
-  item: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 64, backgroundColor: cores.branco, borderWidth: 1, borderColor: cores.borda, borderRadius: 10, padding: 10, marginBottom: 8 },
+  item: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, minHeight: 64, backgroundColor: cores.branco, borderWidth: 1, borderColor: cores.borda, borderRadius: 10, padding: 10, marginBottom: 8 },
   itemMarcado: { borderColor: cores.azul, backgroundColor: cores.azulClaro },
   caixa: { width: 26, height: 26, borderRadius: 6, borderWidth: 2, borderColor: '#94a3b8', backgroundColor: cores.branco, alignItems: 'center', justifyContent: 'center' },
   caixaMarcada: { borderColor: cores.azul, backgroundColor: cores.azul },
   visto: { color: cores.branco, fontWeight: '700', fontSize: 16 },
-  titulos: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, marginBottom: 6 },
-  tituloQtd: { width: 56, textAlign: 'center', fontSize: 11, fontWeight: '700', color: cores.suave, textTransform: 'uppercase' },
+  tituloQtd: { fontSize: 11, fontWeight: '700', color: cores.suave, textTransform: 'uppercase' },
   problema: { fontSize: 12, color: cores.aviso, marginTop: 2 },
   quantidade: { width: 56, height: 44, borderWidth: 1, borderColor: cores.borda, borderRadius: 8, backgroundColor: cores.branco, textAlign: 'center', fontSize: 16, color: cores.texto },
   rodape: { flexDirection: 'row', gap: 10, padding: 12, backgroundColor: cores.branco, borderTopWidth: 1, borderTopColor: cores.borda },

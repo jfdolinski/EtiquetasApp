@@ -2,6 +2,7 @@ import { BadRequestException, HttpException, Injectable, NotFoundException } fro
 import { Prisma } from '@prisma/client';
 import {
   camposUsados,
+  filtrarPorTermo,
   chaveDoRegistro,
   descricaoDoRegistro,
   ehParametro,
@@ -393,15 +394,18 @@ export class ListasService {
   }
 
   /** Consulta ao vivo no banco do cliente (via agente) para a etiqueta avulsa. */
-  async buscarAvulsa(empresaId: string, modeloId: string, parametros: Record<string, string | null>, usuarioId: string): Promise<BuscaAvulsaResposta> {
+  async buscarAvulsa(empresaId: string, modeloId: string, parametros: Record<string, string | null>, usuarioId: string, termo?: string): Promise<BuscaAvulsaResposta> {
     const modelo = await this.prisma.modeloEtiqueta.findFirst({ where: { id: modeloId, empresaId, ativo: true }, select: { consultaId: true } });
     if (!modelo) throw new NotFoundException('Modelo não encontrado.');
     if (!modelo.consultaId) throw new BadRequestException('Este modelo não tem consulta vinculada.');
-    const r = await this.consultas.executar(empresaId, modelo.consultaId, usuarioId, parametros, LIMITE_LINHAS_BUSCA);
+    // Sem {param.*} a consulta não filtra: lê mais linhas e procura o termo aqui.
+    const procurarAqui = Boolean(termo?.trim()) && Object.keys(parametros).length === 0;
+    const r = await this.consultas.executar(empresaId, modelo.consultaId, usuarioId, parametros, procurarAqui ? LIMITE_LINHAS_LISTA : LIMITE_LINHAS_BUSCA);
     const banidos = await this.banidos.conjunto(empresaId);
-    const todos = linhasParaRegistros(r.colunas, r.linhas);
+    const linhas = linhasParaRegistros(r.colunas, r.linhas);
+    const todos = procurarAqui ? filtrarPorTermo(linhas, termo!).slice(0, LIMITE_LINHAS_BUSCA) : linhas;
     const registros = todos.filter((x) => !registroBanido(x, banidos));
-    return { registros, colunas: r.colunas.map((c) => c.nome), banidos: todos.length - registros.length };
+    return { registros, colunas: r.colunas.map((c) => c.nome), banidos: todos.length - registros.length, incompleta: procurarAqui && r.truncado ? true : undefined };
   }
 
   async imprimirAvulsa(empresaId: string, dto: ImprimirAvulsaDto, usuarioId: string): Promise<ImprimirResposta> {

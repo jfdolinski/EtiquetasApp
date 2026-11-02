@@ -76,7 +76,7 @@ export class AvulsaController {
   @HttpCode(200)
   @RequerPermissao('imprimir')
   buscar(@EmpresaAtual() empresaId: string, @Body() dto: BuscarAvulsaDto, @UsuarioAtual() usuario: UsuarioRequisicao) {
-    return this.listas.buscarAvulsa(empresaId, dto.modeloId, dto.parametros ?? {}, usuario.id);
+    return this.listas.buscarAvulsa(empresaId, dto.modeloId, dto.parametros ?? {}, usuario.id, dto.termo);
   }
 
   @Post('imprimir')
@@ -101,6 +101,7 @@ export class TrabalhosController {
   }
 
   @Get(':id/conteudo')
+  @PermitidoNoApp()
   @RequerPermissao('imprimir')
   async conteudo(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
     const t = await this.trabalhos.conteudo(empresaId, id);

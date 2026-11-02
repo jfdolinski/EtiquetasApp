@@ -237,20 +237,28 @@ export class AppMovelController {
     return { trabalhos: r.trabalhos, avisos: [...avisos, ...r.avisos] };
   }
 
+  /** Impressoras que o celular pode usar. A PDF sai como arquivo, aberto no próprio celular. */
+  @Get('impressoras')
+  @PermitidoNoApp()
+  @RequerPermissao('imprimir')
+  impressoras(@EmpresaAtual() empresaId: string) {
+    return this.prisma.impressora.findMany({ where: { empresaId, ativo: true }, orderBy: { nome: 'asc' }, select: { id: true, nome: true, linguagem: true } });
+  }
+
   /**
-   * Avulsa pelo celular: sempre na impressora padrão do modelo. PDF fica de fora, como na lista:
-   * o arquivo seria gerado e o trabalho ficaria concluído sem ninguém ter impresso.
+   * Avulsa pelo celular, na impressora escolhida ou na padrão do modelo. Em PDF o trabalho já nasce
+   * concluído e o app baixa o arquivo para o usuário imprimir ou compartilhar.
    */
   @Post('avulsa/imprimir')
   @PermitidoNoApp()
   @HttpCode(200)
   @RequerPermissao('imprimir')
   async imprimirAvulsa(@EmpresaAtual() empresaId: string, @Body() dto: ImprimirAvulsaDto, @UsuarioAtual() usuario: UsuarioRequisicao): Promise<ImprimirResposta> {
-    const modelo = await this.prisma.modeloEtiqueta.findFirst({ where: { id: dto.modeloId, empresaId }, select: { impressora: { select: { linguagem: true } } } });
+    const modelo = await this.prisma.modeloEtiqueta.findFirst({ where: { id: dto.modeloId, empresaId }, select: { impressoraId: true } });
     if (!modelo) throw new NotFoundException('Modelo não encontrado.');
-    if (!modelo.impressora) throw new BadRequestException('Este modelo não tem impressora padrão. Defina no sistema, em Modelos de etiqueta.');
-    if (modelo.impressora.linguagem === 'PDF') throw new BadRequestException('Este modelo sai em PDF: imprima pelo computador.');
-    const r = await this.listas.imprimirAvulsa(empresaId, { ...dto, impressoraId: undefined }, usuario.id);
+    const impressoraId = dto.impressoraId ?? modelo.impressoraId;
+    if (!impressoraId) throw new BadRequestException('Escolha a impressora: este modelo não tem uma padrão.');
+    const r = await this.listas.imprimirAvulsa(empresaId, { ...dto, impressoraId }, usuario.id);
     await this.auditoria.registrar({ empresaId, usuarioId: usuario.id, acao: 'app.imprimir_avulsa', entidade: 'ModeloEtiqueta', entidadeId: dto.modeloId, detalhes: { itens: dto.itens.length, dispositivoId: usuario.dispositivoId ?? null } });
     return r;
   }

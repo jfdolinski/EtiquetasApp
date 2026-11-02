@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { criarEmpresa, login, montarListaDeHoje, pedir, sql, superToken, vincularCelular, type EmpresaTeste } from './apoio';
+import { API, criarEmpresa, login, montarListaDeHoje, pedir, sql, superToken, vincularCelular, type EmpresaTeste } from './apoio';
 
 let tokenSuper: string;
 let a: EmpresaTeste;
@@ -176,6 +176,23 @@ test.describe('etiqueta avulsa pelo celular', () => {
     expect(r.j.trabalhos[0]).toMatchObject({ quantidadeEtiquetas: 3, origem: 'AVULSA', impressoraId });
   });
 
+  test('escolher a impressora: outra da empresa vale, de outra empresa não', async () => {
+    const empresa = await criarEmpresa(tokenSuper);
+    const { modeloId, impressoraId } = await montarListaDeHoje(empresa);
+    const pdf = await montarListaDeHoje(empresa, { linguagem: 'PDF', produtos: [] });
+    const outra = await criarEmpresa(tokenSuper);
+    const deOutra = await montarListaDeHoje(outra, { produtos: [] });
+    const c = await vincularCelular(empresa.adminToken);
+    const lista = await pedir('GET', '/app/impressoras', { token: c.token });
+    expect(lista.j.map((i: any) => i.id).sort()).toEqual([impressoraId, pdf.impressoraId].sort());
+    expect(Object.keys(lista.j[0]).sort()).toEqual(['id', 'linguagem', 'nome']);
+    expect((await pedir('POST', '/app/avulsa/imprimir', { token: c.token, corpo: { modeloId, impressoraId: deOutra.impressoraId, itens } })).status).toBe(400);
+    await sql(`UPDATE modelos_etiqueta SET impressora_id = NULL WHERE id = $1`, [modeloId]);
+    const r = await pedir('POST', '/app/avulsa/imprimir', { token: c.token, corpo: { modeloId, impressoraId, itens } });
+    expect(r.status, JSON.stringify(r.j)).toBe(200);
+    expect(r.j.trabalhos[0].impressoraId).toBe(impressoraId);
+  });
+
   test('a rota de imprimir do site não aceita o token do celular', async () => {
     const empresa = await criarEmpresa(tokenSuper);
     const { modeloId } = await montarListaDeHoje(empresa);
@@ -183,17 +200,29 @@ test.describe('etiqueta avulsa pelo celular', () => {
     expect((await pedir('POST', '/avulsa/imprimir', { token: c.token, corpo: { modeloId, itens } })).status).toBe(403);
   });
 
-  test('PDF e modelo sem impressora são recusados, sem criar trabalho', async () => {
+  test('PDF: o trabalho nasce concluído e o celular baixa o arquivo; de outra empresa, não', async () => {
     const empresa = await criarEmpresa(tokenSuper);
     const { modeloId } = await montarListaDeHoje(empresa, { linguagem: 'PDF' });
     const c = await vincularCelular(empresa.adminToken);
     const pdf = await pedir('POST', '/app/avulsa/imprimir', { token: c.token, corpo: { modeloId, itens } });
-    expect(pdf.status).toBe(400);
-    expect(pdf.j.message).toContain('PDF');
+    expect(pdf.status, JSON.stringify(pdf.j)).toBe(200);
+    expect(pdf.j.trabalhos[0]).toMatchObject({ status: 'CONCLUIDO', linguagem: 'PDF', quantidadeEtiquetas: 3 });
+    const baixar = (token: string) => fetch(`${API}/trabalhos/${pdf.j.trabalhos[0].id}/conteudo`, { headers: { authorization: `Bearer ${token}` } });
+    const arquivo = await baixar(c.token);
+    expect(arquivo.status).toBe(200);
+    expect(Buffer.from(await arquivo.arrayBuffer()).subarray(0, 4).toString()).toBe('%PDF');
+    const outra = await criarEmpresa(tokenSuper);
+    expect((await baixar((await vincularCelular(outra.adminToken)).token)).status).toBe(404);
+  });
+
+  test('modelo sem impressora é recusado, sem criar trabalho', async () => {
+    const empresa = await criarEmpresa(tokenSuper);
+    const { modeloId } = await montarListaDeHoje(empresa);
+    const c = await vincularCelular(empresa.adminToken);
     await sql(`UPDATE modelos_etiqueta SET impressora_id = NULL WHERE id = $1`, [modeloId]);
     const sem = await pedir('POST', '/app/avulsa/imprimir', { token: c.token, corpo: { modeloId, itens } });
     expect(sem.status).toBe(400);
-    expect(sem.j.message).toContain('impressora padrão');
+    expect(sem.j.message).toContain('Escolha a impressora');
     const [{ total }] = await sql(`SELECT count(*)::int AS total FROM trabalhos_impressao WHERE empresa_id = $1`, [empresa.id]);
     expect(total).toBe(0);
   });

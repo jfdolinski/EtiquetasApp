@@ -137,6 +137,31 @@ await espera(5000);
 print('avulsa-enviada');
 await confere('enviada', 15_000);
 
+// Consulta sem parâmetro, saindo em PDF: o caso do cliente real.
+await tocar('Tabela sem parametro');
+await tocar('Cartazes');
+await digitar('Código de barras, código ou nome', '7891000100110');
+adb('shell input keyevent 4');
+await espera(800);
+await tocar('Buscar');
+await confere('Arroz branco', 20_000);
+print('avulsa-sem-parametro');
+await tocar('Gerar PDF');
+await espera(1500);
+{
+  const m = /resource-id="android:id\/button1"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(lerTela());
+  if (m) adb(`shell input tap ${Math.round((+m[1] + +m[3]) / 2)} ${Math.round((+m[2] + +m[4]) / 2)}`);
+  else falha('o diálogo de gerar PDF não apareceu');
+}
+await espera(6000);
+print('pdf-compartilhar');
+log(`tela depois do PDF: ${textosDaTela(lerTela()).slice(0, 30).join(' | ')}`);
+// A tela do Android para abrir o PDF fica por cima: volta para o app.
+if (!centro(lerTela(), 'Etiqueta avulsa')) adb('shell input keyevent 4');
+await espera(1500);
+await confere('gerado', 10_000);
+print('pdf-gerado');
+
 // Câmera: abre e volta (o emulador não tem código de barras para ler).
 if (await tocar('Ler código com a câmera', 8000)) {
   if (await aguardar('While using', 5000)) await tocar('While using');

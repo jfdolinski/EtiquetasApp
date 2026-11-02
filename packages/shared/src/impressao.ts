@@ -129,6 +129,8 @@ export interface ModeloAvulso {
 }
 
 export interface BuscaAvulsaResposta {
+  /** A consulta não recebe parâmetro e tem mais linhas do que o sistema procura: pode faltar produto. */
+  incompleta?: boolean;
   registros: Registro[];
   /** Colunas para mostrar o resultado. */
   colunas: string[];

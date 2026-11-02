@@ -317,3 +317,11 @@ export function registrosDoCodigo<T extends Record<string, unknown>>(registros: 
   const emQualquer = registros.filter((r) => Object.values(r).some((v) => mesmoCodigo(v, valor)));
   return emQualquer.length ? emQualquer : registros;
 }
+
+/** Procura no resultado de uma consulta sem parâmetro: código igual ganha de texto parecido. */
+export function filtrarPorTermo<T extends Record<string, unknown>>(registros: T[], termo: string): T[] {
+  const iguais = registros.filter((r) => Object.values(r).some((v) => mesmoCodigo(v, termo)));
+  if (iguais.length) return iguais;
+  const t = simplificar(termo.trim());
+  return t ? registros.filter((r) => Object.values(r).some((v) => simplificar(textoCelula(v)).includes(t))) : [];
+}

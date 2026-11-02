@@ -1,3 +1,4 @@
+import { filtrarPorTermo } from './avulsa';
 import { describe, expect, it } from 'vitest';
 import {
   alterarEmMassa,
@@ -96,5 +97,19 @@ describe('busca pelo código na linha', () => {
     expect(registrosDoCodigo(r, 'ean', '7891000').map((x) => x.d)).toEqual(['A']);
     expect(registrosDoCodigo(r, 'ean', '123').map((x) => x.d)).toEqual(['C']);
     expect(registrosDoCodigo(r, 'ean', '999')).toHaveLength(3);
+  });
+});
+
+describe('filtrarPorTermo', () => {
+  const lista = [{ ean: '07891', nome: 'Café forte' }, { ean: '78912', nome: 'Cafe fraco' }, { ean: '3', nome: 'Arroz' }];
+  it('código igual ganha do texto, sem zeros à esquerda', () => {
+    expect(filtrarPorTermo(lista, '7891')).toEqual([lista[0]]);
+  });
+  it('texto ignora acento e caixa', () => {
+    expect(filtrarPorTermo(lista, 'CAFÉ')).toEqual([lista[0], lista[1]]);
+  });
+  it('nada encontrado e termo vazio não trazem nada', () => {
+    expect(filtrarPorTermo(lista, 'feijão')).toEqual([]);
+    expect(filtrarPorTermo(lista, '  ')).toEqual([]);
   });
 });

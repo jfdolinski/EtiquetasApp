@@ -42,12 +42,17 @@ for (let i = 0; ; i++) {
 const conexao = await pedir('POST', '/conexoes', { token, corpo: { nome: 'ERP', tipo: 'POSTGRES', agenteId, host: '127.0.0.1', porta: 5432, banco: 'erp', usuario: 'etiquetas', senha: 'etiquetas', opcoes: { ssl: 'disable' } } });
 const impressora = await pedir('POST', '/impressoras', { token, corpo: { nome: 'Zebra do fluxo', agenteId, linguagem: 'ZPL', dpi: 203, metodo: 'REDE', endereco: '127.0.0.1:9100' } });
 
+await pedir('POST', '/impressoras', { token, corpo: { nome: 'Cartazes', agenteId, linguagem: 'PDF', dpi: 300, metodo: 'REDE', endereco: '127.0.0.1:9100' } });
+
 const PRODUTOS = `(VALUES ('7891000100103','Café torrado 500 g','19.90','UN','Mercearia','SEXTA-COLUNA'),('7891000100110','Arroz branco 5 kg','27.50','UN','Mercearia','SEXTA-COLUNA'),('7891000100127','Feijão preto 1 kg','8.99','UN','Mercearia','SEXTA-COLUNA')) AS p(codigo, descricao, preco, unidade, departamento, oculta)`;
 const busca = await pedir('POST', '/consultas', { token, corpo: { nome: 'Busca', conexaoId: conexao.id, finalidade: 'BUSCA_PRODUTO', sql: `SELECT p.codigo, p.descricao, p.preco, p.unidade, p.departamento, p.oculta FROM ${PRODUTOS} WHERE p.codigo = {param.busca} OR p.descricao ILIKE '%' || {param.busca} || '%'` } });
 const lista = await pedir('POST', '/consultas', { token, corpo: { nome: 'Lista', conexaoId: conexao.id, finalidade: 'LISTA_DIARIA', sql: `SELECT p.codigo, p.descricao, p.preco, p.unidade, p.departamento, p.oculta FROM ${PRODUTOS}` } });
 
 const LAYOUT = { larguraMm: 60, alturaMm: 30, colunas: 1, espacamentoHorizontalMm: 0, espacamentoVerticalMm: 0, margens: { superior: 0, inferior: 0, esquerda: 0, direita: 0 }, papel: { tipo: 'rolo' }, elementos: [] };
 await pedir('POST', '/modelos', { token, corpo: { nome: 'Gôndola avulsa', consultaId: busca.consulta.id, layout: LAYOUT, impressoraId: impressora.id } });
+// Como o modelo de um cliente real: consulta sem {param.*}, a busca é feita pelo sistema.
+const semParametro = await pedir('POST', '/consultas', { token, corpo: { nome: 'Tabela', conexaoId: conexao.id, finalidade: 'BUSCA_PRODUTO', sql: `SELECT p.codigo, p.descricao, p.preco, p.unidade, p.departamento, p.oculta FROM ${PRODUTOS}` } });
+await pedir('POST', '/modelos', { token, corpo: { nome: 'Tabela sem parametro', consultaId: semParametro.consulta.id, layout: LAYOUT, impressoraId: impressora.id } });
 await pedir('POST', '/modelos', { token, corpo: { nome: 'Gôndola lista', consultaId: lista.consulta.id, layout: LAYOUT, impressoraId: impressora.id, naListaDiaria: true } });
 const gerada = await pedir('POST', '/listas/hoje/gerar', { token });
 

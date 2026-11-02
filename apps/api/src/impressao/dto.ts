@@ -10,6 +10,8 @@ import {
   IsInt,
   IsObject,
   IsOptional,
+  IsString,
+  MaxLength,
   IsUUID,
   Max,
   ValidateIf,
@@ -68,6 +70,12 @@ export class BuscarAvulsaDto {
   @IsOptional()
   @IsObject()
   parametros?: Record<string, string | null>;
+
+  /** Para consulta sem {param.*}: o sistema lê as linhas e procura este termo nelas. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  termo?: string;
 }
 
 export class ItemAvulsoDto {

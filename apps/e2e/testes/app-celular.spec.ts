@@ -108,16 +108,21 @@ test('avisos aparecem, ficam lidos, e desvincular no sistema derruba o app', asy
   expect(erros).toEqual([]);
 });
 
-test('Lista do dia mostra sempre as 3 primeiras colunas', async ({ page }) => {
+test('Lista do dia mostra os 5 primeiros campos, um abaixo do outro', async ({ page }) => {
   const outra = await criarEmpresa(await superToken());
   const { itemIds } = await montarListaDeHoje(outra, { produtos: ['7891000100103'] });
-  await sql(`UPDATE itens_lista SET registro = $2 WHERE id = $1`, [itemIds[0], JSON.stringify({ codigo: 'C1', nome: 'Café', preco: '4.99', estoque: 'NAO-MOSTRAR' })]);
+  await sql(`UPDATE itens_lista SET registro = $2 WHERE id = $1`, [itemIds[0], JSON.stringify({ codigo: 'C1', nome: 'Café', preco: '4.99', un: 'UN', marca: 'Acme', estoque: 'NAO-MOSTRAR' })]);
   await vincular(page, outra);
   await page.getByRole('tab', { name: 'Lista do dia' }).click();
   await expect(page.getByText('C1', { exact: true })).toBeVisible();
   await expect(page.getByText('Café', { exact: true })).toBeVisible();
   await expect(page.getByText('4.99', { exact: true })).toBeVisible();
   await expect(page.getByText('NAO-MOSTRAR')).toBeHidden();
+  // Um abaixo do outro: cada campo começa abaixo do anterior, na mesma coluna.
+  const a = (await page.getByText('C1', { exact: true }).boundingBox())!;
+  const b = (await page.getByText('Café', { exact: true }).boundingBox())!;
+  expect(Math.abs(b.y - a.y)).toBeGreaterThan(10);
+  expect(Math.abs(b.x - a.x)).toBeLessThan(2);
   await page.screenshot({ path: 'test-results/app-lista-colunas.png' });
 });
 
@@ -126,11 +131,11 @@ test('Etiqueta avulsa: busca, soma o produto repetido, escolhe entre vários e i
   const outra = await criarEmpresa(await superToken());
   const { modeloId, impressoraId } = await montarListaDeHoje(outra);
   // A busca real passa pelo agente local; aqui só ela é simulada. O resto fala com a API de verdade.
-  await page.route('**/api/avulsa/modelos', (r) => r.fulfill({ json: [{ id: modeloId, nome: 'Gôndola', impressoraId, impressoraLinguagem: 'ZPL', parametros: ['busca'], campos: ['codigo', 'nome', 'preco', 'estoque'], folha: null }] }));
+  await page.route('**/api/avulsa/modelos', (r) => r.fulfill({ json: [{ id: modeloId, nome: 'Gôndola', impressoraId, impressoraLinguagem: 'ZPL', parametros: ['busca'], campos: ['codigo', 'nome', 'preco', 'un', 'marca', 'estoque'], folha: null }] }));
   await page.route('**/api/avulsa/buscar', async (r) => {
     const termo = r.request().postDataJSON().parametros.busca;
-    const A = { codigo: '789', nome: 'Café', preco: '4.99', estoque: 'NAO-MOSTRAR' };
-    const B = { codigo: '790', nome: 'Café forte', preco: '5.99', estoque: 'NAO-MOSTRAR' };
+    const A = { codigo: '789', nome: 'Café', preco: '4.99', un: 'UN', marca: 'Acme', estoque: 'NAO-MOSTRAR' };
+    const B = { codigo: '790', nome: 'Café forte', preco: '5.99', un: 'UN', marca: 'Acme', estoque: 'NAO-MOSTRAR' };
     await r.fulfill({ json: { registros: termo === '789' ? [A] : termo === 'cafe' ? [A, B] : [], colunas: [], banidos: 0 } });
   });
   await vincular(page, outra);
@@ -179,6 +184,47 @@ test('Etiqueta avulsa: busca, soma o produto repetido, escolhe entre vários e i
   const [{ origem, quantidade_etiquetas }] = await sql(`SELECT origem, quantidade_etiquetas FROM trabalhos_impressao WHERE empresa_id = $1`, [outra.id]);
   expect({ origem, quantidade_etiquetas }).toEqual({ origem: 'AVULSA', quantidade_etiquetas: 3 });
   expect(erros).toEqual([]);
+});
+
+test('Etiqueta avulsa com consulta sem parâmetro e padrão em PDF: busca aparece e o PDF é gerado', async ({ page }) => {
+  const outra = await criarEmpresa(await superToken());
+  const { modeloId, impressoraId } = await montarListaDeHoje(outra, { linguagem: 'PDF', produtos: [] });
+  let corpo: any = null;
+  await page.route('**/api/avulsa/modelos', (r) => r.fulfill({ json: [{ id: modeloId, nome: 'GONDOLA PRECO TABELA', impressoraId, impressoraLinguagem: 'PDF', parametros: [], campos: ['codigo', 'nome'], folha: null }] }));
+  await page.route('**/api/avulsa/buscar', async (r) => {
+    corpo = r.request().postDataJSON();
+    await r.fulfill({ json: { registros: [{ codigo: '789', nome: 'Café' }], colunas: [], banidos: 0 } });
+  });
+  await vincular(page, outra);
+  await page.getByRole('tab', { name: 'Etiqueta avulsa' }).click();
+  await page.getByLabel('Código de barras, código ou nome').fill('789');
+  await page.getByRole('button', { name: 'Buscar' }).click();
+  await expect(page.getByText('Produto adicionado à lista.')).toBeVisible();
+  expect(corpo).toEqual({ modeloId, parametros: {}, termo: '789' });
+  await expect(page.getByText('(PDF)')).toBeVisible();
+  await page.screenshot({ path: 'test-results/app-avulsa-pdf.png' });
+  page.once('dialog', (d) => void d.accept());
+  await page.getByRole('button', { name: 'Gerar PDF de 1 produto(s)' }).click();
+  await expect(page.getByText('PDF com 1 etiqueta(s) gerado.')).toBeVisible();
+});
+
+test('Etiqueta avulsa sem modelo pronto explica o que fazer, em vez de ficar vazia', async ({ page }) => {
+  const outra = await criarEmpresa(await superToken());
+  await vincular(page, outra);
+  await page.getByRole('tab', { name: 'Etiqueta avulsa' }).click();
+  await expect(page.getByText('Nenhum modelo pronto para etiqueta avulsa.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Conferir de novo' })).toBeVisible();
+});
+
+test('Etiqueta avulsa sem conexão mostra o erro e deixa tentar de novo', async ({ page }) => {
+  const outra = await criarEmpresa(await superToken());
+  await vincular(page, outra);
+  await page.route('**/api/avulsa/modelos', (r) => r.abort());
+  await page.getByRole('tab', { name: 'Etiqueta avulsa' }).click();
+  await expect(page.getByText(/Sem conexão com o servidor/)).toBeVisible();
+  await page.unroute('**/api/avulsa/modelos');
+  await page.getByRole('button', { name: 'Tentar de novo' }).click();
+  await expect(page.getByText('Nenhum modelo pronto para etiqueta avulsa.')).toBeVisible();
 });
 
 test('sem a permissão de imprimir, a guia Etiqueta avulsa não aparece', async ({ page }) => {
