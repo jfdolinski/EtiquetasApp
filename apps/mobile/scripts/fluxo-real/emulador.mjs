@@ -158,7 +158,7 @@ await espera(1500);
 print('avulsa-confirmar');
 {
   // Botão de confirmar do diálogo do Android, pelo id: o texto muda de caixa conforme a versão.
-  const m = /resource-id="android:id/button1"[^>]*bounds="[(d+),(d+)][(d+),(d+)]"/.exec(lerTela());
+  const m = /resource-id="android:id\/button1"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(lerTela());
   if (m) adb(`shell input tap ${Math.round((+m[1] + +m[3]) / 2)} ${Math.round((+m[2] + +m[4]) / 2)}`);
   else falha('o diálogo de confirmar impressão não apareceu');
 }
