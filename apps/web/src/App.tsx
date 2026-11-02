@@ -27,6 +27,7 @@ import { Login } from './pages/Login';
 import { MinhaConta } from './pages/MinhaConta';
 import { Notificacoes } from './pages/Notificacoes';
 import { Perfis } from './pages/Perfis';
+import { Referencias } from './pages/Referencias';
 import { Saude } from './pages/Saude';
 import { Usuarios } from './pages/Usuarios';
 
@@ -72,6 +73,7 @@ export function App() {
         <Route path="agentes" element={<Protegida permissao="agente.ver"><Agentes /></Protegida>} />
         <Route path="bancos" element={<Protegida permissao="agente.ver"><Bancos /></Protegida>} />
         <Route path="consultas" element={<Protegida permissao="sql.ver"><Consultas /></Protegida>} />
+        <Route path="referencias" element={<Protegida permissao="sql.ver"><Referencias /></Protegida>} />
         <Route path="consultas/:id" element={<Protegida permissao="sql.ver"><EditorConsulta /></Protegida>} />
         <Route path="modelos" element={<Protegida permissao="etiqueta.modelo.ver"><Modelos /></Protegida>} />
         <Route path="modelos/:id" element={<Protegida permissao="etiqueta.modelo.ver"><Suspense fallback={<div className="text-sm text-slate-500">Carregando editor…</div>}><EditorModelo /></Suspense></Protegida>} />

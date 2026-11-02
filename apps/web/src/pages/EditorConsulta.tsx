@@ -5,6 +5,9 @@ import {
   ehConexaoSql,
   ehParametro,
   extrairPlaceholders,
+  mensagemFaltando,
+  obrigatoriasFaltando,
+  referenciaDaColuna,
   FINALIDADES_CONSULTA,
   PLACEHOLDERS,
   PREFIXO_PARAMETRO,
@@ -24,6 +27,7 @@ import { useAuth } from '../auth';
 import { ExigeEmpresa } from '../components/ExigeEmpresa';
 import { TabelaResultado } from '../components/TabelaResultado';
 import { Alerta, Botao, Cabecalho, Campo, Selecao, Selo, formatarData } from '../components/ui';
+import { IndiceCampos, useReferencias } from './consultas/IndiceCampos';
 
 export function EditorConsulta() {
   return (
@@ -53,7 +57,7 @@ function CarregarConsulta() {
   return <Formulario key={consulta?.id ?? 'nova'} consulta={consulta ?? null} conexoes={conexoes} />;
 }
 
-const SQL_EXEMPLO = `SELECT p.codigo, p.descricao, p.preco_venda AS preco, p.ean
+const SQL_EXEMPLO = `SELECT p.id AS codigo, p.nome AS descricao, p.preco_venda AS preco, p.ean AS codigo_barras
 FROM produtos p
 WHERE p.empresa = {empresa.codigo_erp}
   AND p.data_alteracao >= {data_hoje}`;
@@ -194,6 +198,11 @@ function Formulario({ consulta, conexoes }: { consulta: ConsultaSqlResumo | null
   const campos: CampoDinamico[] = previaAtual?.campos ?? consulta?.campos ?? [];
   const camposDesatualizados = previaAtual ? false : !salvoIgual || Boolean(consulta?.camposDesatualizados);
   const erro = salvar.error ?? excluir.error ?? relerCampos.error;
+
+  // Só afirma o que falta quando as colunas são do SQL que está na tela.
+  const { data: referencias = [] } = useReferencias();
+  const colunasConhecidas = campos.length > 0 && !camposDesatualizados ? campos.map((c) => c.nome) : null;
+  const faltando = colunasConhecidas ? obrigatoriasFaltando(referencias, colunasConhecidas, f.finalidade) : [];
 
   return (
     <>
@@ -359,6 +368,7 @@ function Formulario({ consulta, conexoes }: { consulta: ConsultaSqlResumo | null
             )}
           </div>
 
+          {faltando.length > 0 && <Alerta tipo="aviso">{mensagemFaltando(faltando, f.finalidade)}</Alerta>}
           {testar.error && !planilha && <Alerta>{testar.error.message}</Alerta>}
           {testarPlanilha.error && planilha && <Alerta>{testarPlanilha.error.message}</Alerta>}
           {planilha && previaPlanilhaAtual && (
@@ -389,6 +399,7 @@ function Formulario({ consulta, conexoes }: { consulta: ConsultaSqlResumo | null
         </fieldset>
 
         <aside className="space-y-3">
+          <IndiceCampos referencias={referencias} finalidade={f.finalidade} colunas={colunasConhecidas} aoInserir={planilha || !podeEditar ? null : (alias) => inserir(` AS ${alias}`)} />
           <div className="rounded-lg border border-slate-200 bg-white">
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5">
               <h2 className="text-sm font-semibold">Campos disponíveis</h2>
@@ -398,14 +409,20 @@ function Formulario({ consulta, conexoes }: { consulta: ConsultaSqlResumo | null
               <p className="px-4 py-3 text-sm text-slate-500">Teste ou salve a consulta para ler as colunas.</p>
             ) : (
               <ul className="divide-y divide-slate-100">
-                {campos.map((c, i) => (
-                  <li key={i} className="flex items-center justify-between gap-2 px-4 py-2 text-sm">
-                    <span className="truncate font-mono">{c.nome || '(sem nome)'}</span>
-                    <span className="shrink-0 text-xs text-slate-500" title={c.tipoBanco}>
-                      {ROTULO_CATEGORIA[c.categoria]}
-                    </span>
-                  </li>
-                ))}
+                {campos.map((c, i) => {
+                  const referencia = referenciaDaColuna(referencias, c.nome);
+                  return (
+                    <li key={i} className="px-4 py-2 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate font-mono">{c.nome || '(sem nome)'}</span>
+                        <span className="shrink-0 text-xs text-slate-500" title={c.tipoBanco}>
+                          {ROTULO_CATEGORIA[c.categoria]}
+                        </span>
+                      </div>
+                      <div className="truncate text-xs text-slate-500" title={referencia?.descricao}>{referencia?.nome ?? 'Campo livre'}</div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
             <div className="border-t border-slate-200 px-4 py-2.5 text-xs text-slate-500">

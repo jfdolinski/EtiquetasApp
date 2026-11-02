@@ -32,7 +32,9 @@ function consultaBanco(extra: Record<string, unknown> = {}) {
 }
 
 function montar() {
+  const referencias = referenciasDoTeste;
   const prisma = {
+    referenciaCampo: { findMany: jest.fn(async () => referencias) },
     consultaSql: {
       findMany: jest.fn(async () => []),
       findFirst: jest.fn(async (_: unknown) => null as unknown),
@@ -62,6 +64,12 @@ function montar() {
     conexoes,
   };
 }
+
+let referenciasDoTeste: { alias: string; nome: string; alternativos: string[]; obrigatoriaEm: string[] }[] = [];
+
+afterEach(() => {
+  referenciasDoTeste = [];
+});
 
 describe('ConsultasService', () => {
   it('lista e busca só na empresa atual', async () => {
@@ -144,5 +152,56 @@ describe('agoraNoFuso', () => {
     // 02:30 UTC de 30/10 ainda é 29/10 em São Paulo (UTC-3).
     const r = agoraNoFuso(new Date('2026-10-30T02:30:00Z'), 'America/Sao_Paulo');
     expect(r).toEqual({ data: '2026-10-29', dataHora: '2026-10-29 23:30:00' });
+  });
+});
+
+describe('índice de campos ao salvar', () => {
+  const DTO = { nome: 'Lista', conexaoId: 'c1', finalidade: 'LISTA_DIARIA' as const, sql: 'SELECT p.preco AS preco FROM produtos p' };
+  const obrigatorios = [
+    { alias: 'codigo', nome: 'Código do produto', alternativos: ['cod', 'ean'], obrigatoriaEm: ['LISTA_DIARIA'] },
+    { alias: 'preco', nome: 'Preço', alternativos: [], obrigatoriaEm: [] },
+  ];
+
+  it('recusa SQL sem o campo obrigatório, dizendo o que falta, e não grava', async () => {
+    referenciasDoTeste = obrigatorios;
+    const { servico, prisma, conexoes } = montar();
+    conexoes.executar.mockResolvedValue({ colunas: [{ nome: 'preco', tipo: 'NUMERIC' }], linhas: [], truncado: false, duracaoMs: 1 } as never);
+    await expect(servico.criar('e1', DTO as never, 'u1')).rejects.toThrow('codigo (Código do produto)');
+    expect(prisma.consultaSql.create).not.toHaveBeenCalled();
+    expect(conexoes.executar.mock.calls[0][4]).toBe(1);
+  });
+
+  it('nome alternativo atende', async () => {
+    referenciasDoTeste = obrigatorios;
+    const { servico, prisma, conexoes } = montar();
+    conexoes.executar.mockResolvedValue({ colunas: [{ nome: 'EAN', tipo: 'TEXT' }], linhas: [], truncado: false, duracaoMs: 1 } as never);
+    await servico.criar('e1', DTO as never, 'u1');
+    expect(prisma.consultaSql.create).toHaveBeenCalled();
+  });
+
+  it('agente fora do ar não impede salvar', async () => {
+    referenciasDoTeste = obrigatorios;
+    const { servico, prisma, conexoes } = montar();
+    conexoes.executar.mockRejectedValue(new ServiceUnavailableException('Agente offline'));
+    await servico.criar('e1', DTO as never, 'u1');
+    expect(prisma.consultaSql.create).toHaveBeenCalled();
+  });
+
+  it('sem nada obrigatório nessa finalidade, nem consulta o banco antes', async () => {
+    referenciasDoTeste = obrigatorios;
+    const { servico, conexoes } = montar();
+    conexoes.executar.mockResolvedValue({ colunas: [{ nome: 'x', tipo: 'TEXT' }], linhas: [], truncado: false, duracaoMs: 1 } as never);
+    await servico.criar('e1', { ...DTO, finalidade: 'OUTRA' } as never, 'u1');
+    // Só a leitura dos campos, depois de gravar.
+    expect(conexoes.executar).toHaveBeenCalledTimes(1);
+  });
+
+  it('cópia de template não é barrada: salva e avisa', async () => {
+    referenciasDoTeste = obrigatorios;
+    const { servico, prisma, conexoes } = montar();
+    conexoes.executar.mockResolvedValue({ colunas: [{ nome: 'preco', tipo: 'NUMERIC' }], linhas: [], truncado: false, duracaoMs: 1 } as never);
+    const r = await servico.criar('e1', DTO as never, 'u1', { templateConsultaId: 't1', sql: DTO.sql });
+    expect(prisma.consultaSql.create).toHaveBeenCalled();
+    expect(r.avisos.join()).toContain('codigo (Código do produto)');
   });
 });

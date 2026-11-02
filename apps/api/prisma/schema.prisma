@@ -163,6 +163,27 @@ model CodigoVinculoApp {
   @@map("codigos_vinculo_app")
 }
 
+/// Índice de campos das consultas: o que cada alias significa no sistema. Dado da plataforma.
+model ReferenciaCampo {
+  id            String   @id @default(uuid()) @db.Uuid
+  alias         String   @unique
+  nome          String
+  descricao     String   @default("")
+  exemplo       String   @default("")
+  /// Outros nomes de coluna entendidos como este campo.
+  alternativos  String[] @default([])
+  /// Finalidades (FinalidadeConsulta) em que a consulta precisa trazer o campo.
+  obrigatoriaEm String[] @default([]) @map("obrigatoria_em")
+  /// O código do sistema lê este campo pelo nome: alias e alternativos não mudam.
+  sistema       Boolean  @default(false)
+  ativa         Boolean  @default(true)
+  ordem         Int      @default(0)
+  criadoEm      DateTime @default(now()) @map("criado_em")
+  atualizadoEm  DateTime @updatedAt @map("atualizado_em")
+
+  @@map("referencias_campo")
+}
+
 /// Erro inesperado (500) da API, para a tela Saúde. Nunca guarda corpo nem query da requisição.
 model ErroSistema {
   id        String   @id @default(uuid()) @db.Uuid

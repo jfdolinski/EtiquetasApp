@@ -2,6 +2,9 @@ import { BadRequestException, ConflictException, HttpException, Injectable, NotF
 import { Prisma } from '@prisma/client';
 import {
   avisosDosCampos,
+  mensagemFaltando,
+  obrigatoriasFaltando,
+  type FinalidadeConsulta,
   camposDasColunas,
   compilarSql,
   ehConexaoSql,
@@ -62,6 +65,8 @@ export interface OrigemTemplate {
 }
 
 type ConsultaSelecionada = Prisma.ConsultaSqlGetPayload<{ select: typeof SELECAO }>;
+
+type ReferenciaObrigatoria = { alias: string; nome: string; alternativos: string[]; obrigatoriaEm: FinalidadeConsulta[] };
 
 /** Hash que amarra os campos lidos ao SQL e à conexão de onde vieram. */
 export function hashCampos(conexaoId: string, sql: string): string {
@@ -124,6 +129,8 @@ export class ConsultasService {
   async criar(empresaId: string, dto: CriarConsultaDto, autorId: string, template?: OrigemTemplate): Promise<SalvarConsultaResposta> {
     const tipo = await this.tipoDaConexao(empresaId, dto.conexaoId);
     const fonte = fonteParaGravar(tipo, dto);
+    // Cópia de template não é barrada: a empresa ajusta depois e o aviso diz o que falta.
+    if (!template) await this.exigirObrigatorias(empresaId, autorId, dto.conexaoId, tipo, fonte.sql, dto.finalidade ?? 'OUTRA');
     try {
       const consulta = await this.prisma.consultaSql.create({
         data: {
@@ -163,6 +170,11 @@ export class ConsultasService {
       arquivoNome: dto.arquivoNome ?? atual.arquivoNome,
       aba: dto.aba === undefined ? atual.aba : dto.aba,
     });
+    // Só quando o que importa mudou: consulta antiga continua podendo trocar de nome ou ser desativada.
+    const finalidade = dto.finalidade ?? atual.finalidade;
+    if (fonte.sql !== atual.sql || finalidade !== atual.finalidade || conexaoId !== atual.conexaoId) {
+      await this.exigirObrigatorias(empresaId, autorId, conexaoId, tipo, fonte.sql, finalidade);
+    }
 
     try {
       const consulta = await this.prisma.consultaSql.update({
@@ -337,7 +349,39 @@ export class ConsultasService {
       },
       select: SELECAO,
     });
-    return { consulta: resumo(atualizada), avisos: avisosDosCampos(campos) };
+    return { consulta: resumo(atualizada), avisos: [...avisosDosCampos(campos), ...(await this.avisosDoIndice(campos.map((c) => c.nome), consulta.finalidade))] };
+  }
+
+  private async referenciasAtivas() {
+    return this.prisma.referenciaCampo.findMany({ where: { ativa: true }, select: { alias: true, nome: true, alternativos: true, obrigatoriaEm: true } });
+  }
+
+  private async avisosDoIndice(colunas: string[], finalidade: FinalidadeConsulta): Promise<string[]> {
+    const faltando = obrigatoriasFaltando((await this.referenciasAtivas()) as ReferenciaObrigatoria[], colunas, finalidade);
+    return faltando.length ? [mensagemFaltando(faltando, finalidade)] : [];
+  }
+
+  /**
+   * Recusa salvar SQL sem um campo obrigatório do índice. Sem conseguir ler as colunas (agente
+   * offline, SQL com erro), deixa salvar: quem avisa é a leitura dos campos logo depois.
+   * Planilha não passa aqui: os títulos são do arquivo do cliente, e fica só o aviso.
+   */
+  private async exigirObrigatorias(empresaId: string, usuarioId: string, conexaoId: string, tipo: TipoConexao, sql: string, finalidade: FinalidadeConsulta) {
+    if (!ehConexaoSql(tipo)) return;
+    const referencias = (await this.referenciasAtivas()) as ReferenciaObrigatoria[];
+    if (!referencias.some((r) => r.obrigatoriaEm.includes(finalidade))) return;
+    const nulos = Object.fromEntries(extrairPlaceholders(sql, tipo).filter(ehParametro).map((p) => [p.slice(PREFIXO_PARAMETRO.length), null]));
+    let colunas: string[];
+    try {
+      const compilado = await this.compilar(empresaId, usuarioId, sql, tipo, nulos);
+      const r = await this.conexoes.executar(empresaId, conexaoId, compilado.sql, compilado.parametros, 1);
+      colunas = r.colunas.map((c) => c.nome);
+    } catch (erro) {
+      if (erro instanceof HttpException) return;
+      throw erro;
+    }
+    const faltando = obrigatoriasFaltando(referencias, colunas, finalidade);
+    if (faltando.length) throw new BadRequestException(mensagemFaltando(faltando, finalidade));
   }
 
   private async executarSelecionada(

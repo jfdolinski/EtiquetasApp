@@ -10,9 +10,9 @@ import type { LimitesFolha } from './etiquetas/layout';
  * - quantidade de etiquetas: `quantidade`, `qtd`, `qtde`, `qtd_etiquetas` (padrão 1).
  */
 
-const COLUNAS_CHAVE = ['codigo', 'cod', 'id', 'ean', 'codigo_barras'];
-const COLUNAS_DESCRICAO = ['descricao', 'nome', 'produto'];
-const COLUNAS_QUANTIDADE = ['quantidade', 'qtd', 'qtde', 'qtd_etiquetas'];
+export const COLUNAS_CHAVE = ['codigo', 'cod', 'id', 'ean', 'codigo_barras'];
+export const COLUNAS_DESCRICAO = ['descricao', 'nome', 'produto'];
+export const COLUNAS_QUANTIDADE = ['quantidade', 'qtd', 'qtde', 'qtd_etiquetas'];
 export const QUANTIDADE_MAXIMA_ITEM = 999;
 
 function coluna(registro: Registro, nomes: string[]): unknown {

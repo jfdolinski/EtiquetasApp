@@ -15,3 +15,4 @@ export * from './planilhas';
 export * from './banidos';
 export * from './notificacoes';
 export * from './painel';
+export * from './referencias';
