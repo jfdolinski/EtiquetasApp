@@ -65,12 +65,14 @@ export class AvulsaController {
   constructor(private readonly listas: ListasService) {}
 
   @Get('modelos')
+  @PermitidoNoApp()
   @RequerPermissao('imprimir')
   modelos(@EmpresaAtual() empresaId: string) {
     return this.listas.modelosAvulsos(empresaId);
   }
 
   @Post('buscar')
+  @PermitidoNoApp()
   @HttpCode(200)
   @RequerPermissao('imprimir')
   buscar(@EmpresaAtual() empresaId: string, @Body() dto: BuscarAvulsaDto, @UsuarioAtual() usuario: UsuarioRequisicao) {

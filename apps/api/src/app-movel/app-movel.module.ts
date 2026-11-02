@@ -11,6 +11,7 @@ import { hashDoToken } from '../auth/conta.service';
 import { EmpresaAtual, PermitidoNoApp, Publico, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { ImprimirAvulsaDto } from '../impressao/dto';
 import { ImpressaoModule } from '../impressao/impressao.module';
 import { ListasService } from '../impressao/listas.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -234,6 +235,24 @@ export class AppMovelController {
     const r = await this.listas.imprimirLista(empresaId, lista.id, { itens }, usuario.id);
     await this.auditoria.registrar({ empresaId, usuarioId: usuario.id, acao: 'app.aprovar', entidade: 'ListaDiaria', entidadeId: lista.id, detalhes: { itens: itens.length, dispositivoId: usuario.dispositivoId ?? null } });
     return { trabalhos: r.trabalhos, avisos: [...avisos, ...r.avisos] };
+  }
+
+  /**
+   * Avulsa pelo celular: sempre na impressora padrão do modelo. PDF fica de fora, como na lista:
+   * o arquivo seria gerado e o trabalho ficaria concluído sem ninguém ter impresso.
+   */
+  @Post('avulsa/imprimir')
+  @PermitidoNoApp()
+  @HttpCode(200)
+  @RequerPermissao('imprimir')
+  async imprimirAvulsa(@EmpresaAtual() empresaId: string, @Body() dto: ImprimirAvulsaDto, @UsuarioAtual() usuario: UsuarioRequisicao): Promise<ImprimirResposta> {
+    const modelo = await this.prisma.modeloEtiqueta.findFirst({ where: { id: dto.modeloId, empresaId }, select: { impressora: { select: { linguagem: true } } } });
+    if (!modelo) throw new NotFoundException('Modelo não encontrado.');
+    if (!modelo.impressora) throw new BadRequestException('Este modelo não tem impressora padrão. Defina no sistema, em Modelos de etiqueta.');
+    if (modelo.impressora.linguagem === 'PDF') throw new BadRequestException('Este modelo sai em PDF: imprima pelo computador.');
+    const r = await this.listas.imprimirAvulsa(empresaId, { ...dto, impressoraId: undefined }, usuario.id);
+    await this.auditoria.registrar({ empresaId, usuarioId: usuario.id, acao: 'app.imprimir_avulsa', entidade: 'ModeloEtiqueta', entidadeId: dto.modeloId, detalhes: { itens: dto.itens.length, dispositivoId: usuario.dispositivoId ?? null } });
+    return r;
   }
 
   @Post('lista/descartar')

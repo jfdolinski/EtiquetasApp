@@ -162,3 +162,63 @@ test.describe('aprovar a lista do dia pelo celular', () => {
     expect(item.status).toBe('PENDENTE');
   });
 });
+
+test.describe('etiqueta avulsa pelo celular', () => {
+  const itens = [{ registro: { ean: '7891000100103', descricao: 'Café' }, quantidade: 3 }];
+
+  test('imprime na impressora padrão do modelo', async () => {
+    const empresa = await criarEmpresa(tokenSuper);
+    const { modeloId, impressoraId } = await montarListaDeHoje(empresa);
+    const c = await vincularCelular(empresa.adminToken);
+    expect((await pedir('GET', '/avulsa/modelos', { token: c.token })).status).toBe(200);
+    const r = await pedir('POST', '/app/avulsa/imprimir', { token: c.token, corpo: { modeloId, itens } });
+    expect(r.status, JSON.stringify(r.j)).toBe(200);
+    expect(r.j.trabalhos[0]).toMatchObject({ quantidadeEtiquetas: 3, origem: 'AVULSA', impressoraId });
+  });
+
+  test('a rota de imprimir do site não aceita o token do celular', async () => {
+    const empresa = await criarEmpresa(tokenSuper);
+    const { modeloId } = await montarListaDeHoje(empresa);
+    const c = await vincularCelular(empresa.adminToken);
+    expect((await pedir('POST', '/avulsa/imprimir', { token: c.token, corpo: { modeloId, itens } })).status).toBe(403);
+  });
+
+  test('PDF e modelo sem impressora são recusados, sem criar trabalho', async () => {
+    const empresa = await criarEmpresa(tokenSuper);
+    const { modeloId } = await montarListaDeHoje(empresa, { linguagem: 'PDF' });
+    const c = await vincularCelular(empresa.adminToken);
+    const pdf = await pedir('POST', '/app/avulsa/imprimir', { token: c.token, corpo: { modeloId, itens } });
+    expect(pdf.status).toBe(400);
+    expect(pdf.j.message).toContain('PDF');
+    await sql(`UPDATE modelos_etiqueta SET impressora_id = NULL WHERE id = $1`, [modeloId]);
+    const sem = await pedir('POST', '/app/avulsa/imprimir', { token: c.token, corpo: { modeloId, itens } });
+    expect(sem.status).toBe(400);
+    expect(sem.j.message).toContain('impressora padrão');
+    const [{ total }] = await sql(`SELECT count(*)::int AS total FROM trabalhos_impressao WHERE empresa_id = $1`, [empresa.id]);
+    expect(total).toBe(0);
+  });
+
+  test('produto banido fica de fora; modelo de outra empresa não existe', async () => {
+    const empresa = await criarEmpresa(tokenSuper);
+    const { modeloId } = await montarListaDeHoje(empresa);
+    const c = await vincularCelular(empresa.adminToken);
+    await pedir('POST', '/banidos', { token: empresa.adminToken, corpo: { codigos: ['7891000100103'] } });
+    const r = await pedir('POST', '/app/avulsa/imprimir', { token: c.token, corpo: { modeloId, itens } });
+    expect(r.j.trabalhos).toHaveLength(0);
+    expect(r.j.avisos.join()).toContain('banido');
+    const outra = await criarEmpresa(tokenSuper);
+    const c2 = await vincularCelular(outra.adminToken);
+    expect((await pedir('POST', '/app/avulsa/imprimir', { token: c2.token, corpo: { modeloId, itens } })).status).toBe(404);
+  });
+
+  test('sem a permissão de imprimir não entra', async () => {
+    const empresa = await criarEmpresa(tokenSuper);
+    const { modeloId } = await montarListaDeHoje(empresa);
+    const perfil = await pedir('POST', '/perfis', { token: empresa.adminToken, corpo: { nome: 'Só painel', permissoes: ['painel.ver'] } });
+    const email = `pa-${Date.now()}@e2e.local`;
+    await pedir('POST', '/usuarios', { token: empresa.adminToken, corpo: { nome: 'Painel', email, senha: 'SenhaPainel123', perfilId: perfil.j.id } });
+    const c = await vincularCelular(await login(email, 'SenhaPainel123'));
+    expect((await pedir('GET', '/avulsa/modelos', { token: c.token })).status).toBe(403);
+    expect((await pedir('POST', '/app/avulsa/imprimir', { token: c.token, corpo: { modeloId, itens } })).status).toBe(403);
+  });
+});

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { avisosNovos, chavesDosAvisos, codigoValido, lerQrDeVinculo, pendentesPorModelo, quantidadeValida, servidorValido, tempoDesde, versaoMaisNova } from './regras.ts';
+import { adicionarProduto, colunasVisiveis, parametrosDaBusca, registrosDoCodigo, avisosNovos, chavesDosAvisos, codigoValido, lerQrDeVinculo, pendentesPorModelo, quantidadeValida, servidorValido, tempoDesde, versaoMaisNova } from './regras.ts';
 
 test('QR de vínculo: lê o formato certo', () => {
   assert.deepEqual(lerQrDeVinculo('etiquetas://vincular?servidor=https%3A%2F%2Fapp.exemplo.com&codigo=ABCDEFGH23'), { servidor: 'https://app.exemplo.com', codigo: 'ABCDEFGH23' });
@@ -78,4 +78,38 @@ test('avisos novos: a primeira carga não avisa; repetição e novo avisam; reso
   const novo = { id: 'b', vezes: 1, resolvidaEm: null };
   assert.deepEqual(avisosNovos([repetido, novo], vistos), [repetido, novo]);
   assert.deepEqual(avisosNovos([{ id: 'c', vezes: 1, resolvidaEm: 'x' }], vistos), []);
+});
+
+test('sempre as 3 primeiras colunas, na ordem do modelo', () => {
+  assert.deepEqual(colunasVisiveis(['codigo', 'descricao', 'preco', 'estoque'], [{ preco: 1, codigo: 2 }]), ['codigo', 'descricao', 'preco']);
+  // Modelo sem colunas cadastradas: usa as dos registros. Com menos de 3: completa.
+  assert.deepEqual(colunasVisiveis([], [{ a: 1, b: 2, c: 3, d: 4 }]), ['a', 'b', 'c']);
+  assert.deepEqual(colunasVisiveis(['a'], [{ a: 1, b: 2 }]), ['a', 'b']);
+  assert.deepEqual(colunasVisiveis([], []), []);
+});
+
+test('o valor buscado vai no parâmetro certo', () => {
+  assert.deepEqual(parametrosDaBusca(['loja', 'busca'], '789'), { loja: null, busca: '789' });
+  assert.deepEqual(parametrosDaBusca(['loja', 'ean'], '789'), { loja: null, ean: '789' });
+  assert.deepEqual(parametrosDaBusca(['x', 'y'], '789'), { x: '789', y: null });
+  assert.deepEqual(parametrosDaBusca([], '789'), {});
+});
+
+test('código lido: o igual ganha dos parecidos, ignorando zeros à esquerda', () => {
+  const a = { ean: '07891000100103', nome: 'A' };
+  const b = { ean: '78910001001039', nome: 'B' };
+  assert.deepEqual(registrosDoCodigo([a, b], '7891000100103'), [a]);
+  assert.deepEqual(registrosDoCodigo([a, b], 'cafe'), [a, b]);
+  assert.deepEqual(registrosDoCodigo([], '1'), []);
+});
+
+test('ler o mesmo produto soma uma etiqueta', () => {
+  const p = { ean: '1' };
+  const um = adicionarProduto([], p, () => 'x');
+  assert.equal(um.linhas[0].quantidade, 1);
+  assert.equal(um.repetida, null);
+  const dois = adicionarProduto(um.linhas, { ean: '1' }, () => 'y');
+  assert.equal(dois.linhas.length, 1);
+  assert.equal(dois.linhas[0].quantidade, 2);
+  assert.equal(adicionarProduto(dois.linhas, { ean: '2' }, () => 'z').linhas.length, 2);
 });

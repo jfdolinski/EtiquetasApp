@@ -95,3 +95,50 @@ export function avisosNovos<T extends { id: string; vezes: number; resolvidaEm: 
 export function chavesDosAvisos(atuais: readonly { id: string; vezes: number }[]): Set<string> {
   return new Set(atuais.map((n) => `${n.id}:${n.vezes}`));
 }
+
+export type Registro = Record<string, unknown>;
+
+export interface LinhaAvulsa {
+  id: string;
+  registro: Registro;
+  quantidade: number;
+}
+
+export const COLUNAS_NO_CELULAR = 3;
+
+export function textoCelula(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  return typeof v === 'object' ? JSON.stringify(v) : String(v);
+}
+
+/** As primeiras colunas do modelo; sem cadastro (ou com menos de 3), completa com as dos registros. */
+export function colunasVisiveis(doModelo: readonly string[], registros: readonly Registro[], quantas = COLUNAS_NO_CELULAR): string[] {
+  return [...new Set([...doModelo, ...registros.flatMap((r) => Object.keys(r))])].slice(0, quantas);
+}
+
+/** Em qual {param.*} vai o valor buscado; os outros seguem nulos. Mesma regra do site (shared/avulsa.ts). */
+export function parametrosDaBusca(parametros: readonly string[], valor: string): Record<string, string | null> {
+  const alvo = parametros.find((p) => p === 'busca') ?? parametros.find((p) => /ean|gtin|barra|codbar/i.test(p)) ?? parametros.find((p) => /cod/i.test(p)) ?? parametros[0];
+  return Object.fromEntries(parametros.map((p) => [p, p === alvo ? valor : null]));
+}
+
+function mesmoCodigo(a: unknown, b: unknown): boolean {
+  const norm = (v: unknown) => {
+    const t = textoCelula(v).trim().toLowerCase();
+    return /^\d+$/.test(t) ? t.replace(/^0+(?=\d)/, '') : t;
+  };
+  return norm(a) !== '' && norm(a) === norm(b);
+}
+
+/** Se algum registro tem exatamente esse código, ficam só os iguais: a consulta pode trazer parecidos. */
+export function registrosDoCodigo<T extends Registro>(registros: readonly T[], valor: string): T[] {
+  const iguais = registros.filter((r) => Object.values(r).some((v) => mesmoCodigo(v, valor)));
+  return iguais.length ? iguais : [...registros];
+}
+
+/** O mesmo produto lido de novo soma uma etiqueta em vez de repetir a linha. */
+export function adicionarProduto(linhas: readonly LinhaAvulsa[], registro: Registro, novoId: () => string): { linhas: LinhaAvulsa[]; repetida: LinhaAvulsa | null } {
+  const igual = linhas.find((l) => JSON.stringify(l.registro) === JSON.stringify(registro));
+  if (igual) return { linhas: linhas.map((l) => (l === igual ? { ...l, quantidade: l.quantidade + 1 } : l)), repetida: igual };
+  return { linhas: [{ id: novoId(), registro, quantidade: 1 }, ...linhas], repetida: null };
+}

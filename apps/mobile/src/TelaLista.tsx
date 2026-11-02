@@ -3,7 +3,8 @@ import { Alert, FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text,
 import type { ImprimirResposta, ItemListaResumo, ListaDiariaResumo } from '../../../packages/shared/src/impressao';
 import type { UsuarioLogado } from '../../../packages/shared/src/tipos';
 import type { Api } from './api';
-import { pendentesPorModelo, quantidadeValida } from './regras';
+import { TitulosColunas, ValoresColunas } from './colunas';
+import { colunasVisiveis, pendentesPorModelo, quantidadeValida } from './regras';
 import { Alerta, Botao, cores } from './ui';
 
 function confirmar(titulo: string, mensagem: string, acao: string, aoConfirmar: () => void) {
@@ -14,7 +15,7 @@ function confirmar(titulo: string, mensagem: string, acao: string, aoConfirmar: 
   Alert.alert(titulo, mensagem, [{ text: 'Cancelar', style: 'cancel' }, { text: acao, onPress: aoConfirmar }]);
 }
 
-type Linha = { tipo: 'modelo'; id: string; nome: string; ids: string[] } | { tipo: 'item'; id: string; item: ItemListaResumo };
+type Linha = { tipo: 'modelo'; id: string; nome: string; ids: string[]; colunas: string[] } | { tipo: 'item'; id: string; item: ItemListaResumo; colunas: string[] };
 
 export function TelaLista({ api, usuario }: { api: Api; usuario: UsuarioLogado }) {
   const pode = (c: UsuarioLogado['permissoes'][number]) => usuario.superAdmin || usuario.permissoes.includes(c);
@@ -51,8 +52,12 @@ export function TelaLista({ api, usuario }: { api: Api; usuario: UsuarioLogado }
 
   const grupos = useMemo(() => pendentesPorModelo(lista?.itens ?? [], lista?.modelos ?? []), [lista]);
   const linhas = useMemo<Linha[]>(
-    () => grupos.flatMap((g) => [{ tipo: 'modelo' as const, id: `m-${g.modeloId}`, nome: g.nome, ids: g.itens.map((i) => i.id) }, ...g.itens.map((item) => ({ tipo: 'item' as const, id: item.id, item }))]),
-    [grupos],
+    () =>
+      grupos.flatMap((g) => {
+        const colunas = colunasVisiveis(lista?.modelos.find((m) => m.id === g.modeloId)?.colunas ?? [], g.itens.map((i) => i.registro));
+        return [{ tipo: 'modelo' as const, id: `m-${g.modeloId}`, nome: g.nome, ids: g.itens.map((i) => i.id), colunas }, ...g.itens.map((item) => ({ tipo: 'item' as const, id: item.id, item, colunas }))];
+      }),
+    [grupos, lista],
   );
   const pendentes = linhas.filter((l) => l.tipo === 'item').length;
   const impressoraPdf = useMemo(() => new Set(lista?.impressoras.filter((i) => i.linguagem === 'PDF').map((i) => i.id)), [lista]);
@@ -137,10 +142,18 @@ export function TelaLista({ api, usuario }: { api: Api; usuario: UsuarioLogado }
     if (l.tipo === 'modelo') {
       const todos = l.ids.every((id) => marcados.has(id));
       return (
-        <View style={estilos.modelo}>
-          <Text accessibilityRole="header" style={estilos.modeloNome} numberOfLines={2}>{l.nome} ({l.ids.length})</Text>
-          {podeAprovar && <Text accessibilityRole="button" style={estilos.marcarTodos} onPress={() => alternar(l.ids, !todos)}>{todos ? 'Desmarcar' : 'Marcar todos'}</Text>}
-        </View>
+        <>
+          <View style={estilos.modelo}>
+            <Text accessibilityRole="header" style={estilos.modeloNome} numberOfLines={2}>{l.nome} ({l.ids.length})</Text>
+            {podeAprovar && <Text accessibilityRole="button" style={estilos.marcarTodos} onPress={() => alternar(l.ids, !todos)}>{todos ? 'Desmarcar' : 'Marcar todos'}</Text>}
+          </View>
+          <View style={estilos.titulos}>
+            {/* Alinhado com as linhas: caixa de marcar à esquerda, quantidade à direita. */}
+            {podeAprovar && <View style={{ width: 26 }} />}
+            <TitulosColunas colunas={l.colunas} />
+            <Text style={estilos.tituloQtd}>Qtd.</Text>
+          </View>
+        </>
       );
     }
     const i = l.item;
@@ -157,8 +170,7 @@ export function TelaLista({ api, usuario }: { api: Api; usuario: UsuarioLogado }
       >
         {podeAprovar && <View style={[estilos.caixa, marcado && estilos.caixaMarcada]}>{marcado && <Text style={estilos.visto}>✓</Text>}</View>}
         <View style={{ flex: 1 }}>
-          <Text style={estilos.descricao} numberOfLines={2}>{i.descricao || i.chave}</Text>
-          <Text style={estilos.chave}>{i.chave}</Text>
+          <ValoresColunas colunas={l.colunas} registro={i.registro} />
           {!i.impressoraId && <Text style={estilos.problema}>Modelo sem impressora</Text>}
           {emPdf && <Text style={estilos.problema}>Sai em PDF: imprima pelo computador</Text>}
         </View>
@@ -221,9 +233,9 @@ const estilos = StyleSheet.create({
   caixa: { width: 26, height: 26, borderRadius: 6, borderWidth: 2, borderColor: '#94a3b8', backgroundColor: cores.branco, alignItems: 'center', justifyContent: 'center' },
   caixaMarcada: { borderColor: cores.azul, backgroundColor: cores.azul },
   visto: { color: cores.branco, fontWeight: '700', fontSize: 16 },
-  descricao: { fontSize: 15, color: cores.texto },
-  chave: { fontSize: 12, color: cores.suave, marginTop: 2 },
+  titulos: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, marginBottom: 6 },
+  tituloQtd: { width: 56, textAlign: 'center', fontSize: 11, fontWeight: '700', color: cores.suave, textTransform: 'uppercase' },
   problema: { fontSize: 12, color: cores.aviso, marginTop: 2 },
-  quantidade: { width: 60, height: 44, borderWidth: 1, borderColor: cores.borda, borderRadius: 8, backgroundColor: cores.branco, textAlign: 'center', fontSize: 16, color: cores.texto },
+  quantidade: { width: 56, height: 44, borderWidth: 1, borderColor: cores.borda, borderRadius: 8, backgroundColor: cores.branco, textAlign: 'center', fontSize: 16, color: cores.texto },
   rodape: { flexDirection: 'row', gap: 10, padding: 12, backgroundColor: cores.branco, borderTopWidth: 1, borderTopColor: cores.borda },
 });

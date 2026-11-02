@@ -119,6 +119,8 @@ export interface ModeloAvulso {
   id: string;
   nome: string;
   impressoraId: string | null;
+  /** Da impressora padrão: em PDF, o celular não imprime. */
+  impressoraLinguagem: LinguagemImpressora | null;
   parametros: string[];
   /** Campos do modelo: colunas da consulta e campos usados no layout (para incluir linhas à mão). */
   campos: string[];

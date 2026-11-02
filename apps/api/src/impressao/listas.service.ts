@@ -367,6 +367,7 @@ export class ListasService {
         id: true,
         nome: true,
         impressoraId: true,
+        impressora: { select: { linguagem: true } },
         layout: true,
         consulta: { select: { sql: true, campos: true, conexao: { select: { tipo: true } } } },
       },
@@ -387,7 +388,7 @@ export class ListasService {
       // Campos da consulta (na ordem dela) e os que o layout usa: o operador pode digitar qualquer um.
       const daConsulta = Array.isArray(m.consulta!.campos) ? (m.consulta!.campos as { nome?: unknown }[]).map((c) => String(c?.nome ?? '')) : [];
       const campos = [...new Set([...daConsulta, ...camposUsados(m.layout as unknown as LayoutEtiqueta)].filter(Boolean))];
-      return { id: m.id, nome: m.nome, impressoraId: m.impressoraId, parametros, campos, folha: limitesPorFolha(m.layout as unknown as LayoutEtiqueta) };
+      return { id: m.id, nome: m.nome, impressoraId: m.impressoraId, impressoraLinguagem: m.impressora?.linguagem ?? null, parametros, campos, folha: limitesPorFolha(m.layout as unknown as LayoutEtiqueta) };
     });
   }
 

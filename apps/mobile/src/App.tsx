@@ -10,12 +10,13 @@ import { apagarSessao, clienteDa, gravarSessao, lerSessao, versaoPublicada, type
 import { avisarAgora, prepararNotificacoes, tokenDePush } from './avisos';
 import { avisosNovos, chavesDosAvisos, versaoMaisNova } from './regras';
 import { TelaAvisos } from './TelaAvisos';
+import { TelaAvulsa } from './TelaAvulsa';
 import { TelaInicio } from './TelaInicio';
 import { TelaLista } from './TelaLista';
 import { TelaVincular } from './TelaVincular';
 import { Alerta, cores } from './ui';
 
-type Aba = 'inicio' | 'lista' | 'avisos';
+type Aba = 'inicio' | 'lista' | 'avulsa' | 'avisos';
 const INTERVALO_AVISOS_MS = 60_000;
 
 export function App() {
@@ -62,6 +63,7 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
   const vistos = useRef<Set<string> | null>(null);
   const usuario = sessao.usuario;
   const podeVerAvisos = usuario.superAdmin || usuario.permissoes.includes('notificacao.ver');
+  const podeImprimir = usuario.superAdmin || usuario.permissoes.includes('imprimir');
 
   const api = useMemo(() => clienteDa(sessao, () => encerrar('Este celular foi desvinculado. Para usar de novo, leia outro QR code.')), [sessao, encerrar]);
 
@@ -123,7 +125,7 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
     if (Platform.OS === 'web') return;
     const abrir = (r: Notifications.NotificationResponse | null) => {
       const tela = r?.notification.request.content.data?.tela;
-      if (tela === 'lista' || tela === 'avisos' || tela === 'inicio') setAba(tela);
+      if (tela === 'lista' || tela === 'avulsa' || tela === 'avisos' || tela === 'inicio') setAba(tela);
     };
     void Notifications.getLastNotificationResponseAsync().then((r) => abrir(r ?? null));
     const s = Notifications.addNotificationResponseReceivedListener(abrir);
@@ -165,6 +167,12 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
       <View style={{ flex: 1 }}>
         {aba === 'inicio' && <TelaInicio api={api} usuario={usuario} irParaLista={() => setAba('lista')} />}
         {aba === 'lista' && <TelaLista api={api} usuario={usuario} />}
+        {/* Fica montada: ir a outra guia e voltar não perde a lista que está sendo lida. */}
+        {podeImprimir && (
+          <View style={{ flex: 1, display: aba === 'avulsa' ? 'flex' : 'none' }}>
+            <TelaAvulsa api={api} />
+          </View>
+        )}
         {aba === 'avisos' && (
           <TelaAvisos
             usuario={usuario}
@@ -182,6 +190,7 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
       <View style={estilos.abas} accessibilityRole="tablist">
         <BotaoAba rotulo="Início" ativa={aba === 'inicio'} aoTocar={() => setAba('inicio')} />
         <BotaoAba rotulo="Lista do dia" ativa={aba === 'lista'} aoTocar={() => setAba('lista')} />
+        {podeImprimir && <BotaoAba rotulo="Etiqueta avulsa" ativa={aba === 'avulsa'} aoTocar={() => setAba('avulsa')} />}
         <BotaoAba rotulo="Avisos" contagem={naoLidas} ativa={aba === 'avisos'} aoTocar={() => setAba('avisos')} />
       </View>
     </View>
@@ -201,6 +210,6 @@ const estilos = StyleSheet.create({
   abas: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: cores.borda, backgroundColor: cores.branco },
   aba: { flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', borderTopWidth: 3, borderTopColor: 'transparent' },
   abaAtiva: { borderTopColor: cores.azul },
-  abaTexto: { fontSize: 14, color: cores.suave, fontWeight: '500' },
+  abaTexto: { fontSize: 13, color: cores.suave, fontWeight: '500', textAlign: 'center', paddingHorizontal: 2 },
   abaTextoAtivo: { color: cores.azul, fontWeight: '700' },
 });
