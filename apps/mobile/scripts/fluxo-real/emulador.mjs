@@ -132,7 +132,7 @@ await confere('=Vincular', 90_000);
 print('confirmar-vinculo');
 await tocar('=Vincular');
 // O Android pergunta sobre notificações na primeira vez.
-if (await aguardar('Allow', 10_000)) await tocar('Allow');
+if (await aguardar('=Allow', 10_000)) await tocar('=Allow');
 await confere('Mercado Fluxo', 30_000);
 print('inicio');
 
