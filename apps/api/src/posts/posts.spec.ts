@@ -151,19 +151,28 @@ describe('PostsService', () => {
 
   it('sem a permissão, não cria post com ajustes nem muda os ajustes de um post', async () => {
     await expect(servico.criar('e', { ...DADOS, ajustes: AJUSTES }, comum)).rejects.toBeInstanceOf(ForbiddenException);
-    achar.mockResolvedValue({ ajustes: {} });
+    achar.mockResolvedValue({ ajustes: {}, design: {} });
     await expect(servico.atualizar('e', 'p', { ...DADOS, ajustes: AJUSTES }, comum)).rejects.toBeInstanceOf(ForbiddenException);
     expect(atualizar).not.toHaveBeenCalled();
   });
 
+  it('sem a permissão, não muda a aparência; com ela, muda', async () => {
+    const design = { corPrincipal: '#123456' };
+    await expect(servico.criar('e', { ...DADOS, design }, comum)).rejects.toBeInstanceOf(ForbiddenException);
+    achar.mockResolvedValue({ ajustes: {}, design: {} });
+    await expect(servico.atualizar('e', 'p', { ...DADOS, design }, comum)).rejects.toBeInstanceOf(ForbiddenException);
+    await servico.atualizar('e', 'p', { ...DADOS, design }, livre);
+    expect(atualizar.mock.calls[0][0].data.design).toEqual(design);
+  });
+
   it('sem a permissão, ainda edita o texto de um post que já tem ajustes', async () => {
-    achar.mockResolvedValue({ ajustes: AJUSTES });
-    await servico.atualizar('e', 'p', { ...DADOS, legenda: 'nova', ajustes: AJUSTES }, comum);
+    achar.mockResolvedValue({ ajustes: AJUSTES, design: { corPrincipal: '#123456' } });
+    await servico.atualizar('e', 'p', { ...DADOS, legenda: 'nova', ajustes: AJUSTES, design: { corPrincipal: '#123456' } }, comum);
     expect(atualizar).toHaveBeenCalled();
   });
 
   it('com a permissão, muda os ajustes; a busca é sempre dentro da empresa', async () => {
-    achar.mockResolvedValue({ ajustes: {} });
+    achar.mockResolvedValue({ ajustes: {}, design: {} });
     await servico.atualizar('e', 'p', { ...DADOS, ajustes: AJUSTES }, livre);
     expect(atualizar).toHaveBeenCalled();
     expect(achar).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'p', empresaId: 'e' } }));

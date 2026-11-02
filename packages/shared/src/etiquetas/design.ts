@@ -9,7 +9,7 @@ export interface FonteCatalogo {
   nome: string;
   /** Família CSS no navegador. */
   familia: string;
-  categoria: 'Padrão' | 'Sem serifa' | 'Condensada' | 'Serifada' | 'Destaque' | 'Manuscrita';
+  categoria: 'Padrão' | 'Sem serifa' | 'Arredondada' | 'Condensada' | 'Serifada' | 'Destaque' | 'Manuscrita' | 'Monoespaçada';
   /** Tem arquivo próprio de negrito/itálico (senão o PDF simula). */
   negrito: boolean;
   italico: boolean;
@@ -38,6 +38,55 @@ export const FONTES: readonly FonteCatalogo[] = [
   { id: 'pacifico', nome: 'Pacifico', familia: 'Pacifico', categoria: 'Manuscrita', negrito: false, italico: false },
   { id: 'dancing-script', nome: 'Dancing Script', familia: 'Dancing Script', categoria: 'Manuscrita', negrito: true, italico: false },
   { id: 'permanent-marker', nome: 'Permanent Marker', familia: 'Permanent Marker', categoria: 'Manuscrita', negrito: false, italico: false },
+  { id: 'inter', nome: 'Inter', familia: 'Inter', categoria: 'Sem serifa', negrito: true, italico: true },
+  { id: 'nunito', nome: 'Nunito', familia: 'Nunito', categoria: 'Sem serifa', negrito: true, italico: true },
+  { id: 'raleway', nome: 'Raleway', familia: 'Raleway', categoria: 'Sem serifa', negrito: true, italico: true },
+  { id: 'ubuntu', nome: 'Ubuntu', familia: 'Ubuntu', categoria: 'Sem serifa', negrito: true, italico: true },
+  { id: 'rubik', nome: 'Rubik', familia: 'Rubik', categoria: 'Sem serifa', negrito: true, italico: true },
+  { id: 'work-sans', nome: 'Work Sans', familia: 'Work Sans', categoria: 'Sem serifa', negrito: true, italico: true },
+  { id: 'barlow', nome: 'Barlow', familia: 'Barlow', categoria: 'Sem serifa', negrito: true, italico: true },
+  { id: 'fira-sans', nome: 'Fira Sans', familia: 'Fira Sans', categoria: 'Sem serifa', negrito: true, italico: true },
+  { id: 'josefin-sans', nome: 'Josefin Sans', familia: 'Josefin Sans', categoria: 'Sem serifa', negrito: true, italico: true },
+  { id: 'exo-2', nome: 'Exo 2', familia: 'Exo 2', categoria: 'Sem serifa', negrito: true, italico: true },
+  { id: 'titillium-web', nome: 'Titillium Web', familia: 'Titillium Web', categoria: 'Sem serifa', negrito: true, italico: true },
+  { id: 'league-spartan', nome: 'League Spartan', familia: 'League Spartan', categoria: 'Sem serifa', negrito: true, italico: false },
+  { id: 'dm-sans', nome: 'DM Sans', familia: 'DM Sans', categoria: 'Sem serifa', negrito: true, italico: true },
+  { id: 'mulish', nome: 'Mulish', familia: 'Mulish', categoria: 'Sem serifa', negrito: true, italico: true },
+  { id: 'karla', nome: 'Karla', familia: 'Karla', categoria: 'Sem serifa', negrito: true, italico: true },
+  { id: 'source-sans-3', nome: 'Source Sans 3', familia: 'Source Sans 3', categoria: 'Sem serifa', negrito: true, italico: true },
+  { id: 'quicksand', nome: 'Quicksand', familia: 'Quicksand', categoria: 'Arredondada', negrito: true, italico: false },
+  { id: 'comfortaa', nome: 'Comfortaa', familia: 'Comfortaa', categoria: 'Arredondada', negrito: true, italico: false },
+  { id: 'fredoka', nome: 'Fredoka', familia: 'Fredoka', categoria: 'Arredondada', negrito: true, italico: false },
+  { id: 'baloo-2', nome: 'Baloo 2', familia: 'Baloo 2', categoria: 'Arredondada', negrito: true, italico: false },
+  { id: 'barlow-condensed', nome: 'Barlow Condensed', familia: 'Barlow Condensed', categoria: 'Condensada', negrito: true, italico: true },
+  { id: 'archivo-narrow', nome: 'Archivo Narrow', familia: 'Archivo Narrow', categoria: 'Condensada', negrito: true, italico: true },
+  { id: 'teko', nome: 'Teko', familia: 'Teko', categoria: 'Condensada', negrito: true, italico: false },
+  { id: 'fjalla-one', nome: 'Fjalla One', familia: 'Fjalla One', categoria: 'Condensada', negrito: false, italico: false },
+  { id: 'roboto-slab', nome: 'Roboto Slab', familia: 'Roboto Slab', categoria: 'Serifada', negrito: true, italico: false },
+  { id: 'lora', nome: 'Lora', familia: 'Lora', categoria: 'Serifada', negrito: true, italico: true },
+  { id: 'pt-serif', nome: 'PT Serif', familia: 'PT Serif', categoria: 'Serifada', negrito: true, italico: true },
+  { id: 'libre-baskerville', nome: 'Libre Baskerville', familia: 'Libre Baskerville', categoria: 'Serifada', negrito: true, italico: true },
+  { id: 'eb-garamond', nome: 'EB Garamond', familia: 'EB Garamond', categoria: 'Serifada', negrito: true, italico: true },
+  { id: 'bree-serif', nome: 'Bree Serif', familia: 'Bree Serif', categoria: 'Serifada', negrito: false, italico: false },
+  { id: 'abril-fatface', nome: 'Abril Fatface', familia: 'Abril Fatface', categoria: 'Destaque', negrito: false, italico: false },
+  { id: 'alfa-slab-one', nome: 'Alfa Slab One', familia: 'Alfa Slab One', categoria: 'Destaque', negrito: false, italico: false },
+  { id: 'lilita-one', nome: 'Lilita One', familia: 'Lilita One', categoria: 'Destaque', negrito: false, italico: false },
+  { id: 'righteous', nome: 'Righteous', familia: 'Righteous', categoria: 'Destaque', negrito: false, italico: false },
+  { id: 'russo-one', nome: 'Russo One', familia: 'Russo One', categoria: 'Destaque', negrito: false, italico: false },
+  { id: 'passion-one', nome: 'Passion One', familia: 'Passion One', categoria: 'Destaque', negrito: true, italico: false },
+  { id: 'luckiest-guy', nome: 'Luckiest Guy', familia: 'Luckiest Guy', categoria: 'Destaque', negrito: false, italico: false },
+  { id: 'bungee', nome: 'Bungee', familia: 'Bungee', categoria: 'Destaque', negrito: false, italico: false },
+  { id: 'titan-one', nome: 'Titan One', familia: 'Titan One', categoria: 'Destaque', negrito: false, italico: false },
+  { id: 'great-vibes', nome: 'Great Vibes', familia: 'Great Vibes', categoria: 'Manuscrita', negrito: false, italico: false },
+  { id: 'satisfy', nome: 'Satisfy', familia: 'Satisfy', categoria: 'Manuscrita', negrito: false, italico: false },
+  { id: 'kaushan-script', nome: 'Kaushan Script', familia: 'Kaushan Script', categoria: 'Manuscrita', negrito: false, italico: false },
+  { id: 'caveat', nome: 'Caveat', familia: 'Caveat', categoria: 'Manuscrita', negrito: true, italico: false },
+  { id: 'sacramento', nome: 'Sacramento', familia: 'Sacramento', categoria: 'Manuscrita', negrito: false, italico: false },
+  { id: 'shadows-into-light', nome: 'Shadows Into Light', familia: 'Shadows Into Light', categoria: 'Manuscrita', negrito: false, italico: false },
+  { id: 'amatic-sc', nome: 'Amatic SC', familia: 'Amatic SC', categoria: 'Manuscrita', negrito: true, italico: false },
+  { id: 'indie-flower', nome: 'Indie Flower', familia: 'Indie Flower', categoria: 'Manuscrita', negrito: false, italico: false },
+  { id: 'courgette', nome: 'Courgette', familia: 'Courgette', categoria: 'Manuscrita', negrito: false, italico: false },
+  { id: 'roboto-mono', nome: 'Roboto Mono', familia: 'Roboto Mono', categoria: 'Monoespaçada', negrito: true, italico: true },
 ];
 
 export const FONTE_PADRAO = 'helvetica';

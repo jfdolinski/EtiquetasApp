@@ -43,6 +43,9 @@ export function useImagensPost(imagens: ImagemPost[]): Map<string, ImagemCarrega
   return mapa;
 }
 
+/** Classes dos campos pequenos dos painéis do editor. */
+export const CLASSE_PAINEL = 'w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm focus:border-blue-500 focus:outline-none';
+
 export const MAX_ARQUIVO_IMAGEM = 5_000_000;
 
 /** Envia um arquivo para a galeria da empresa. */

@@ -16,6 +16,7 @@ import {
   type ConsultaPost,
   type ConteudoPost,
   type DadosPost,
+  type DesignPost,
   type FormatoPost,
   type ImagemGaleria,
   type ModeloPost,
@@ -49,7 +50,7 @@ export interface AtualizarMarca {
 
 const podeEditarLivre = (u: UsuarioRequisicao) => u.superAdmin || u.permissoes.includes('post.edicao_livre');
 
-function completo(p: { id: string; titulo: string; modelo: string; formato: string; conteudo: unknown; legenda: string; ajustes: unknown; atualizadoEm: Date }): PostCompleto {
+function completo(p: { id: string; titulo: string; modelo: string; formato: string; conteudo: unknown; legenda: string; ajustes: unknown; design?: unknown; atualizadoEm: Date }): PostCompleto {
   return {
     id: p.id,
     titulo: p.titulo,
@@ -58,6 +59,7 @@ function completo(p: { id: string; titulo: string; modelo: string; formato: stri
     conteudo: p.conteudo as ConteudoPost,
     legenda: p.legenda,
     ajustes: p.ajustes as AjustesPost,
+    design: (p.design ?? {}) as DesignPost,
     atualizadoEm: p.atualizadoEm.toISOString(),
   };
 }
@@ -69,7 +71,7 @@ function exigirValido(d: DadosPost) {
 
 /** Ordem das chaves não conta: só muda quem mudou de verdade. */
 function mesmosAjustes(a: unknown, b: unknown): boolean {
-  const canonico = (v: unknown): unknown => (v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).sort(([x], [y]) => x.localeCompare(y)).map(([k, w]) => [k, canonico(w)])) : v);
+  const canonico = (v: unknown): unknown => (Array.isArray(v) ? v.map(canonico) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).sort(([x], [y]) => x.localeCompare(y)).map(([k, w]) => [k, canonico(w)])) : v);
   return JSON.stringify(canonico(a)) === JSON.stringify(canonico(b));
 }
 
@@ -100,23 +102,26 @@ export class PostsService {
 
   async criar(empresaId: string, d: DadosPost, usuario: UsuarioRequisicao): Promise<PostCompleto> {
     exigirValido(d);
-    if (Object.keys(d.ajustes).length && !podeEditarLivre(usuario)) throw new ForbiddenException('Você não tem permissão para a edição livre da arte.');
+    const design = d.design ?? {};
+    if ((Object.keys(d.ajustes).length || Object.keys(design).length) && !podeEditarLivre(usuario)) throw new ForbiddenException('Você não tem permissão para a edição livre da arte.');
     const autor = await this.prisma.usuario.findUnique({ where: { id: usuario.id }, select: { nome: true } });
     const p = await this.prisma.postSocial.create({
-      data: { empresaId, titulo: d.titulo.trim(), modelo: d.modelo, formato: d.formato, conteudo: d.conteudo as unknown as Prisma.InputJsonValue, legenda: d.legenda, ajustes: d.ajustes as Prisma.InputJsonValue, autor: autor?.nome ?? null },
+      data: { empresaId, titulo: d.titulo.trim(), modelo: d.modelo, formato: d.formato, conteudo: d.conteudo as unknown as Prisma.InputJsonValue, legenda: d.legenda, ajustes: d.ajustes as Prisma.InputJsonValue, design: design as Prisma.InputJsonValue, autor: autor?.nome ?? null },
     });
     await this.auditoria.registrar({ empresaId, usuarioId: usuario.id, acao: 'post.criar', entidade: 'PostSocial', entidadeId: p.id, detalhes: { titulo: p.titulo, modelo: p.modelo } });
     return completo(p);
   }
 
   async atualizar(empresaId: string, id: string, d: DadosPost, usuario: UsuarioRequisicao): Promise<PostCompleto> {
-    const atual = await this.prisma.postSocial.findFirst({ where: { id, empresaId }, select: { ajustes: true } });
+    const atual = await this.prisma.postSocial.findFirst({ where: { id, empresaId }, select: { ajustes: true, design: true } });
     if (!atual) throw new NotFoundException('Post não encontrado.');
     exigirValido(d);
-    if (!mesmosAjustes(atual.ajustes, d.ajustes) && !podeEditarLivre(usuario)) throw new ForbiddenException('Você não tem permissão para a edição livre da arte.');
+    const design = d.design ?? {};
+    const mudouArte = !mesmosAjustes(atual.ajustes, d.ajustes) || !mesmosAjustes(atual.design, design);
+    if (mudouArte && !podeEditarLivre(usuario)) throw new ForbiddenException('Você não tem permissão para a edição livre da arte.');
     const p = await this.prisma.postSocial.update({
       where: { id },
-      data: { titulo: d.titulo.trim(), modelo: d.modelo, formato: d.formato, conteudo: d.conteudo as unknown as Prisma.InputJsonValue, legenda: d.legenda, ajustes: d.ajustes as Prisma.InputJsonValue },
+      data: { titulo: d.titulo.trim(), modelo: d.modelo, formato: d.formato, conteudo: d.conteudo as unknown as Prisma.InputJsonValue, legenda: d.legenda, ajustes: d.ajustes as Prisma.InputJsonValue, design: design as Prisma.InputJsonValue },
     });
     await this.auditoria.registrar({ empresaId, usuarioId: usuario.id, acao: 'post.editar', entidade: 'PostSocial', entidadeId: id, detalhes: { titulo: p.titulo, modelo: p.modelo } });
     return completo(p);

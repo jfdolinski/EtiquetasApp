@@ -1,6 +1,5 @@
 import { useState, type ReactNode } from 'react';
 import {
-  FONTES,
   FORMATOS_DATA,
   PALETA,
   PAPEIS_CARTAZ,
@@ -21,7 +20,7 @@ import {
   type Simbologia,
   paginar,
 } from '@etiquetas/shared';
-import { cssFonte } from './fontes';
+import { SeletorFonte } from '../../components/SeletorFonte';
 import { lerImagem } from './imagens';
 
 const CLASSE = 'w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm disabled:bg-slate-100';
@@ -263,8 +262,6 @@ const TITULO = {
   imagem: 'Imagem',
 } as const;
 
-const CATEGORIAS = [...new Set(FONTES.map((f) => f.categoria))];
-
 /** Fonte, tamanho, cor, estilo, alinhamento e efeitos: comum a texto e preço. */
 type MudancaFonte = Partial<Omit<ElementoTexto, 'tipo'> & Omit<ElementoPreco, 'tipo'>>;
 
@@ -273,19 +270,11 @@ function PropriedadesFonte({ el, aoMudar }: { el: ElementoTexto | ElementoPreco;
   return (
     <>
       <Secao titulo="Fonte">
-        <Linha rotulo="Família">
-          <select className={CLASSE} value={el.fonte ?? 'helvetica'} onChange={(e) => aoMudar({ fonte: e.target.value })} style={{ font: cssFonte(el.fonte, false, false, 15) }}>
-            {CATEGORIAS.map((c) => (
-              <optgroup key={c} label={c}>
-                {FONTES.filter((f) => f.categoria === c).map((f) => (
-                  <option key={f.id} value={f.id} style={{ font: cssFonte(f.id, false, false, 15) }}>
-                    {f.nome}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </Linha>
+        {/* Sem <label>: um clique no título de uma categoria da lista acionaria o botão e a fecharia. */}
+        <div>
+          <span className="mb-0.5 block text-xs font-medium text-slate-600">Família</span>
+          <SeletorFonte valor={el.fonte ?? 'helvetica'} aoMudar={(fonte) => aoMudar({ fonte })} rotulo="Família" />
+        </div>
         <div className="grid grid-cols-2 gap-2">
           <Linha rotulo={el.ajustar ? 'Tamanho máximo (pt)' : 'Tamanho (pt)'}>
             <Numero valor={el.tamanhoPt} passo={1} min={4} max={2000} aoMudar={(tamanhoPt) => aoMudar({ tamanhoPt: Math.max(4, Math.min(2000, tamanhoPt)) })} />

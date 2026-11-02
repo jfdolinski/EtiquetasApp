@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Module, Param, ParseUUIDPipe, Patch, Post, Put, Query, Res } from '@nestjs/common';
 import { IsDefined, IsIn, IsObject, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
 import type { Response } from 'express';
-import type { AjustesPost, ConteudoPost, DadosPost, FormatoPost, ModeloPost } from '@etiquetas/shared';
+import type { AjustesPost, ConteudoPost, DadosPost, DesignPost, FormatoPost, ModeloPost } from '@etiquetas/shared';
 import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { BanidosModule } from '../banidos/banidos.module';
@@ -30,6 +30,10 @@ class PostDto implements DadosPost {
   @IsDefined()
   @IsObject()
   ajustes: AjustesPost;
+
+  @IsOptional()
+  @IsObject()
+  design?: DesignPost;
 }
 
 class MarcaDto {

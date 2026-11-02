@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { conteudoVazio, corSobre, formatarPrecoPost, FORMATOS_POST, legendaSugerida, montarPost, precoDoRegistro, problemaNoPost, produtoDoRegistro, type DadosPost, type FormatoPost, type ProdutoPost } from './posts';
+import { alterarTextoDoElemento, conteudoVazio, corSobre, formatarPrecoPost, FORMATOS_POST, legendaSugerida, montarPost, partesDoPreco, precoDoRegistro, problemaNoPost, produtoDoRegistro, rotuloElemento, VARIACOES_POST, type ConteudoPost, type DadosPost, type FormatoPost, type FundoPost, type ProdutoPost, type VariacaoPost } from './posts';
 
 const MARCA = { nome: 'Mercado Bom', corPrincipal: '#1d4ed8', corDestaque: '#facc15', logoId: null };
 const PRODUTO: ProdutoPost = { codigo: '789', descricao: 'Café 500 g', preco: 'R$ 4,99', imagem: { origem: 'CATALOGO', url: 'https://c/files/a.png', ia: false } };
@@ -41,25 +41,83 @@ describe('produtoDoRegistro', () => {
 });
 
 describe('montarPost', () => {
-  it.each(Object.keys(FORMATOS_POST) as FormatoPost[])('nada sai da arte em %s, em nenhum modelo', (formato) => {
+  const CHEIO: ProdutoPost = { ...PRODUTO, precoDe: 'R$ 9,99', unidade: '/kg', detalhe: 'Leve 3, pague 2', selo: '-20%' };
+  const INFO = { subtitulo: 'Só hoje', chamada: 'Compre agora', validade: 'Até 31/12', telefone: '1', whatsapp: '2', instagram: '@a', site: 'b.com', endereco: 'Rua A, 1' };
+  const VARIACOES = Object.keys(VARIACOES_POST) as VariacaoPost[];
+
+  it.each((Object.keys(FORMATOS_POST) as FormatoPost[]).flatMap((f) => VARIACOES.map((v) => [f, v] as const)))('nada sai da arte em %s, variação %s, nem com todos os dados preenchidos', (formato, variacao) => {
     const { largura, altura } = FORMATOS_POST[formato];
     const cenarios: Partial<DadosPost>[] = [
       {},
+      { conteudo: { ...conteudoVazio(), ...INFO, produtos: [CHEIO] } },
       { modelo: 'OFERTA', conteudo: { ...conteudoVazio(), titulo: 'Ofertas', produtos: [PRODUTO, PRODUTO] } },
       { modelo: 'OFERTA', conteudo: { ...conteudoVazio(), produtos: [PRODUTO, PRODUTO, PRODUTO] } },
-      { modelo: 'OFERTA', conteudo: { ...conteudoVazio(), titulo: 'Ofertas', produtos: [PRODUTO, PRODUTO, PRODUTO, PRODUTO] } },
+      { modelo: 'OFERTA', conteudo: { ...conteudoVazio(), ...INFO, titulo: 'Ofertas', produtos: [CHEIO, CHEIO, CHEIO, CHEIO] } },
       { modelo: 'AVISO', conteudo: { ...conteudoVazio(), titulo: 'Aviso', texto: 'Texto', imagem: PRODUTO.imagem } },
+      { modelo: 'AVISO', conteudo: { ...conteudoVazio(), ...INFO, titulo: 'Aviso', texto: 'Texto' } },
     ];
     for (const c of cenarios) {
-      for (const e of montarPost(post({ ...c, formato }), MARCA)) {
-        expect(e.x).toBeGreaterThanOrEqual(0);
-        expect(e.y).toBeGreaterThanOrEqual(0);
-        expect(e.largura).toBeGreaterThan(0);
-        expect(e.altura).toBeGreaterThan(0);
-        expect(e.x + e.largura).toBeLessThanOrEqual(largura);
-        expect(e.y + e.altura).toBeLessThanOrEqual(altura);
+      const dados = post({ ...c, formato });
+      for (const e of montarPost({ ...dados, conteudo: { ...dados.conteudo, variacao } }, MARCA)) {
+        expect(e.x, e.id).toBeGreaterThanOrEqual(0);
+        expect(e.y, e.id).toBeGreaterThanOrEqual(0);
+        expect(e.largura, e.id).toBeGreaterThan(0);
+        expect(e.altura, e.id).toBeGreaterThan(0);
+        expect(e.x + e.largura, e.id).toBeLessThanOrEqual(largura);
+        expect(e.y + e.altura, e.id).toBeLessThanOrEqual(altura);
       }
     }
+  });
+
+  it('cada dado preenchido aparece na arte; vazio não ocupa lugar', () => {
+    const ids = (c: ConteudoPost) => montarPost(post({ conteudo: c }), MARCA).map((e) => e.id);
+    expect(ids({ ...conteudoVazio(), ...INFO, produtos: [CHEIO] })).toEqual(expect.arrayContaining(['chamada', 'chamada-fundo', 'validade', 'contato', 'endereco', 'preco-de-0', 'unidade-0', 'detalhe-0', 'selo-0', 'selo-fundo-0']));
+    expect(ids({ ...conteudoVazio(), produtos: [PRODUTO] })).not.toEqual(expect.arrayContaining(['chamada']));
+  });
+
+  it('estilo vale em todos os tamanhos; posição, só naquele em que foi feita', () => {
+    const design = { estilos: { 'nome-0': { fonte: 'inter', cor: '#ff0000' } } };
+    const ajustes = { QUADRADO: { 'nome-0': { x: 5, oculto: true } } };
+    const nome = (formato: FormatoPost) => montarPost(post({ formato, design, ajustes }), MARCA).find((e) => e.id === 'nome-0')!;
+    expect(nome('STORIES')).toMatchObject({ fonte: 'inter', cor: '#ff0000' });
+    expect(nome('QUADRADO')).toMatchObject({ fonte: 'inter', x: 5, oculto: true });
+    expect(nome('STORIES').x).not.toBe(5);
+    expect(nome('STORIES').oculto).toBeUndefined();
+  });
+
+  it('fonte de todos os textos vale menos que a escolhida no elemento', () => {
+    const design = { fontePadrao: 'lato', estilos: { 'nome-0': { fonte: 'inter' } } };
+    const els = montarPost(post({ design }), MARCA);
+    expect(els.find((e) => e.id === 'nome-0')).toMatchObject({ fonte: 'inter' });
+    expect(els.find((e) => e.id === 'marca')).toMatchObject({ fonte: 'lato' });
+  });
+
+  it('elemento acrescentado entra na mesma proporção de altura em todos os tamanhos', () => {
+    const design = { extras: [{ id: 'extra-a', tipo: 'texto' as const, x: 10, yRel: 0.5, largura: 300, altura: 80, texto: 'Oi' }] };
+    const y = (formato: FormatoPost) => montarPost(post({ formato, design }), MARCA).find((e) => e.id === 'extra-a')!.y;
+    expect(y('QUADRADO')).toBe(540);
+    expect(y('STORIES')).toBe(960);
+  });
+
+  it('camadas: fundo sempre atrás, ordem escolhida respeitada e elemento novo na frente', () => {
+    const extra = { id: 'extra-a', tipo: 'retangulo' as const, x: 0, yRel: 0, largura: 10, altura: 10 };
+    const els = montarPost(post({ design: { ordem: { QUADRADO: ['nome-0', 'marca'] }, extras: [extra] } }), MARCA);
+    expect(els[0].id).toBe('fundo');
+    expect(els.findIndex((e) => e.id === 'nome-0')).toBeLessThan(els.findIndex((e) => e.id === 'marca'));
+    expect(els[els.length - 1].id).toBe('extra-a');
+  });
+
+  it('fundo em degradê e em imagem, com véu', () => {
+    const fundo = (f: FundoPost) => montarPost(post({ design: { fundo: f } }), MARCA);
+    expect(fundo({ tipo: 'degrade', cor: '#000000', cor2: '#ffffff' })[0]).toMatchObject({ cor: '#000000', cor2: '#ffffff' });
+    const comImagem = fundo({ tipo: 'imagem', imagem: PRODUTO.imagem, veu: 0.5 });
+    expect(comImagem.slice(0, 3).map((e) => e.id)).toEqual(['fundo', 'fundo-imagem', 'fundo-veu']);
+    expect(comImagem[2]).toMatchObject({ opacidade: 0.5 });
+    expect(comImagem[1]).toMatchObject({ ajusteImagem: 'cobrir' });
+  });
+
+  it('cores do post valem no lugar das da marca', () => {
+    expect(montarPost(post({ design: { corPrincipal: '#123456' } }), MARCA)[0]).toMatchObject({ cor: '#123456' });
   });
 
   it('mostra aviso na arte quando a imagem é de IA', () => {
@@ -93,6 +151,35 @@ it('legenda sugerida traz produto e preço', () => {
   expect(legendaSugerida('PRODUTO', { ...conteudoVazio(), rodape: '', produtos: [PRODUTO] }, MARCA)).toBe('Café 500 g por R$ 4,99!\n\nVenha conferir na Mercado Bom.');
 });
 
+it('legenda muda com o tom e traz preço anterior e hashtags', () => {
+  const c = { ...conteudoVazio(), rodape: '', hashtags: '#oferta', produtos: [{ ...PRODUTO, precoDe: 'R$ 9,99' }] };
+  const animada = legendaSugerida('PRODUTO', c, MARCA, 'animado');
+  expect(animada).toContain('Olha essa oferta');
+  expect(animada).toContain('de R$ 9,99 por R$ 4,99');
+  expect(animada.endsWith('#oferta')).toBe(true);
+  expect(legendaSugerida('PRODUTO', c, MARCA, 'formal')).toContain('Conte com a Mercado Bom');
+});
+
+it('partesDoPreco separa valor e centavos; texto livre fica sem partes', () => {
+  expect(partesDoPreco('R$ 1.234,50')).toEqual({ moeda: 'R$', valor: '1.234', centavos: ',50' });
+  expect(partesDoPreco('sob consulta')).toBeNull();
+});
+
+it('escrever no elemento muda o dado do post', () => {
+  const c = { ...conteudoVazio(), produtos: [PRODUTO, { ...PRODUTO, descricao: 'Outro' }] };
+  expect(alterarTextoDoElemento(c, 'titulo', 'Novo')?.titulo).toBe('Novo');
+  expect(alterarTextoDoElemento(c, 'nome-1', 'Novo')?.produtos.map((p) => p.descricao)).toEqual(['Café 500 g', 'Novo']);
+  expect(alterarTextoDoElemento(c, 'preco-0', 'R$ 1,00')?.produtos[0].preco).toBe('R$ 1,00');
+  // Montado pelo sistema: não há um dado único para mudar.
+  expect(alterarTextoDoElemento(c, 'contato', 'x')).toBeNull();
+});
+
+it('rótulos das camadas numeram os produtos só quando há vários', () => {
+  const nome = montarPost(post(), MARCA).find((e) => e.id === 'nome-0')!;
+  expect(rotuloElemento(nome)).toBe('Nome');
+  expect(rotuloElemento(nome, true)).toBe('Nome 1');
+});
+
 describe('problemaNoPost', () => {
   it('aceita um post correto', () => expect(problemaNoPost(post())).toBeNull());
 
@@ -108,5 +195,15 @@ describe('problemaNoPost', () => {
     ['ajuste sem número', { ajustes: { QUADRADO: { a: { x: NaN, y: 0, largura: 1, altura: 1 } } } }],
     ['ajuste com tamanho zero', { ajustes: { QUADRADO: { a: { x: 0, y: 0, largura: 0, altura: 1 } } } }],
     ['ajuste em tamanho que não existe', { ajustes: { X: {} } as never }],
+    ['variação inválida', { conteudo: { ...conteudoVazio(), variacao: 'X' as never, produtos: [PRODUTO] } }],
+    ['cor que não é cor', { design: { corPrincipal: 'red;' } }],
+    ['fonte desconhecida', { design: { fontePadrao: 'comic' } }],
+    ['fonte desconhecida no elemento', { design: { estilos: { a: { fonte: 'comic' } } } }],
+    ['cor inválida no elemento', { design: { estilos: { a: { cor: 'url(x)' } } } }],
+    ['número inválido no elemento', { design: { estilos: { a: { tamanho: Infinity } } } }],
+    ['fundo inválido', { design: { fundo: { tipo: 'x' as never } } }],
+    ['elemento acrescentado sem id certo', { design: { extras: [{ id: 'a', tipo: 'texto', x: 0, yRel: 0, largura: 1, altura: 1 }] } }],
+    ['elemento de tipo desconhecido', { design: { extras: [{ id: 'extra-a', tipo: 'x' as never, x: 0, yRel: 0, largura: 1, altura: 1 }] } }],
+    ['elementos demais', { design: { extras: Array.from({ length: 41 }, (_, i) => ({ id: `extra-${i}`, tipo: 'texto' as const, x: 0, yRel: 0, largura: 1, altura: 1 })) } }],
   ])('recusa %s', (_n, m) => expect(problemaNoPost(post(m))).toBeTruthy());
 });

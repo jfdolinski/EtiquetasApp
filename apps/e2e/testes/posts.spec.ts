@@ -127,7 +127,7 @@ test('da Lista do dia ao PNG: dados do ERP, foto real do catálogo e tamanho cer
   await expect(page.getByRole('heading', { name: 'Novo post', level: 1 })).toBeVisible();
   // Nome e preço do ERP, não do catálogo.
   await expect(page.getByLabel('Nome do produto')).toHaveValue(`Produto ${EAN}`);
-  await expect(page.getByLabel('Preço')).toHaveValue('R$ 4,99');
+  await expect(page.getByLabel('Preço', { exact: true })).toHaveValue('R$ 4,99');
   // A foto real entra sozinha; a de IA fica escondida até pedirem.
   const real = page.locator(`[data-imagem="CATALOGO:${BASE}/files/real.png"]`);
   await expect(real).toHaveAttribute('aria-pressed', 'true');
@@ -136,8 +136,10 @@ test('da Lista do dia ao PNG: dados do ERP, foto real do catálogo e tamanho cer
   await page.getByLabel(/Mostrar 1 imagem/).check();
   await expect(ia).toBeVisible();
 
+  await page.getByRole('tab', { name: 'Legenda' }).click();
   await page.getByRole('button', { name: 'Sugerir legenda' }).click();
-  await expect(page.getByLabel('Legenda')).toHaveValue(/R\$ 4,99/);
+  await expect(page.getByRole('textbox', { name: 'Legenda', exact: true })).toHaveValue(/R\$ 4,99/);
+  await page.getByRole('tab', { name: 'Dados' }).click();
 
   const baixar = async () => {
     const [d] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Baixar imagem' }).click()]);
@@ -164,31 +166,116 @@ test('da Lista do dia ao PNG: dados do ERP, foto real do catálogo e tamanho cer
   expect(erros).toEqual([]);
 });
 
-test('edição livre move o elemento e o preço de um medicamento traz o aviso', async ({ page }) => {
+test('edição livre: arrastar, estilo, elementos novos, desfazer, e tudo volta ao reabrir', async ({ page }) => {
+  const erros: string[] = [];
+  page.on('pageerror', (x) => erros.push(x.message));
+  page.on('console', (m) => {
+    if (m.type() === 'error' && !/status of 40[0-9]/.test(m.text())) erros.push(m.text());
+  });
+  await page.setViewportSize({ width: 1700, height: 1000 });
   await montarListaDeHoje(b, { produtos: [REMEDIO] });
   await entrar(page, b);
   await page.goto('/hoje');
   await page.getByRole('button', { name: 'Criar post' }).click();
   await expect(page.getByText('marca este produto como medicamento')).toBeVisible();
 
-  await page.getByLabel('Edição livre').check();
-  await expect(page.getByRole('button', { name: 'Voltar ao modelo' })).toHaveCount(0);
+  // Arrastar um elemento pela arte: o clique seleciona, o arraste muda a posição.
   const tela = page.locator('canvas').first();
   await expect(tela).toBeVisible();
   const caixa = (await tela.boundingBox())!;
-  // O centro da arte é a imagem do produto.
   await page.mouse.move(caixa.x + caixa.width / 2, caixa.y + caixa.height / 2.5);
   await page.mouse.down();
-  await page.mouse.move(caixa.x + caixa.width / 2 + 40, caixa.y + caixa.height / 2.5 + 20, { steps: 5 });
+  await page.mouse.move(caixa.x + caixa.width / 2 + 60, caixa.y + caixa.height / 2.5 + 30, { steps: 6 });
   await page.mouse.up();
-  await expect(page.getByRole('button', { name: 'Voltar ao modelo' })).toBeVisible();
-  await page.getByRole('button', { name: 'Voltar ao modelo' }).click();
-  await expect(page.getByRole('button', { name: 'Voltar ao modelo' })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: /^Propriedades: / })).toBeVisible();
+  const voltar = page.getByRole('button', { name: 'Voltar ao modelo' }).first();
+  await expect(voltar).toBeVisible();
 
+  // Mudar o preço pelo painel: fonte nova, cor, efeitos.
+  await page.getByRole('button', { name: 'Selecionar Preço', exact: true }).click();
+  const painel = page.getByRole('group', { name: 'Propriedades: Preço' });
+  await painel.getByRole('button', { name: 'Fonte do elemento' }).click();
+  await page.getByLabel('Procurar fonte').fill('bung');
+  await page.getByRole('option', { name: 'Bungee' }).click();
+  await expect(painel.getByRole('button', { name: 'Fonte do elemento' })).toHaveText(/Bungee/);
+  await painel.getByRole('textbox', { name: 'Texto', exact: true }).fill('R$ 1,99');
+  await page.getByRole('tab', { name: 'Dados' }).click();
+  await expect(page.getByLabel('Preço', { exact: true })).toHaveValue('R$ 1,99');
+
+  // Elemento novo, com texto próprio, sumindo e voltando com desfazer/refazer.
+  await page.getByRole('tab', { name: 'Adicionar' }).click();
+  await page.getByRole('button', { name: 'Adicionar Texto' }).click();
+  const novo = page.getByRole('group', { name: /^Propriedades: Texto: / });
+  await novo.getByRole('textbox', { name: 'Texto', exact: true }).fill('Só amanhã');
+  await page.getByRole('button', { name: 'Adicionar QR code' }).click();
+  await page.getByRole('group', { name: 'Propriedades: QR code' }).getByRole('textbox', { name: /QR code/ }).fill('https://exemplo.com.br');
+  await expect(page.getByRole('button', { name: 'Selecionar QR code' })).toBeVisible();
+  await page.getByRole('button', { name: 'Desfazer' }).click();
+  await page.getByRole('button', { name: 'Desfazer' }).click();
+  await expect(page.getByRole('button', { name: 'Selecionar QR code' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Refazer' }).click();
+  await page.getByRole('button', { name: 'Refazer' }).click();
+  await expect(page.getByRole('button', { name: 'Selecionar QR code' })).toBeVisible();
+
+  // Aparência e todos os dados que aparecem na arte.
+  await page.getByRole('tab', { name: 'Aparência' }).click();
+  await page.getByRole('button', { name: /Vermelho oferta/ }).click();
+  await page.getByLabel('Tipo de fundo').selectOption('degrade');
+  await page.getByRole('tab', { name: 'Dados' }).click();
+  await page.getByLabel('Variação').selectOption('LADO_A_LADO');
+  await page.getByRole('textbox', { name: 'Chamada' }).fill('Compre agora');
+  await page.getByLabel('Instagram').fill('@loja');
+  await expect(page.getByRole('button', { name: 'Selecionar Chamada', exact: true })).toBeVisible();
+
+  const [d] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Baixar em JPG' }).click()]);
+  expect(d.suggestedFilename()).toMatch(/\.jpg$/);
+
+  await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(page).toHaveURL(/\/posts\/[0-9a-f-]{36}$/);
+  await page.reload();
+  await expect(page.getByLabel('Variação')).toHaveValue('LADO_A_LADO');
+  await expect(page.getByRole('textbox', { name: 'Chamada' })).toHaveValue('Compre agora');
+  await expect(page.getByRole('button', { name: 'Selecionar QR code' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Aparência' }).click();
+  await expect(page.getByLabel('Tipo de fundo')).toHaveValue('degrade');
+
+  // Tirar da arte e trazer de volta pela lista de camadas.
+  await page.getByRole('button', { name: 'Selecionar Chamada', exact: true }).click();
+  await page.getByRole('button', { name: 'Tirar da arte' }).click();
+  await expect(page.getByRole('button', { name: 'Mostrar Chamada', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Mostrar Chamada', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Ocultar Chamada', exact: true })).toBeVisible();
+
+  await page.goto('/posts');
+  await page.getByRole('button', { name: /^Duplicar / }).first().click();
+  await expect(page.getByRole('heading', { name: 'Novo post', level: 1 })).toBeVisible();
+  await expect(page.getByLabel('Nome do post')).toHaveValue(/^Cópia de /);
+  expect(erros).toEqual([]);
+});
+
+test('os três tamanhos saem de uma vez, cada um com sua medida', async ({ page }) => {
+  await montarListaDeHoje(b, { produtos: [EAN] });
+  await entrar(page, b);
+  await page.goto('/hoje');
+  await page.getByRole('button', { name: 'Criar post' }).click();
+  await expect(page.locator('canvas').first()).toBeVisible();
+  const baixados: { nome: string; tamanho: { largura: number; altura: number } }[] = [];
+  page.on('download', (d) => void d.path().then(async (p) => baixados.push({ nome: d.suggestedFilename(), tamanho: tamanhoPng(await readFile(p)) })));
+  await page.getByRole('button', { name: 'Baixar os 3 tamanhos' }).click();
+  await expect.poll(() => baixados.length, { timeout: 15_000 }).toBe(3);
+  const porNome = Object.fromEntries(baixados.map((x) => [x.nome.match(/(quadrado|retrato|stories)\.png$/)![1], x.tamanho]));
+  expect(porNome).toEqual({ quadrado: { largura: 1080, altura: 1080 }, retrato: { largura: 1080, altura: 1350 }, stories: { largura: 1080, altura: 1920 } });
+});
+
+test('modelo muda o rodapé padrão e no celular a arte encolhe junto', async ({ page }) => {
+  await montarListaDeHoje(b, { produtos: [REMEDIO] });
+  await entrar(page, b);
+  await page.goto('/hoje');
+  await page.getByRole('button', { name: 'Criar post' }).click();
   await page.getByLabel('Modelo').selectOption('AVISO');
-  await expect(page.getByLabel('Rodapé')).toHaveValue('');
+  await expect(page.getByRole('textbox', { name: 'Rodapé' })).toHaveValue('');
   await page.getByLabel('Modelo').selectOption('PRODUTO');
-  await expect(page.getByLabel('Rodapé')).toHaveValue(/Ofertas válidas/);
+  await expect(page.getByRole('textbox', { name: 'Rodapé' })).toHaveValue(/Ofertas válidas/);
 
   // No celular a arte encolhe junto: nada de rolar a página para o lado.
   await page.setViewportSize({ width: 390, height: 800 });

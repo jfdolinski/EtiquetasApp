@@ -1,7 +1,7 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router';
-import { FORMATOS_POST, MODELOS_POST, type ImagemGaleria, type PostResumo, type SituacaoMarcaPost } from '@etiquetas/shared';
+import { Link, useNavigate } from 'react-router';
+import { FORMATOS_POST, MODELOS_POST, type ImagemGaleria, type PostCompleto, type PostResumo, type SituacaoMarcaPost } from '@etiquetas/shared';
 import { api } from '../../api';
 import { useAuth } from '../../auth';
 import { ExigeEmpresa } from '../../components/ExigeEmpresa';
@@ -29,6 +29,19 @@ function ListaDePosts() {
     onSuccess: () => void cliente.invalidateQueries({ queryKey: ['posts'] }),
   });
   const podeEditar = pode('post.editar');
+  const navegar = useNavigate();
+  const [erroCopia, setErroCopia] = useState('');
+
+  /** Abre uma cópia no editor; só vira post novo ao salvar. */
+  async function duplicar(p: PostResumo) {
+    setErroCopia('');
+    try {
+      const { id: _id, atualizadoEm: _a, ...dados } = await api<PostCompleto>(`/posts/${p.id}`);
+      navegar('/posts/novo', { state: { copia: { ...dados, titulo: `Cópia de ${dados.titulo}`.slice(0, 120) } } });
+    } catch (x) {
+      setErroCopia((x as Error).message);
+    }
+  }
 
   return (
     <>
@@ -46,6 +59,7 @@ function ListaDePosts() {
       />
       <div className="space-y-4">
         {(error ?? excluir.error) && <Alerta>{(error ?? excluir.error)!.message}</Alerta>}
+        {erroCopia && <Alerta>{erroCopia}</Alerta>}
         {!isLoading && (
           <Tabela colunas={['Nome', 'Modelo', 'Tamanho', 'Criado por', 'Alterado em', '']} vazio={posts.length === 0}>
             {posts.map((p) => (
@@ -55,7 +69,8 @@ function ListaDePosts() {
                 <td className="whitespace-nowrap px-4 py-2.5">{FORMATOS_POST[p.formato].rotulo}</td>
                 <td className="px-4 py-2.5 text-slate-600">{p.autor ?? '—'}</td>
                 <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{formatarData(p.atualizadoEm)}</td>
-                <td className="px-4 py-2.5 text-right">
+                <td className="space-x-2 whitespace-nowrap px-4 py-2.5 text-right">
+                  {podeEditar && <Botao variante="secundario" aria-label={`Duplicar ${p.titulo}`} onClick={() => void duplicar(p)}>Duplicar</Botao>}
                   {podeEditar && (
                     <Botao variante="secundario" aria-label={`Excluir ${p.titulo}`} disabled={excluir.isPending} onClick={() => window.confirm(`Excluir o post "${p.titulo}"?`) && excluir.mutate(p.id)}>
                       Excluir
