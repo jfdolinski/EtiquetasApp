@@ -27,6 +27,7 @@ import { Login } from './pages/Login';
 import { MinhaConta } from './pages/MinhaConta';
 import { Notificacoes } from './pages/Notificacoes';
 import { Perfis } from './pages/Perfis';
+import { Banners } from './pages/Banners';
 import { Referencias } from './pages/Referencias';
 import { Saude } from './pages/Saude';
 import { Usuarios } from './pages/Usuarios';
@@ -66,6 +67,7 @@ export function App() {
         <Route path="erps" element={<Protegida superAdmin><Erps /></Protegida>} />
         <Route path="erps/:id" element={<Protegida superAdmin><EditorErp /></Protegida>} />
         <Route path="cobranca" element={<Protegida superAdmin><Cobranca /></Protegida>} />
+        <Route path="banners" element={<Protegida superAdmin><Banners /></Protegida>} />
         <Route path="saude" element={<Protegida superAdmin><Saude /></Protegida>} />
         <Route path="assinatura" element={<Protegida permissao="empresa.ver"><Assinatura /></Protegida>} />
         <Route path="usuarios" element={<Protegida permissao="usuario.ver"><Usuarios /></Protegida>} />

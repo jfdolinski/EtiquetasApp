@@ -4,6 +4,8 @@ import { formatarCnpj, type CadastrosPendentes, type CodigoPermissao, type Empre
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { BannerCobranca } from './BannerCobranca';
+import { BannerPublicidade } from './BannerPublicidade';
+import { Relogio } from './Relogio';
 
 interface ItemMenu {
   para: string;
@@ -22,6 +24,7 @@ const MENU: ItemMenu[] = [
   { para: '/empresas', rotulo: 'Empresas', superAdmin: true },
   { para: '/erps', rotulo: 'Sistemas ERP', superAdmin: true },
   { para: '/cobranca', rotulo: 'Cobrança', superAdmin: true },
+  { para: '/banners', rotulo: 'Banners', superAdmin: true },
   { para: '/saude', rotulo: 'Saúde do sistema', superAdmin: true },
   { para: '/usuarios', rotulo: 'Usuários', permissao: 'usuario.ver' },
   { para: '/perfis', rotulo: 'Perfis e permissões', permissao: 'perfil.ver' },
@@ -138,6 +141,7 @@ export function Layout() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex flex-wrap items-center justify-end gap-3 border-b border-slate-200 bg-white px-4 py-2.5 sm:px-6">
+          <Relogio />
           {usuario.superAdmin && <SeletorEmpresa />}
           <Sino />
           <span className="text-sm text-slate-600">{usuario.nome}</span>
@@ -147,6 +151,7 @@ export function Layout() {
         </header>
         <main className="flex-1 px-4 py-6 sm:px-6">
           <BannerCobranca />
+          <BannerPublicidade />
           <Outlet />
         </main>
       </div>

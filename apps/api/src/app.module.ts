@@ -13,6 +13,7 @@ import { PermissoesGuard } from './auth/permissoes.guard';
 import { EmailModule } from './email/email.service';
 import { EmpresasModule } from './empresas/empresas.module';
 import { ErpsModule } from './erps/erps.module';
+import { BannersModule } from './banners/banners.module';
 import { HealthController } from './health.controller';
 import { ImpressaoModule } from './impressao/impressao.module';
 import { ModelosModule } from './modelos/modelos.module';
@@ -47,6 +48,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     AppMovelModule,
     ReferenciasModule,
     SistemaModule,
+    BannersModule,
   ],
   controllers: [HealthController],
   providers: [

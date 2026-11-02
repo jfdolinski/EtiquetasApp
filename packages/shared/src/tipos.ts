@@ -127,6 +127,35 @@ export interface DispositivoResumo {
   atual: boolean;
 }
 
+/** Resposta de GET /health. `fusoSistema` é o fuso em que as telas mostram as horas. */
+export interface SituacaoServidor {
+  status: 'ok';
+  banco: 'ok';
+  horarios: { api: string; banco: string; fusoBanco: string; fusoSistema: string };
+}
+
+/** O que o usuário recebe para exibir. */
+export interface BannerVigente {
+  id: string;
+  anunciante: string;
+  texto: string;
+  /** data:image/... (png, jpeg, webp ou gif; SVG não, pode carregar script). */
+  imagem: string | null;
+  link: string | null;
+}
+
+/** Cadastro completo, só para o super-admin. Dado da plataforma, sem `empresa_id`. */
+export interface BannerPublicitario extends BannerVigente {
+  contato: string;
+  valorMensal: number;
+  /** AAAA-MM-DD, no fuso do sistema. */
+  inicio: string;
+  fim: string | null;
+  ativo: boolean;
+  exibicoes: number;
+  cliques: number;
+}
+
 export interface SaudeSistema {
   agora: string;
   noArHaSegundos: number;

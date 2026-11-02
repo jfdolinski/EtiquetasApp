@@ -184,6 +184,26 @@ model ReferenciaCampo {
   @@map("referencias_campo")
 }
 
+/// Propaganda vendida nas telas do sistema. Dado da plataforma: sem empresa_id.
+model BannerPublicitario {
+  id           String    @id @default(uuid()) @db.Uuid
+  anunciante   String
+  contato      String    @default("")
+  texto        String    @default("")
+  imagem       String?
+  link         String?
+  valorMensal  Decimal   @default(0) @map("valor_mensal") @db.Decimal(10, 2)
+  inicio       DateTime  @db.Date
+  fim          DateTime? @db.Date
+  ativo        Boolean   @default(true)
+  exibicoes    Int       @default(0)
+  cliques      Int       @default(0)
+  criadoEm     DateTime  @default(now()) @map("criado_em")
+  atualizadoEm DateTime  @updatedAt @map("atualizado_em")
+
+  @@map("banners_publicitarios")
+}
+
 /// Erro inesperado (500) da API, para a tela Saúde. Nunca guarda corpo nem query da requisição.
 model ErroSistema {
   id        String   @id @default(uuid()) @db.Uuid
