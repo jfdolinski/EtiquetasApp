@@ -45,9 +45,12 @@ function lerTela() {
 
 const textosDaTela = (xml) => [...xml.matchAll(/(?:text|content-desc)="([^"]+)"/g)].map((m) => m[1]);
 
-function centro(xml, texto) {
-  const alvo = texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const m = new RegExp(`<node[^>]*(?:text|content-desc)="[^"]*${alvo}[^"]*"[^>]*bounds="\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]"`).exec(xml);
+// "=Vincular" pede o texto exato: a palavra também aparece dentro da frase do título.
+function centro(xml, procurado) {
+  const exato = procurado.startsWith('=');
+  const alvo = (exato ? procurado.slice(1) : procurado).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const resto = exato ? '' : '[^"]*';
+  const m = new RegExp(`<node[^>]*(?:text|content-desc)="${resto}${alvo}${resto}"[^>]*bounds="\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]"`).exec(xml);
   return m ? [Math.round((+m[1] + +m[3]) / 2), Math.round((+m[2] + +m[4]) / 2)] : null;
 }
 
@@ -123,9 +126,9 @@ try {
 const link = `etiquetas://vincular?servidor=${encodeURIComponent('http://10.0.2.2:3000')}&codigo=${fluxo.codigo}`;
 adb(`shell am start -a android.intent.action.VIEW -d "'${link}'" ${PACOTE}`);
 await espera(3000);
-await confere('Vincular', 90_000);
+await confere('=Vincular', 90_000);
 print('confirmar-vinculo');
-await tocar('Vincular');
+await tocar('=Vincular');
 // O Android pergunta sobre notificações na primeira vez.
 if (await aguardar('Allow', 10_000)) await tocar('Allow');
 await confere('Mercado Fluxo', 30_000);
@@ -146,8 +149,6 @@ log(`tela da avulsa: ${textosDaTela(lerTela()).join(' | ')}`);
 await confere('Código de barras, código ou nome', 15_000);
 await digitar('Código de barras, código ou nome', '7891000100103');
 print('avulsa-digitado');
-adb('shell input keyevent 4'); // Fecha o teclado, como uma pessoa faria para ver a tela.
-await espera(800);
 await tocar('Buscar');
 await espera(4000);
 print('avulsa-buscou');
@@ -170,8 +171,6 @@ await confere('enviada', 15_000);
 await tocar('Tabela sem parametro');
 await tocar('Cartazes');
 await digitar('Código de barras, código ou nome', '7891000100110');
-adb('shell input keyevent 4');
-await espera(800);
 await tocar('Buscar');
 await confere('Arroz branco', 20_000);
 print('avulsa-sem-parametro');
