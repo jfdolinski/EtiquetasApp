@@ -7,7 +7,7 @@ import { ErroApi, gravarSessao, vincular, type Sessao } from './api';
 import { codigoValido, lerQrDeVinculo, servidorValido, type DadosVinculo } from './regras';
 import { Alerta, Botao, cores } from './ui';
 
-const aceitarHttp = __DEV__ || Platform.OS === 'web';
+const aceitarHttp = __DEV__ || Platform.OS === 'web' || Boolean((Constants.expoConfig?.extra as { testeHttp?: boolean } | undefined)?.testeHttp);
 
 export function TelaVincular({ aoVincular, motivo }: { aoVincular: (s: Sessao) => void; motivo?: string | null }) {
   const [permissao, pedirPermissao] = useCameraPermissions();

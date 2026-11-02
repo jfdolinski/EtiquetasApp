@@ -1,0 +1,116 @@
+# Fluxo real do aplicativo: APK no emulador Android, API, Postgres e agente de verdade.
+# Vincula, abre a lista, busca na avulsa e imprime numa impressora de rede simulada, com print de cada passo.
+# Os prints (só dados de teste) ficam na pré-release fixa "fluxo-app"; o resultado sai nas anotações.
+name: Fluxo do aplicativo
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, diagnostico-app]
+    paths: ['apps/mobile/**', '.github/workflows/app-fluxo.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  fluxo:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: etiquetas
+          POSTGRES_PASSWORD: etiquetas
+          POSTGRES_DB: etiquetas
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U etiquetas" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://etiquetas:etiquetas@localhost:5432/etiquetas
+      JWT_SECRET: segredo-so-para-o-fluxo-do-app-com-mais-de-32-caracteres
+      CHAVE_CRIPTOGRAFIA: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      SUPERADMIN_EMAIL: super@fluxo.local
+      SUPERADMIN_SENHA: SenhaSuperFluxo123
+      PROXIES_CONFIAVEIS: '1'
+      PORTA: '3000'
+      AGENTE_DIR: ${{ github.workspace }}/agente-fluxo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/agent/go.mod
+          cache-dependency-path: apps/agent/go.sum
+
+      - name: Sobe a API
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm --filter @etiquetas/shared build
+          pnpm --filter @etiquetas/api build
+          pnpm --filter @etiquetas/api exec prisma migrate deploy
+          mkdir -p apps/mobile/saida-fluxo
+          (cd apps/api && nohup node dist/main.js > ../mobile/saida-fluxo/api.log 2>&1 &)
+          for i in $(seq 1 40); do curl -fsS localhost:3000/api/health && break; sleep 2; done
+          PGPASSWORD=etiquetas psql -h localhost -U etiquetas -d etiquetas -c 'CREATE DATABASE erp'
+
+      - name: Compila o agente
+        working-directory: apps/agent
+        run: |
+          mkdir -p "$AGENTE_DIR"
+          go build -o "$AGENTE_DIR/etiquetas-agente" ./cmd/etiquetas-agente
+
+      - name: Prepara os dados e o agente
+        working-directory: apps/mobile
+        run: |
+          nohup node scripts/fluxo-real/semear.mjs > saida-fluxo/semear.log 2>&1 &
+          for i in $(seq 1 60); do test -s saida-fluxo/fluxo.json && break; sleep 2; done
+          cat saida-fluxo/semear.log
+          test -s saida-fluxo/fluxo.json || { echo "::error title=Fluxo::$(tail -3 saida-fluxo/semear.log | tr '\n' ' ' | cut -c1-500)"; exit 1; }
+
+      - name: Compila o APK de teste (aceita HTTP)
+        working-directory: apps/mobile
+        env:
+          APP_TESTE_HTTP: '1'
+        run: |
+          npm ci
+          npx expo prebuild -p android --no-install
+          cd android && ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=x86_64
+
+      - name: Habilita o emulador
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Usa o app no emulador
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          working-directory: apps/mobile
+          script: |
+            adb install -r android/app/build/outputs/apk/release/app-release.apk
+            node scripts/fluxo-real/emulador.mjs
+
+      - name: Publica os prints
+        if: always()
+        working-directory: apps/mobile
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          grep -iE "error|exception" saida-fluxo/api.log | tail -40 > saida-fluxo/api-erros.txt || true
+          rm -f saida-fluxo/fluxo.json saida-fluxo/api.log
+          gh release delete fluxo-app --cleanup-tag -y || true
+          sleep 3
+          gh release create fluxo-app saida-fluxo/* --target "$GITHUB_SHA" --prerelease --title "Fluxo do aplicativo" --notes "Prints e registros do último teste no emulador, só com dados de teste."
