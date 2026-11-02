@@ -1,7 +1,7 @@
 // Usa o APK no emulador como uma pessoa usaria: toca, digita e tira print de cada passo.
 // Nada para no primeiro problema: o objetivo é mostrar tudo o que acontece. Falhas ficam no resumo.
 import { execSync } from 'node:child_process';
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 const PACOTE = 'br.com.etiquetas.app';
 const API = 'http://127.0.0.1:3000/api';
@@ -100,6 +100,20 @@ async function digitar(rotulo, valor) {
 async function api(caminho) {
   const r = await fetch(API + caminho, { headers: { authorization: `Bearer ${fluxo.token}`, 'x-forwarded-for': '10.2.0.1' } });
   return r.json();
+}
+
+// ---- Instalação: logo depois de ligar, o emulador pode recusar por ainda estar subindo ----
+const APK = 'android/app/build/outputs/apk/release/app-release.apk';
+if (!existsSync(APK)) throw new Error(`APK não encontrado: ${execSync('ls android/app/build/outputs/apk/* || true', { encoding: 'utf8', shell: '/bin/bash' })}`);
+for (let tentativa = 1; ; tentativa++) {
+  try {
+    log(execSync(`adb wait-for-device install -r ${APK} 2>&1`, { encoding: 'utf8', timeout: 180_000 }).trim());
+    break;
+  } catch (e) {
+    log(`instalação, tentativa ${tentativa}: ${e.stdout ?? e.message}`);
+    if (tentativa >= 5) throw new Error(`o APK não instalou: ${e.stdout ?? e.message}`);
+    await espera(15_000);
+  }
 }
 
 // ---- Vínculo, pelo mesmo link que o QR abre ----
