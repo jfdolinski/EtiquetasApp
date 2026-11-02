@@ -92,7 +92,11 @@ async function confere(texto, tempoMs = 30_000) {
 }
 
 async function digitar(rotulo, valor) {
-  if (!(await tocar(rotulo))) return;
+  // No próprio campo: o título acima dele tem o mesmo texto.
+  const m = /class="android\.widget\.EditText"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(lerTela());
+  if (!m) return falha(`campo não encontrado: ${rotulo}`);
+  adb(`shell input tap ${Math.round((+m[1] + +m[3]) / 2)} ${Math.round((+m[2] + +m[4]) / 2)}`);
+  await espera(1000);
   adb(`shell input text ${JSON.stringify(valor)}`);
   await espera(800);
   log(`digitou em ${rotulo}: ${valor}`);
