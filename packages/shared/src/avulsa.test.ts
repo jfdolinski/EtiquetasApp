@@ -92,11 +92,29 @@ describe('busca pelo código na linha', () => {
     expect(parametrosDaBusca([], '789')).toEqual({});
   });
 
-  it('prefere o código exato, ignorando zeros à esquerda; sem exato, devolve tudo', () => {
-    const r = [{ ean: '7891000', d: 'A' }, { ean: 78910001, d: 'B' }, { ean: '0123', d: 'C' }];
-    expect(registrosDoCodigo(r, 'ean', '7891000').map((x) => x.d)).toEqual(['A']);
-    expect(registrosDoCodigo(r, 'ean', '123').map((x) => x.d)).toEqual(['C']);
-    expect(registrosDoCodigo(r, 'ean', '999')).toHaveLength(3);
+  const r = [{ ean: '7891000', d: 'Café moído' }, { ean: 78910001, d: 'Café forte' }, { ean: '0123', d: 'Arroz' }];
+
+  it('prefere o código exato, ignorando zeros à esquerda', () => {
+    expect(registrosDoCodigo(r, 'ean', '7891000').map((x) => x.d)).toEqual(['Café moído']);
+    expect(registrosDoCodigo(r, 'ean', '123').map((x) => x.d)).toEqual(['Arroz']);
+  });
+
+  it('sem nada relacionado, é produto não encontrado: nunca a lista inteira', () => {
+    expect(registrosDoCodigo(r, 'ean', '999')).toEqual([]);
+    expect(registrosDoCodigo(r, 'ean', 'feijão')).toEqual([]);
+  });
+
+  it('nome vale pelas palavras, sem acento e em qualquer ordem', () => {
+    expect(registrosDoCodigo(r, 'ean', 'cafe').map((x) => x.d)).toEqual(['Café moído', 'Café forte']);
+    expect(registrosDoCodigo(r, 'ean', 'moido cafe').map((x) => x.d)).toEqual(['Café moído']);
+  });
+
+  it('um registro só é aceito: a consulta pode ter achado por uma coluna que não devolve', () => {
+    expect(registrosDoCodigo([r[0]], 'ean', '555')).toEqual([r[0]]);
+  });
+
+  it('funciona sem coluna de código', () => {
+    expect(registrosDoCodigo(r, null, '123').map((x) => x.d)).toEqual(['Arroz']);
   });
 });
 

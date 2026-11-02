@@ -58,6 +58,18 @@ test('administrador entra e todas as telas abrem sem erro', async ({ page }) => 
   expect(erros).toEqual([]);
 });
 
+test('rede fora ao abrir a página não desloga: tenta de novo e a sessão continua', async ({ page }) => {
+  await entrar(page, e.adminEmail, e.adminSenha);
+  let falhas = 0;
+  await page.route('**/api/auth/me', (r) => {
+    if (falhas++ === 0) return r.abort('connectionreset');
+    return r.continue();
+  });
+  await page.goto('/minha-conta');
+  await expect(page.getByRole('heading', { name: 'Minha conta', level: 1 })).toBeVisible({ timeout: 10_000 });
+  expect(falhas).toBeGreaterThanOrEqual(2);
+});
+
 test('editor de modelo e pré-visualização em PDF funcionam com a CSP', async ({ page }) => {
   const outra = await criarEmpresa(await superToken());
   const { modeloId } = await montarListaDeHoje(outra, { linguagem: 'PDF' });

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   colunaDeBusca,
+  PARAMETRO_PLANILHA,
   parametrosDaBusca,
   problemaNasFolhas,
   registroBanido,
@@ -106,6 +107,7 @@ function EtiquetaAvulsa() {
   const [erroLinha, setErroLinha] = useState<string | null>(null);
   const [escolha, setEscolha] = useState<{ linhaId: string; valor: string; registros: Registro[] } | null>(null);
   const [banindo, setBanindo] = useState<LinhaAvulsa[] | null>(null);
+  const [pedidoFoco, setPedidoFoco] = useState<{ id: string; coluna: string } | null>(null);
   const primeiroParametro = useRef<HTMLInputElement>(null);
 
   const modelo = modelos.find((m) => m.id === modeloId) ?? modelos[0] ?? null;
@@ -118,16 +120,40 @@ function EtiquetaAvulsa() {
   // Colunas: campos do modelo primeiro, depois as que vieram das buscas.
   const colunas = [...new Set([...(modelo?.campos ?? []), ...linhas.flatMap((l) => Object.keys(l.registro))])];
   const colunaBusca = colunaDeBusca(colunas);
+  // Consulta sem {param.*}: o campo de busca é o termo, procurado pelo servidor.
+  const camposBusca = modelo?.parametros.length ? modelo.parametros : [PARAMETRO_PLANILHA];
+  const preenchidos = camposBusca.map((p) => valores[p]?.trim() ?? '').filter(Boolean);
+
+  /** Sem produto: a linha fica liberada para digitar o resto, a partir da primeira coluna depois do código. */
+  function focarDigitacao(linhaId: string) {
+    const coluna = colunas.find((c) => c !== colunaBusca) ?? colunaBusca;
+    if (coluna) setPedidoFoco({ id: linhaId, coluna });
+  }
 
   const buscar = useMutation({
-    mutationFn: () => api<BuscaAvulsaResposta>('/avulsa/buscar', { metodo: 'POST', corpo: { modeloId: modelo!.id, parametros: valores } }),
+    mutationFn: () =>
+      api<BuscaAvulsaResposta>('/avulsa/buscar', {
+        metodo: 'POST',
+        corpo: modelo!.parametros.length ? { modeloId: modelo!.id, parametros: valores } : { modeloId: modelo!.id, parametros: {}, termo: preenchidos[0] },
+      }),
     onSuccess: (r) => {
       setEnvio(null);
-      if (r.registros.length === 0) return setAviso(r.banidos ? 'Este produto está banido: a etiqueta dele não é impressa.' : 'Nenhum produto encontrado.');
-      const umSo = r.registros.length === 1;
+      // Com um valor só dá para conferir o resultado; com vários, cada um filtra uma coisa.
+      const registros = preenchidos.length === 1 ? registrosDoCodigo(r.registros, colunaBusca, preenchidos[0]) : r.registros;
+      if (registros.length === 0) {
+        if (r.banidos) return setAviso('Este produto está banido: a etiqueta dele não é impressa.');
+        setAviso('Produto não encontrado.');
+        if (preenchidos.length !== 1 || colunas.length === 0) return;
+        const id = crypto.randomUUID();
+        const registro = Object.fromEntries(colunas.map((c) => [c, c === colunaBusca ? preenchidos[0] : '']));
+        lista.alterar([{ id, quantidade: 1, registro }, ...linhas]);
+        setValores({});
+        return focarDigitacao(id);
+      }
+      const umSo = registros.length === 1;
       if (somar && umSo) {
         // Leitor de código de barras: o mesmo produto de novo soma uma etiqueta.
-        const igual = linhas.find((l) => JSON.stringify(l.registro) === JSON.stringify(r.registros[0]));
+        const igual = linhas.find((l) => JSON.stringify(l.registro) === JSON.stringify(registros[0]));
         if (igual) {
           lista.alterar(linhas.map((l) => (l === igual ? { ...l, quantidade: l.quantidade + 1 } : l)));
           setAviso(`Produto já estava na lista: agora com ${igual.quantidade + 1} etiqueta(s).`);
@@ -135,9 +161,9 @@ function EtiquetaAvulsa() {
         }
       }
       const base = somar ? linhas : [];
-      const { linhas: novas, novas: quantas } = somarResultados(base, r.registros, () => crypto.randomUUID(), umSo ? 1 : 0);
+      const { linhas: novas, novas: quantas } = somarResultados(base, registros, () => crypto.randomUUID(), umSo ? 1 : 0);
       lista.alterar(novas);
-      const repetidos = r.registros.length - quantas;
+      const repetidos = registros.length - quantas;
       setAviso(
         `${quantas} produto(s) ${somar ? 'adicionado(s) à lista' : 'na lista'}` +
           (repetidos ? `, ${repetidos} já estava(m) nela` : '') +
@@ -166,11 +192,16 @@ function EtiquetaAvulsa() {
     try {
       const r = await api<BuscaAvulsaResposta>('/avulsa/buscar', {
         metodo: 'POST',
-        corpo: { modeloId: modelo.id, parametros: parametrosDaBusca(modelo.parametros, valor) },
+        corpo: modelo.parametros.length ? { modeloId: modelo.id, parametros: parametrosDaBusca(modelo.parametros, valor) } : { modeloId: modelo.id, parametros: {}, termo: valor },
       });
       const achados = registrosDoCodigo(r.registros, colunaBusca, valor);
-      if (achados.length === 0) setAviso(r.banidos ? `O produto “${valor}” está banido: a etiqueta dele não é impressa.` : `Nenhum produto com “${valor}”: preencha os dados à mão, se quiser.`);
-      else if (achados.length === 1) {
+      if (achados.length === 0) {
+        if (r.banidos) setAviso(`O produto “${valor}” está banido: a etiqueta dele não é impressa.`);
+        else {
+          setAviso('Produto não encontrado.');
+          focarDigitacao(linhaId);
+        }
+      } else if (achados.length === 1) {
         preencherLinha(linhaId, achados[0]);
         setAviso(`Dados de “${valor}” preenchidos pela consulta. Pode editar o que quiser.`);
       } else setEscolha({ linhaId, valor, registros: achados.slice(0, 50) });
@@ -249,7 +280,7 @@ function EtiquetaAvulsa() {
                 ))}
               </Selecao>
             </div>
-            {modelo?.parametros.map((p, i) => (
+            {modelo && camposBusca.map((p, i) => (
               <label key={p} className="block">
                 <span className="mb-1 block text-sm font-medium text-slate-700">{p === 'busca' ? 'Código, EAN ou nome' : p}</span>
                 <input
@@ -261,7 +292,7 @@ function EtiquetaAvulsa() {
                 />
               </label>
             ))}
-            <Botao type="submit" disabled={buscar.isPending || !modelo}>{buscar.isPending ? 'Buscando…' : 'Buscar'}</Botao>
+            <Botao type="submit" disabled={buscar.isPending || !modelo || preenchidos.length === 0}>{buscar.isPending ? 'Buscando…' : 'Buscar'}</Botao>
             <label className="flex items-center gap-2 pb-2 text-sm text-slate-700" title="Desmarcado, cada busca substitui a lista">
               <input type="checkbox" checked={somar} onChange={(e) => setSomar(e.target.checked)} />
               Somar à lista
@@ -310,6 +341,7 @@ function EtiquetaAvulsa() {
             desfazer={lista.desfazer}
             novaLinha={novaLinha}
             focarId={focarId}
+            pedidoFoco={pedidoFoco}
             colunaBusca={colunaBusca}
             buscarProduto={(id, valor) => void buscarProduto(id, valor)}
             buscando={buscando}

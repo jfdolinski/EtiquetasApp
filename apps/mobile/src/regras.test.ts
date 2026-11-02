@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { adicionarProduto, colunasVisiveis, corpoDaBusca, impressoraDoModelo, parametrosDaBusca, registrosDoCodigo, avisosNovos, chavesDosAvisos, codigoValido, lerQrDeVinculo, pendentesPorModelo, quantidadeValida, servidorValido, tempoDesde, versaoMaisNova } from './regras.ts';
+import { adicionarProduto, colunasVisiveis, corpoDaBusca, impressoraDoModelo, parametrosDaBusca, registrosDoCodigo, avisosNovos, chavesDosAvisos, codigoValido, lerQrDeVinculo, pendentesPorModelo, quantidadeValida, registroParaDigitar, servidorValido, tempoDesde, versaoMaisNova } from './regras.ts';
 
 test('QR de vínculo: lê o formato certo', () => {
   assert.deepEqual(lerQrDeVinculo('etiquetas://vincular?servidor=https%3A%2F%2Fapp.exemplo.com&codigo=ABCDEFGH23'), { servidor: 'https://app.exemplo.com', codigo: 'ABCDEFGH23' });
@@ -99,8 +99,23 @@ test('código lido: o igual ganha dos parecidos, ignorando zeros à esquerda', (
   const a = { ean: '07891000100103', nome: 'A' };
   const b = { ean: '78910001001039', nome: 'B' };
   assert.deepEqual(registrosDoCodigo([a, b], '7891000100103'), [a]);
-  assert.deepEqual(registrosDoCodigo([a, b], 'cafe'), [a, b]);
   assert.deepEqual(registrosDoCodigo([], '1'), []);
+});
+
+test('nada a ver com o termo não é resultado: vira produto não encontrado', () => {
+  const a = { ean: '789', nome: 'Café moído' };
+  const b = { ean: '790', nome: 'Arroz' };
+  assert.deepEqual(registrosDoCodigo([a, b], 'feijao'), []);
+  assert.deepEqual(registrosDoCodigo([a, b], '000'), []);
+  assert.deepEqual(registrosDoCodigo([a, b], 'cafe moido'), [a]);
+  // Um só: a consulta pode ter achado por uma coluna que não devolve.
+  assert.deepEqual(registrosDoCodigo([a], '555'), [a]);
+});
+
+test('produto não encontrado: o que foi buscado entra na coluna do código', () => {
+  assert.deepEqual(registroParaDigitar(['descricao', 'ean', 'preco'], '123'), { descricao: '', ean: '123', preco: '' });
+  assert.deepEqual(registroParaDigitar(['nome', 'codigo'], '123'), { nome: '', codigo: '123' });
+  assert.deepEqual(registroParaDigitar([], '123'), { codigo: '123', descricao: '' });
 });
 
 test('ler o mesmo produto soma uma etiqueta', () => {

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   alterarEmMassa,
   COLUNA_QUANTIDADE,
@@ -31,6 +31,8 @@ interface Props {
   desfazer: () => void;
   novaLinha: () => void;
   focarId: string | null;
+  /** Leva o cursor para esta célula (produto não encontrado: digitar o resto da linha). */
+  pedidoFoco?: { id: string; coluna: string } | null;
   /** Coluna que busca o produto na consulta do modelo ao ser preenchida. */
   colunaBusca?: string | null;
   /** Chamado quando o valor dessa coluna mudou numa linha. */
@@ -47,7 +49,14 @@ interface Props {
  * Grade editável da etiqueta avulsa: filtro geral e por coluna, ordenação pelo cabeçalho,
  * edição na célula, seleção, exclusão, duplicação e alteração em massa.
  */
-export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfazer, desfazer, novaLinha, focarId, colunaBusca, buscarProduto, buscando, banir, rodape }: Props) {
+export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfazer, desfazer, novaLinha, focarId, pedidoFoco, colunaBusca, buscarProduto, buscando, banir, rodape }: Props) {
+  const tabela = useRef<HTMLTableElement>(null);
+  useEffect(() => {
+    if (!pedidoFoco) return;
+    const linha = tabela.current?.querySelector(`tr[data-linha="${pedidoFoco.id}"]`);
+    const celula = [...(linha?.querySelectorAll('input') ?? [])].find((i) => i.getAttribute('aria-label') === pedidoFoco.coluna);
+    celula?.focus();
+  }, [pedidoFoco]);
   const [busca, setBusca] = useState('');
   const [filtros, setFiltros] = useState<Record<string, string>>({});
   const [mostrarFiltros, setMostrarFiltros] = useState(false);
@@ -201,7 +210,7 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
       )}
 
       <div className="max-h-[60vh] overflow-auto rounded-lg border border-slate-200 bg-white">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
+        <table ref={tabela} className="min-w-full divide-y divide-slate-200 text-sm">
           <thead className="sticky top-0 z-10 bg-slate-50">
             <tr>
               <th className="w-8 px-2 py-2">
@@ -227,7 +236,7 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
           </thead>
           <tbody className="divide-y divide-slate-100">
             {visiveis.map((l) => (
-              <tr key={l.id} className={selecionadas.has(l.id) ? 'bg-blue-50' : l.quantidade === 0 ? 'text-slate-400' : ''}>
+              <tr key={l.id} data-linha={l.id} className={selecionadas.has(l.id) ? 'bg-blue-50' : l.quantidade === 0 ? 'text-slate-400' : ''}>
                 <td className="px-2 py-1">
                   <input type="checkbox" checked={selecionadas.has(l.id)} onChange={(e) => marcar(l.id, e.target.checked)} aria-label="Selecionar linha" />
                 </td>

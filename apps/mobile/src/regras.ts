@@ -136,10 +136,30 @@ function mesmoCodigo(a: unknown, b: unknown): boolean {
   return norm(a) !== '' && norm(a) === norm(b);
 }
 
-/** Se algum registro tem exatamente esse código, ficam só os iguais: a consulta pode trazer parecidos. */
+const simplificar = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/**
+ * Código igual ganha de parecido, e nome vale pelas palavras. O que não tem relação com o termo
+ * não é resultado: vazio significa "produto não encontrado". Um registro só é aceito mesmo sem o
+ * termo: a consulta pode ter achado por uma coluna que não devolve. Mesma regra do site (shared/avulsa.ts).
+ */
 export function registrosDoCodigo<T extends Registro>(registros: readonly T[], valor: string): T[] {
   const iguais = registros.filter((r) => Object.values(r).some((v) => mesmoCodigo(v, valor)));
-  return iguais.length ? iguais : [...registros];
+  if (iguais.length) return iguais;
+  const palavras = simplificar(valor.trim()).split(/\s+/).filter(Boolean);
+  const comPalavras = registros.filter((r) => {
+    const texto = Object.values(r).map((v) => simplificar(textoCelula(v))).join(' ');
+    return palavras.length > 0 && palavras.every((p) => texto.includes(p));
+  });
+  if (comPalavras.length) return comPalavras;
+  return registros.length === 1 ? [...registros] : [];
+}
+
+/** Linha em branco para digitar o produto não encontrado: o que foi buscado já entra na coluna do código. */
+export function registroParaDigitar(campos: readonly string[], termo: string): Registro {
+  const colunas = campos.length ? campos : ['codigo', 'descricao'];
+  const doCodigo = colunas.find((c) => /ean|gtin|barra|codbar/i.test(c)) ?? colunas.find((c) => /^cod|codigo|código|sku|^id$/i.test(c)) ?? colunas[0];
+  return Object.fromEntries(colunas.map((c) => [c, c === doCodigo ? termo : '']));
 }
 
 /** O mesmo produto lido de novo soma uma etiqueta em vez de repetir a linha. */

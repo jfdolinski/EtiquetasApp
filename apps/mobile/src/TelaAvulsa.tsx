@@ -5,7 +5,7 @@ import type { BuscaAvulsaResposta, ImprimirResposta, ModeloAvulso } from '../../
 import { abrirPdfDoTrabalho, type Api, type Sessao } from './api';
 import { CamposDoProduto } from './colunas';
 import { LeitorCodigo } from './LeitorCodigo';
-import { adicionarProduto, colunasVisiveis, corpoDaBusca, impressoraDoModelo, quantidadeValida, registrosDoCodigo, type ImpressoraApp, type LinhaAvulsa, type Registro } from './regras';
+import { adicionarProduto, colunasVisiveis, corpoDaBusca, impressoraDoModelo, quantidadeValida, registroParaDigitar, registrosDoCodigo, type ImpressoraApp, type LinhaAvulsa, type Registro } from './regras';
 import { Alerta, Botao, cores } from './ui';
 
 function confirmar(titulo: string, mensagem: string, acao: string, aoConfirmar: () => void) {
@@ -36,6 +36,8 @@ export function TelaAvulsa({ api, sessao, memoria, setMemoria }: { api: Api; ses
   const [carregando, setCarregando] = useState(true);
   const [busca, setBusca] = useState('');
   const [escolha, setEscolha] = useState<Registro[] | null>(null);
+  /** Produto não encontrado: os dados da linha, digitados à mão. */
+  const [digitando, setDigitando] = useState<Registro | null>(null);
   const [camera, setCamera] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -72,6 +74,7 @@ export function TelaAvulsa({ api, sessao, memoria, setMemoria }: { api: Api; ses
     const { linhas: novas, repetida } = adicionarProduto(atuais, registro, () => `${Date.now()}-${Math.random()}`);
     guardar(novas, Object.fromEntries(Object.entries(memoria.quantidades).filter(([id]) => !linhas.some((l) => l.id === id))));
     setEscolha(null);
+    setDigitando(null);
     setBusca('');
     setAviso(repetida ? `Produto já estava na lista: agora com ${repetida.quantidade + 1} etiqueta(s).` : 'Produto adicionado à lista.');
   }
@@ -85,12 +88,16 @@ export function TelaAvulsa({ api, sessao, memoria, setMemoria }: { api: Api; ses
     setErro(null);
     setAviso(null);
     setEscolha(null);
+    setDigitando(null);
     try {
       const r = await api<BuscaAvulsaResposta>('/avulsa/buscar', { metodo: 'POST', corpo: corpoDaBusca(modelo.id, modelo.parametros, termo) });
       const achados = registrosDoCodigo(r.registros, termo);
       const incompleta = r.incompleta ? ' A consulta tem muitas linhas e só as primeiras 5.000 foram procuradas: no sistema, use {param.busca} no SQL dela.' : '';
-      if (achados.length === 0) setAviso(r.banidos ? `O produto “${termo}” está banido: a etiqueta dele não é impressa.` : `Nenhum produto com “${termo}”.${incompleta}`);
-      else if (achados.length === 1) incluir(achados[0]);
+      if (achados.length === 0 && r.banidos) setAviso(`O produto “${termo}” está banido: a etiqueta dele não é impressa.`);
+      else if (achados.length === 0) {
+        setAviso(`Produto não encontrado.${incompleta}`);
+        setDigitando(registroParaDigitar(modelo.campos, termo));
+      } else if (achados.length === 1) incluir(achados[0]);
       else setEscolha(achados.slice(0, 50));
     } catch (e) {
       setErro((e as Error).message);
@@ -233,6 +240,19 @@ export function TelaAvulsa({ api, sessao, memoria, setMemoria }: { api: Api; ses
                 <Botao titulo="Cancelar" variante="secundario" onPress={() => setEscolha(null)} />
               </View>
             ) : null}
+            {digitando ? (
+              <View style={{ marginTop: 12 }}>
+                <Text style={estilos.rotulo}>Digite os dados do produto:</Text>
+                {Object.keys(digitando).map((c) => (
+                  <View key={c} style={{ marginBottom: 8 }}>
+                    <Text style={estilos.sub}>{c}</Text>
+                    <TextInput accessibilityLabel={c} style={estilos.campoLinha} value={String(digitando[c] ?? '')} autoCorrect={false} onChangeText={(t) => setDigitando((d) => (d ? { ...d, [c]: t } : d))} />
+                  </View>
+                ))}
+                <Botao titulo="Adicionar à lista" disabled={!Object.values(digitando).some((v) => String(v ?? '').trim())} onPress={() => incluir(digitando)} />
+                <Botao titulo="Cancelar" variante="secundario" onPress={() => setDigitando(null)} />
+              </View>
+            ) : null}
             {linhas.length > 0 ? <Text style={[estilos.rotulo, { marginTop: 16 }]}>Lista ({linhas.length})</Text> : null}
           </>
         }
@@ -273,6 +293,7 @@ const estilos = StyleSheet.create({
   rotulo: { fontSize: 14, fontWeight: '600', color: cores.texto, marginBottom: 6 },
   busca: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   campo: { flex: 1, minHeight: 48, borderWidth: 1, borderColor: cores.borda, borderRadius: 8, backgroundColor: cores.branco, paddingHorizontal: 12, fontSize: 16, color: cores.texto },
+  campoLinha: { minHeight: 48, borderWidth: 1, borderColor: cores.borda, borderRadius: 8, backgroundColor: cores.branco, paddingHorizontal: 12, fontSize: 16, color: cores.texto },
   opcao: { borderWidth: 1, borderColor: cores.borda, borderRadius: 20, backgroundColor: cores.branco, paddingHorizontal: 14, minHeight: 40, justifyContent: 'center', marginRight: 8 },
   opcaoAtiva: { borderColor: cores.azul, backgroundColor: cores.azulClaro },
   opcaoTexto: { fontSize: 14, color: cores.texto },

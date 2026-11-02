@@ -308,14 +308,23 @@ export function mesmoCodigo(a: unknown, b: unknown): boolean {
 }
 
 /**
- * Resultado da busca pelo código digitado na linha: se algum registro tem exatamente esse
- * código, ficam só os iguais; a consulta pode devolver parecidos (LIKE) ou nem filtrar.
+ * Resultado da busca pelo que foi digitado: código igual ganha de parecido, e nome vale pelas
+ * palavras. A consulta pode trazer parecidos (LIKE) ou nem filtrar, então o que não tem relação
+ * com o termo não é resultado: vazio significa "produto não encontrado". Um registro só é aceito
+ * mesmo sem o termo: a consulta pode ter achado por uma coluna que não devolve.
  */
-export function registrosDoCodigo<T extends Record<string, unknown>>(registros: T[], coluna: string, valor: string): T[] {
-  const naColuna = registros.filter((r) => mesmoCodigo(r[coluna], valor));
+export function registrosDoCodigo<T extends Record<string, unknown>>(registros: T[], coluna: string | null, valor: string): T[] {
+  const naColuna = coluna ? registros.filter((r) => mesmoCodigo(r[coluna], valor)) : [];
   if (naColuna.length) return naColuna;
   const emQualquer = registros.filter((r) => Object.values(r).some((v) => mesmoCodigo(v, valor)));
-  return emQualquer.length ? emQualquer : registros;
+  if (emQualquer.length) return emQualquer;
+  const palavras = simplificar(valor.trim()).split(/\s+/).filter(Boolean);
+  const comPalavras = registros.filter((r) => {
+    const texto = Object.values(r).map((v) => simplificar(textoCelula(v))).join(' ');
+    return palavras.length > 0 && palavras.every((p) => texto.includes(p));
+  });
+  if (comPalavras.length) return comPalavras;
+  return registros.length === 1 ? registros : [];
 }
 
 /** Procura no resultado de uma consulta sem parâmetro: código igual ganha de texto parecido. */

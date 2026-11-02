@@ -1,7 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { CodigoPermissao, LoginDesafio, LoginResposta, UsuarioLogado } from '@etiquetas/shared';
-import { api, EVENTO_SESSAO_EXPIRADA, sessao } from './api';
+import { api, ErroApi, EVENTO_SESSAO_EXPIRADA, sessao } from './api';
+
+const TENTATIVAS_SESSAO = 5;
+const ESPERA_SESSAO_MS = 3000;
 
 interface ContextoAuth {
   usuario: UsuarioLogado | null;
@@ -37,10 +40,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!sessao.token()) return;
-    api<UsuarioLogado>('/auth/me')
-      .then(setUsuario)
-      .catch(() => sair())
-      .finally(() => setCarregando(false));
+    let ativo = true;
+    // Só a recusa do servidor encerra a sessão. Rede fora ou API reiniciando (publicação) não
+    // pode deslogar ninguém: tenta de novo e, se não voltar, o token fica para a próxima visita.
+    const carregar = async () => {
+      for (let tentativa = 0; tentativa < TENTATIVAS_SESSAO && ativo; tentativa++) {
+        try {
+          const u = await api<UsuarioLogado>('/auth/me');
+          if (ativo) setUsuario(u);
+          return;
+        } catch (e) {
+          if (e instanceof ErroApi && e.status < 500) {
+            if (ativo) sair();
+            return;
+          }
+          await new Promise((r) => setTimeout(r, ESPERA_SESSAO_MS));
+        }
+      }
+    };
+    void carregar().finally(() => ativo && setCarregando(false));
+    return () => {
+      ativo = false;
+    };
   }, [sair]);
 
   useEffect(() => {

@@ -144,7 +144,13 @@ test('Etiqueta avulsa: busca, soma o produto repetido, escolhe entre vários e i
 
   await campo.fill('000');
   await page.getByRole('button', { name: 'Buscar' }).click();
-  await expect(page.getByText('Nenhum produto com “000”.')).toBeVisible();
+  await expect(page.getByText('Produto não encontrado.')).toBeVisible();
+  // Liberado para digitar a linha toda: o código já vem preenchido.
+  await expect(page.getByLabel('codigo', { exact: true })).toHaveValue('000');
+  await page.getByLabel('nome', { exact: true }).fill('Produto novo');
+  await page.getByRole('button', { name: 'Adicionar à lista' }).click();
+  await expect(page.getByText('Produto novo')).toBeVisible();
+  await page.getByRole('button', { name: 'Tirar da lista' }).click();
 
   await campo.fill('789');
   await page.getByRole('button', { name: 'Buscar' }).click();
