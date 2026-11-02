@@ -111,6 +111,9 @@ jobs:
         run: |
           grep -iE "error|exception" saida-fluxo/api.log | tail -40 > saida-fluxo/api-erros.txt || true
           rm -f saida-fluxo/fluxo.json saida-fluxo/api.log
+          # O GitHub não aceita arquivo vazio.
+          find saida-fluxo -type f -empty -delete
+          ls -la saida-fluxo
           gh release delete fluxo-app --cleanup-tag -y || true
           sleep 3
           gh release create fluxo-app saida-fluxo/* --target "$GITHUB_SHA" --prerelease --title "Fluxo do aplicativo" --notes "Prints e registros do último teste no emulador, só com dados de teste."

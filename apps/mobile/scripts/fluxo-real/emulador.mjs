@@ -9,6 +9,19 @@ const fluxo = JSON.parse(readFileSync('saida-fluxo/fluxo.json', 'utf8'));
 const falhas = [];
 let passo = 0;
 
+// O importante é publicar os prints: erro inesperado vira falha no resumo, não para o job.
+const encerrar = (e) => {
+  falhas.push(`erro no teste: ${e?.message ?? e}`.slice(0, 400));
+  appendFileSync('saida-fluxo/fluxo.log', `ERRO: ${e?.stack ?? e}
+`);
+  writeFileSync('saida-fluxo/resumo.txt', falhas.join('
+'));
+  console.log(`::warning title=Fluxo real::${falhas.join(' ; ').slice(0, 800)}`);
+  process.exit(0);
+};
+process.on('uncaughtException', encerrar);
+process.on('unhandledRejection', encerrar);
+
 const espera = (ms) => new Promise((r) => setTimeout(r, ms));
 const adb = (args) => execSync(`adb ${args}`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
 const log = (t) => {
@@ -90,7 +103,11 @@ async function api(caminho) {
 }
 
 // ---- Vínculo, pelo mesmo link que o QR abre ----
-adb('logcat -c');
+try {
+  adb('logcat -c');
+} catch {
+  // Alguns emuladores recusam limpar o log; só fica mais comprido.
+}
 const link = `etiquetas://vincular?servidor=${encodeURIComponent('http://10.0.2.2:3000')}&codigo=${fluxo.codigo}`;
 adb(`shell am start -a android.intent.action.VIEW -d "'${link}'" ${PACOTE}`);
 await espera(3000);
