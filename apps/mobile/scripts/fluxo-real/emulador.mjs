@@ -12,10 +12,8 @@ let passo = 0;
 // O importante é publicar os prints: erro inesperado vira falha no resumo, não para o job.
 const encerrar = (e) => {
   falhas.push(`erro no teste: ${e?.message ?? e}`.slice(0, 400));
-  appendFileSync('saida-fluxo/fluxo.log', `ERRO: ${e?.stack ?? e}
-`);
-  writeFileSync('saida-fluxo/resumo.txt', falhas.join('
-'));
+  appendFileSync('saida-fluxo/fluxo.log', `ERRO: ${e?.stack ?? e}${String.fromCharCode(10)}`);
+  writeFileSync('saida-fluxo/resumo.txt', falhas.join(String.fromCharCode(10)));
   console.log(`::warning title=Fluxo real::${falhas.join(' ; ').slice(0, 800)}`);
   process.exit(0);
 };
