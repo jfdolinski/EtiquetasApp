@@ -18,6 +18,8 @@ export interface Config {
   smtp: { host: string; porta: number; usuario: string; senha: string; remetente: string } | null;
   /** Endereço público do site, para links em e-mails. */
   urlPublica: string | null;
+  /** Sistema de catálogo, fonte das imagens dos posts. Sem ele, só imagem própria. */
+  catalogoUrl: string | null;
   /** Conta de serviço do Firebase, para avisos com o app fechado. */
   fcm: { projeto: string; email: string; chavePrivada: string } | null;
   /** Dias até apagar os bytes dos trabalhos de impressão terminados. */
@@ -94,6 +96,7 @@ export function config(): Config {
         }
       : null,
     urlPublica: process.env.URL_PUBLICA?.replace(/\/+$/, '') || null,
+    catalogoUrl: process.env.CATALOGO_URL?.replace(/\/+$/, '') || null,
     fcm,
     retencaoConteudoDias: diasDe(process.env.RETENCAO_CONTEUDO_DIAS, 90),
     retencaoAuditoriaDias: diasDe(process.env.RETENCAO_AUDITORIA_DIAS, 730),

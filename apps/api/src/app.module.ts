@@ -20,6 +20,7 @@ import { ModelosModule } from './modelos/modelos.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { PainelModule } from './painel/painel.module';
 import { PerfisModule } from './perfis/perfis.module';
+import { PostsModule } from './posts/posts.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ReferenciasModule } from './referencias/referencias.module';
 import { SistemaModule } from './sistema/sistema.module';
@@ -49,6 +50,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     ReferenciasModule,
     SistemaModule,
     BannersModule,
+    PostsModule,
   ],
   controllers: [HealthController],
   providers: [

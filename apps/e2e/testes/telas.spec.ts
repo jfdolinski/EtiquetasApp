@@ -40,6 +40,7 @@ const TELAS: [string, string][] = [
   ['/agentes', 'Agentes'],
   ['/agendamentos', 'Agendamentos'],
   ['/banidos', 'Produtos banidos'],
+  ['/posts', 'Posts'],
   ['/notificacoes', 'Notificações'],
   ['/usuarios', 'Usuários'],
   ['/perfis', 'Perfis'],

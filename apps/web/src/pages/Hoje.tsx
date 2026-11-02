@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router';
 import {
+  MODELOS_POST,
   problemaNasFolhas,
   QUANTIDADE_MAXIMA_ITEM,
   registroBanido,
@@ -63,6 +65,7 @@ function agrupar(lista: ListaDiariaResumo, itens: ItemListaResumo[]): Grupo[] {
 
 function ListaDoDia() {
   const { empresaId, pode } = useAuth();
+  const navegar = useNavigate();
   const cliente = useQueryClient();
   const chave = ['lista-hoje', empresaId];
   const { data, isLoading, error } = useQuery({ queryKey: chave, queryFn: () => api<{ lista: ListaDiariaResumo | null }>('/listas/hoje') });
@@ -264,6 +267,16 @@ function ListaDoDia() {
             <Botao variante="secundario" disabled={descartar.isPending || selecionados.length === 0} onClick={apagarSelecionados}>
               Apagar selecionados
             </Botao>
+            {pode('post.editar') && (
+              <Botao
+                variante="secundario"
+                disabled={selecionados.length === 0 || selecionados.length > MODELOS_POST.OFERTA.maxProdutos}
+                title={`Marque de 1 a ${MODELOS_POST.OFERTA.maxProdutos} produtos.`}
+                onClick={() => navegar('/posts/novo', { state: { registros: selecionados.map((i) => i.registro) } })}
+              >
+                Criar post
+              </Botao>
+            )}
             <span className="text-sm text-slate-600">
               {selecionados.length} produto(s) · <strong>{totalEtiquetas}</strong> etiqueta(s)
             </span>

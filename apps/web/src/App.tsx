@@ -28,12 +28,14 @@ import { MinhaConta } from './pages/MinhaConta';
 import { Notificacoes } from './pages/Notificacoes';
 import { Perfis } from './pages/Perfis';
 import { Banners } from './pages/Banners';
+import { Posts } from './pages/posts/Posts';
 import { Referencias } from './pages/Referencias';
 import { Saude } from './pages/Saude';
 import { Usuarios } from './pages/Usuarios';
 
 // Konva e bwip-js são pesados: o editor só é baixado quando aberto.
 const EditorModelo = lazy(() => import('./pages/modelos/EditorModelo').then((m) => ({ default: m.EditorModelo })));
+const EditorPost = lazy(() => import('./pages/posts/EditorPost').then((m) => ({ default: m.EditorPost })));
 
 function Protegida({ children, permissao, superAdmin }: { children: ReactNode; permissao?: CodigoPermissao; superAdmin?: boolean }) {
   const { usuario, pode } = useAuth();
@@ -79,6 +81,9 @@ export function App() {
         <Route path="consultas/:id" element={<Protegida permissao="sql.ver"><EditorConsulta /></Protegida>} />
         <Route path="modelos" element={<Protegida permissao="etiqueta.modelo.ver"><Modelos /></Protegida>} />
         <Route path="modelos/:id" element={<Protegida permissao="etiqueta.modelo.ver"><Suspense fallback={<div className="text-sm text-slate-500">Carregando editor…</div>}><EditorModelo /></Suspense></Protegida>} />
+        <Route path="posts" element={<Protegida permissao="post.ver"><Posts /></Protegida>} />
+        <Route path="posts/novo" element={<Protegida permissao="post.editar"><Suspense fallback={<div className="text-sm text-slate-500">Carregando editor…</div>}><EditorPost /></Suspense></Protegida>} />
+        <Route path="posts/:id" element={<Protegida permissao="post.ver"><Suspense fallback={<div className="text-sm text-slate-500">Carregando editor…</div>}><EditorPost /></Suspense></Protegida>} />
         <Route path="impressoras" element={<Protegida permissao="impressora.ver"><Impressoras /></Protegida>} />
         <Route path="hoje" element={<Protegida permissao="imprimir"><Hoje /></Protegida>} />
         <Route path="avulsa" element={<Protegida permissao="imprimir"><Avulsa /></Protegida>} />

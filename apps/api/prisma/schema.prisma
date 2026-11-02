@@ -58,6 +58,9 @@ model Empresa {
   janelaNotificacao  JanelaNotificacao?
   notificacoes       Notificacao[]
   dispositivos DispositivoMovel[]
+  posts        PostSocial[]
+  imagensPost  ImagemPost[]
+  marcaPost    MarcaPost?
 
   @@map("empresas")
 }
@@ -202,6 +205,59 @@ model BannerPublicitario {
   atualizadoEm DateTime  @updatedAt @map("atualizado_em")
 
   @@map("banners_publicitarios")
+}
+
+/// Post para rede social. Guarda o conteúdo; a arte é montada na tela (`montarPost`).
+model PostSocial {
+  id           String   @id @default(uuid()) @db.Uuid
+  empresaId    String   @map("empresa_id") @db.Uuid
+  titulo       String
+  modelo       String
+  formato      String
+  conteudo     Json
+  legenda      String   @default("")
+  ajustes      Json     @default("{}")
+  /// Nome de quem criou, como estava na hora.
+  autor        String?
+  criadoEm     DateTime @default(now()) @map("criado_em")
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@index([empresaId, atualizadoEm])
+  @@map("posts_sociais")
+}
+
+/// Galeria de imagens próprias da empresa para os posts.
+model ImagemPost {
+  id        String   @id @default(uuid()) @db.Uuid
+  empresaId String   @map("empresa_id") @db.Uuid
+  nome      String
+  mime      String
+  conteudo  Bytes
+  criadoEm  DateTime @default(now()) @map("criado_em")
+
+  empresa Empresa     @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  marcas  MarcaPost[]
+
+  @@index([empresaId, criadoEm])
+  @@map("imagens_post")
+}
+
+/// Identidade da empresa nos posts e chave dela no sistema de catálogo.
+model MarcaPost {
+  empresaId            String   @id @map("empresa_id") @db.Uuid
+  nome                 String
+  corPrincipal         String   @map("cor_principal")
+  corDestaque          String   @map("cor_destaque")
+  logoId               String?  @map("logo_id") @db.Uuid
+  chaveCatalogoCifrada String?  @map("chave_catalogo_cifrada")
+  atualizadoEm         DateTime @updatedAt @map("atualizado_em")
+
+  empresa Empresa     @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  logo    ImagemPost? @relation(fields: [logoId], references: [id], onDelete: SetNull)
+
+  @@map("marcas_post")
 }
 
 /// Erro inesperado (500) da API, para a tela Saúde. Nunca guarda corpo nem query da requisição.

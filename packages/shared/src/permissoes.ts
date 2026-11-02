@@ -32,6 +32,9 @@ export const PERMISSOES = [
   { codigo: 'notificacao.ver', grupo: 'Notificações', descricao: 'Ver as notificações da empresa' },
   { codigo: 'notificacao.editar', grupo: 'Notificações', descricao: 'Escolher o que e como notificar' },
   { codigo: 'app.aprovar', grupo: 'Aplicativo', descricao: 'Aprovar e descartar a lista do dia pelo celular (também exige Imprimir etiquetas)' },
+  { codigo: 'post.ver', grupo: 'Posts', descricao: 'Ver e baixar os posts para redes sociais' },
+  { codigo: 'post.editar', grupo: 'Posts', descricao: 'Criar e editar posts, galeria de imagens e marca da empresa' },
+  { codigo: 'post.edicao_livre', grupo: 'Posts', descricao: 'Mover e redimensionar os elementos da arte do post' },
 ] as const;
 
 export type CodigoPermissao = (typeof PERMISSOES)[number]['codigo'];

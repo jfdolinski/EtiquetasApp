@@ -18,6 +18,8 @@ const ambienteApi = {
   PORTA: '3000',
   // Build web do aplicativo, servido em outra porta nos testes de tela do celular.
   CORS_ORIGEM: 'http://localhost:8099',
+  // Catálogo de mentira, que o próprio posts.spec.ts sobe.
+  CATALOGO_URL: 'http://localhost:8097',
 };
 
 export default defineConfig({

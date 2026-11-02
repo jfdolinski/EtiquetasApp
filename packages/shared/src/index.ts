@@ -16,3 +16,4 @@ export * from './banidos';
 export * from './notificacoes';
 export * from './painel';
 export * from './referencias';
+export * from './posts';
