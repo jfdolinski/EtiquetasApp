@@ -6,7 +6,7 @@ name: Fluxo do aplicativo
 on:
   workflow_dispatch:
   push:
-    branches: [main, diagnostico-app]
+    branches: [main]
     paths: ['apps/mobile/**', '.github/workflows/app-fluxo.yml']
 
 permissions:
