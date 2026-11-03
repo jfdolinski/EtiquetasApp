@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alterarTextoDoElemento, conteudoVazio, corSobre, formatarPrecoPost, FORMATOS_POST, legendaSugerida, montarPost, partesDoPreco, precoDoRegistro, problemaNoPost, produtoDoRegistro, rotuloElemento, VARIACOES_POST, type ConteudoPost, type DadosPost, type FormatoPost, type FundoPost, type ProdutoPost, type VariacaoPost } from './posts';
+import { alterarTextoDoElemento, aplicarTemplate, aplicarVinculos, campoDoElemento, colunasParaVincular, problemaNoTemplate, templateDoPost, type TemplatePost, type TextoPost, conteudoVazio, corSobre, formatarPrecoPost, FORMATOS_POST, legendaSugerida, montarPost, partesDoPreco, precoDoRegistro, problemaNoPost, produtoDoRegistro, rotuloElemento, VARIACOES_POST, type ConteudoPost, type DadosPost, type FormatoPost, type FundoPost, type ProdutoPost, type VariacaoPost } from './posts';
 
 const MARCA = { nome: 'Mercado Bom', corPrincipal: '#1d4ed8', corDestaque: '#facc15', logoId: null };
 const PRODUTO: ProdutoPost = { codigo: '789', descricao: 'Café 500 g', preco: 'R$ 4,99', imagem: { origem: 'CATALOGO', url: 'https://c/files/a.png', ia: false } };
@@ -30,9 +30,103 @@ describe('preço', () => {
   });
 });
 
+describe('relacionamento com a consulta', () => {
+  const REG = { cod: '789', nome_loja: 'Café Especial', pv: '4.5', antigo: 9, und: 'kg', validade: '2026-12-31', vazio: '' };
+  const BASE: ProdutoPost = { codigo: 'x', descricao: 'x', preco: 'x', imagem: null, registro: REG };
+
+  it('cada informação vem do campo escolhido, com o preço formatado', () => {
+    const p = aplicarVinculos(BASE, { descricao: { campo: 'nome_loja' }, preco: { campo: 'pv' }, precoDe: { campo: 'antigo' }, unidade: { campo: 'und' }, codigo: { campo: 'cod' } });
+    expect(p).toMatchObject({ descricao: 'Café Especial', preco: 'R$ 4,50', precoDe: 'R$ 9,00', unidade: 'kg', codigo: '789' });
+  });
+
+  it('usa o formato escolhido, como nas etiquetas', () => {
+    expect(aplicarVinculos(BASE, { detalhe: { campo: 'validade', formato: { tipo: 'data', formato: 'dd/MM/yyyy' } } }).detalhe).toBe('31/12/2026');
+    expect(aplicarVinculos(BASE, { preco: { campo: 'pv', formato: { tipo: 'numero', casas: 2 } } }).preco).toBe('4,50');
+  });
+
+  it('não diferencia maiúsculas; coluna que não existe deixa o valor como está; vazio some', () => {
+    expect(aplicarVinculos(BASE, { descricao: { campo: 'NOME_LOJA' } }).descricao).toBe('Café Especial');
+    expect(aplicarVinculos(BASE, { descricao: { campo: 'nao_tem' } }).descricao).toBe('x');
+    expect(aplicarVinculos({ ...BASE, selo: 'Novo' }, { selo: { campo: 'vazio' } }).selo).toBeUndefined();
+    expect(aplicarVinculos({ ...BASE, registro: undefined }, { descricao: { campo: 'nome_loja' } }).descricao).toBe('x');
+  });
+
+  it('outro código tira a foto do catálogo, que era de outro produto; imagem própria fica', () => {
+    const catalogo: ProdutoPost = { ...BASE, imagem: { origem: 'CATALOGO', url: 'u', ia: false } };
+    expect(aplicarVinculos(catalogo, { codigo: { campo: 'cod' } }).imagem).toBeNull();
+    const propria: ProdutoPost = { ...BASE, imagem: { origem: 'GALERIA', id: 'i' } };
+    expect(aplicarVinculos(propria, { codigo: { campo: 'cod' } }).imagem).toEqual(propria.imagem);
+  });
+
+  it('elemento acrescentado mostra o campo do produto escolhido; sem valor, o texto fixo', () => {
+    const conteudo = { ...conteudoVazio(), produtos: [BASE, { ...BASE, registro: { und: 'cx' } }] };
+    const extra = (vinculo?: { campo: string; produto?: number }) => montarPost(post({ modelo: 'OFERTA', conteudo, design: { extras: [{ id: 'extra-a', tipo: 'texto', x: 0, yRel: 0, largura: 10, altura: 10, texto: 'fixo', vinculo }] } }), MARCA).find((e) => e.id === 'extra-a') as TextoPost;
+    expect(extra().texto).toBe('fixo');
+    expect(extra({ campo: 'und' }).texto).toBe('kg');
+    expect(extra({ campo: 'und', produto: 1 }).texto).toBe('cx');
+    expect(extra({ campo: 'nao_tem' }).texto).toBe('fixo');
+  });
+
+  it('sabe qual campo cada elemento mostra', () => {
+    expect(campoDoElemento('nome-2')).toEqual({ campo: 'descricao', produto: 2 });
+    expect(campoDoElemento('preco-de-0')).toEqual({ campo: 'precoDe', produto: 0 });
+    expect(campoDoElemento('preco-0')).toEqual({ campo: 'preco', produto: 0 });
+    expect(campoDoElemento('faixa-preco-0')).toBeNull();
+    expect(campoDoElemento('titulo')).toBeNull();
+  });
+
+  it('colunas: as da consulta e as das linhas que já estão no post, sem repetir', () => {
+    expect(colunasParaVincular(['a', 'b'], [{ ...BASE, registro: { b: 1, c: 2 } }, { ...BASE, registro: undefined }])).toEqual(['a', 'b', 'c']);
+  });
+
+  it('o produto guarda a linha, para poder trocar de campo depois; linha enorme fica de fora', () => {
+    expect(produtoDoRegistro({ ean: '1', nome: 'A' }).registro).toEqual({ ean: '1', nome: 'A' });
+    expect(produtoDoRegistro({ ean: '1', nome: 'x'.repeat(9000) }).registro).toBeUndefined();
+    expect(produtoDoRegistro({ ean: '1', nome: 'A', outro: 'B' }, { descricao: { campo: 'outro' } }).descricao).toBe('B');
+  });
+});
+
+describe('template padrão', () => {
+  const POST = post({ modelo: 'PRODUTO', design: { corPrincipal: '#123456', fundo: { tipo: 'imagem', imagem: { origem: 'GALERIA', id: '11111111-1111-4111-8111-111111111111' } } }, ajustes: { QUADRADO: { 'nome-0': { x: 5 } } }, conteudo: { ...conteudoVazio(), rodape: 'R', telefone: '1', variacao: 'LADO_A_LADO', vinculos: { descricao: { campo: 'd' } }, produtos: [{ ...PRODUTO, registro: { d: 'Do campo' } }] } });
+
+  it('leva a aparência e os relacionamentos, nunca os produtos', () => {
+    const t = templateDoPost(POST);
+    expect(t).toMatchObject({ modelo: 'PRODUTO', variacao: 'LADO_A_LADO', rodape: 'R', telefone: '1', vinculos: { descricao: { campo: 'd' } } });
+    expect(JSON.stringify(t)).not.toContain('Do campo');
+    expect(JSON.stringify(t)).not.toContain('produtos');
+    expect(problemaNoTemplate(t)).toBeNull();
+  });
+
+  it('post novo nasce dele, com os campos relacionados já preenchidos', () => {
+    const novo = aplicarTemplate(post({ conteudo: { ...conteudoVazio(), produtos: [{ ...PRODUTO, registro: { d: 'Do campo' } }] } }), templateDoPost(POST));
+    expect(novo.design?.corPrincipal).toBe('#123456');
+    expect(novo.ajustes).toEqual(POST.ajustes);
+    expect(novo.conteudo.produtos[0].descricao).toBe('Do campo');
+    expect(novo.conteudo.telefone).toBe('1');
+  });
+
+  it('em outro modelo, a aparência vale mas as posições não: os elementos são outros', () => {
+    const novo = aplicarTemplate(post({ modelo: 'OFERTA', conteudo: { ...conteudoVazio(), produtos: [PRODUTO, PRODUTO] } }), templateDoPost(POST));
+    expect(novo.ajustes).toEqual({});
+    expect(novo.design?.corPrincipal).toBe('#123456');
+  });
+
+  it.each<[string, object]>([
+    ['modelo inválido', { modelo: 'X' }],
+    ['cor inválida', { design: { corPrincipal: 'red' } }],
+    ['relacionamento de campo que não existe', { vinculos: { outro: { campo: 'a' } } }],
+    ['relacionamento sem coluna', { vinculos: { preco: { campo: '' } } }],
+    ['formato desconhecido', { vinculos: { preco: { campo: 'a', formato: { tipo: 'x' } } } }],
+    ['consulta inválida', { consultaId: 'nao-e-id' }],
+    ['ajuste inválido', { ajustes: { QUADRADO: { a: { x: NaN } } } }],
+  ])('recusa %s', (_n, m) => {
+    expect(problemaNoTemplate({ ...templateDoPost(POST), ...m } as TemplatePost)).toBeTruthy();
+  });
+});
+
 describe('produtoDoRegistro', () => {
   it('prefere o código de barras, a chave do catálogo', () => {
-    expect(produtoDoRegistro({ codigo: 12, ean: '0789', descricao: 'Café', preco: 5 })).toEqual({ codigo: '0789', descricao: 'Café', preco: 'R$ 5,00', imagem: null });
+    expect(produtoDoRegistro({ codigo: 12, ean: '0789', descricao: 'Café', preco: 5 })).toMatchObject({ codigo: '0789', descricao: 'Café', preco: 'R$ 5,00', imagem: null });
   });
 
   it('sem código de barras, usa o código do produto', () => {

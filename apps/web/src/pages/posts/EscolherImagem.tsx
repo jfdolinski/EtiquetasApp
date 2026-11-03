@@ -1,9 +1,15 @@
-import { useMemo, useState, type ChangeEvent } from 'react';
+import { createContext, useContext, useMemo, useState, type ChangeEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { chaveImagemPost, type ImagemGaleria, type ImagemPost, type ProdutoCatalogo } from '@etiquetas/shared';
 import { api } from '../../api';
 import { Alerta } from '../../components/ui';
 import { enviarParaGaleria, useImagensPost, type ImagemCarregada } from './apoio';
+
+/**
+ * Quais imagens da galeria são deste post. As outras, que continuam nos posts em que foram usadas,
+ * ficam recolhidas: cada post começa com a galeria limpa, sem perder o reaproveitamento.
+ */
+export const ContextoGaleria = createContext<{ doPost: (id: string) => boolean; aoEnviar: (id: string) => void } | null>(null);
 
 function Miniatura({ imagem, foto, rotulo, marcada, aoEscolher }: { imagem: ImagemPost; foto: ImagemCarregada | undefined; rotulo: string; marcada: boolean; aoEscolher: () => void }) {
   return (
@@ -25,7 +31,11 @@ export function EscolherImagem({ titulo, catalogo, marcada, somenteLeitura, aoEs
   const reais = catalogo?.imagens.filter((i) => !i.ia) ?? [];
   const deIa = catalogo?.imagens.filter((i) => i.ia) ?? [];
   const doCatalogo: ImagemPost[] = [...reais, ...(verIa ? deIa : [])].map((i) => ({ origem: 'CATALOGO', url: i.url, ia: i.ia }));
+  const ctx = useContext(ContextoGaleria);
   const daGaleria: ImagemPost[] = galeria.map((i) => ({ origem: 'GALERIA', id: i.id }));
+  const eDoPost = (i: ImagemPost) => i.origem === 'GALERIA' && (!ctx || ctx.doPost(i.id));
+  const desteAqui = daGaleria.filter(eDoPost);
+  const deOutros = daGaleria.filter((i) => !eDoPost(i));
   const fotos = useImagensPost(useMemo(() => [...doCatalogo, ...daGaleria], [doCatalogo.map(chaveImagemPost).join(), daGaleria.map(chaveImagemPost).join()])); // eslint-disable-line react-hooks/exhaustive-deps
   const chaveMarcada = marcada && chaveImagemPost(marcada);
 
@@ -37,6 +47,7 @@ export function EscolherImagem({ titulo, catalogo, marcada, somenteLeitura, aoEs
     setEnviando(true);
     try {
       const nova = await enviarParaGaleria(arquivo);
+      ctx?.aoEnviar(nova.id);
       await cliente.invalidateQueries({ queryKey: ['posts-imagens'] });
       aoEscolher({ origem: 'GALERIA', id: nova.id });
     } catch (x) {
@@ -71,11 +82,17 @@ export function EscolherImagem({ titulo, catalogo, marcada, somenteLeitura, aoEs
           Mostrar {deIa.length} imagem(ns) gerada(s) por IA. Saem com um aviso na arte e podem não reproduzir a embalagem exata.
         </label>
       )}
-      {daGaleria.length > 0 && (
+      {desteAqui.length > 0 && (
         <div>
           <p className="mb-1 text-xs font-medium text-slate-600">Da galeria</p>
-          {grade(daGaleria, 'Imagem da galeria')}
+          {grade(desteAqui, 'Imagem da galeria')}
         </div>
+      )}
+      {deOutros.length > 0 && (
+        <details>
+          <summary className="cursor-pointer text-xs font-medium text-slate-600">Imagens de outros posts ({deOutros.length})</summary>
+          <div className="mt-1">{grade(deOutros, 'Imagem de outro post')}</div>
+        </details>
       )}
       {!somenteLeitura && (
         <label className="block text-xs font-medium text-slate-600">

@@ -1,5 +1,6 @@
 import { FONTES } from './etiquetas/design';
-import type { Registro } from './etiquetas/tipos';
+import type { FormatoCampo, Registro } from './etiquetas/tipos';
+import { formatarCampo } from './etiquetas/valores';
 import { chaveDoRegistro, descricaoDoRegistro } from './impressao';
 
 /**
@@ -42,6 +43,27 @@ export const PALETAS_POST: readonly { nome: string; principal: string; destaque:
 
 export type ImagemPost = { origem: 'CATALOGO'; url: string; ia: boolean } | { origem: 'GALERIA'; id: string };
 
+/** O que da arte pode vir de um campo da consulta, como nas etiquetas. */
+export type CampoProdutoPost = 'descricao' | 'preco' | 'precoDe' | 'unidade' | 'detalhe' | 'selo' | 'codigo';
+
+export const CAMPOS_PRODUTO_POST: Record<CampoProdutoPost, string> = {
+  descricao: 'Nome do produto',
+  preco: 'Preço',
+  precoDe: 'Preço anterior',
+  unidade: 'Unidade',
+  detalhe: 'Detalhe',
+  selo: 'Selo',
+  codigo: 'Código de barras',
+};
+
+export interface VinculoCampo {
+  /** Coluna da consulta. */
+  campo: string;
+  formato?: FormatoCampo;
+}
+
+export type VinculosPost = Partial<Record<CampoProdutoPost, VinculoCampo>>;
+
 export interface ProdutoPost {
   codigo: string;
   descricao: string;
@@ -58,6 +80,8 @@ export interface ProdutoPost {
   imagem: ImagemPost | null;
   /** O catálogo diz que é medicamento: a tela avisa das regras de propaganda. */
   medicamento?: boolean;
+  /** Linha da consulta de onde veio: é dela que os campos relacionados tiram o valor. */
+  registro?: Registro;
 }
 
 export interface ConteudoPost {
@@ -79,6 +103,10 @@ export interface ConteudoPost {
   endereco?: string;
   /** Vão no fim da legenda sugerida. */
   hashtags?: string;
+  /** Consulta usada na busca de produtos deste post. */
+  consultaId?: string;
+  /** Relacionamento: de qual campo da consulta vem cada informação do produto. */
+  vinculos?: VinculosPost;
 }
 
 /** O que vale em um tamanho de post: mover no quadrado não bagunça os stories. */
@@ -146,6 +174,8 @@ export interface ExtraPost {
   altura: number;
   texto?: string;
   imagem?: ImagemPost | null;
+  /** Texto ou QR vindo de um campo da consulta, em vez de `texto`. `produto` é o índice no post. */
+  vinculo?: VinculoCampo & { produto?: number };
 }
 
 export interface FundoPost {
@@ -181,6 +211,26 @@ export interface DadosPost {
   design?: DesignPost;
 }
 
+/**
+ * Template padrão da empresa: aparência e relacionamentos de um post, sem os produtos.
+ * Todo post novo nasce dele; o que se muda depois vale só para aquele post.
+ */
+export interface TemplatePost {
+  modelo: ModeloPost;
+  variacao?: VariacaoPost;
+  design: DesignPost;
+  ajustes: AjustesPost;
+  vinculos?: VinculosPost;
+  consultaId?: string;
+  rodape?: string;
+  hashtags?: string;
+  telefone?: string;
+  whatsapp?: string;
+  instagram?: string;
+  site?: string;
+  endereco?: string;
+}
+
 export interface PostResumo {
   id: string;
   titulo: string;
@@ -205,6 +255,7 @@ export interface MarcaPost {
 export interface SituacaoMarcaPost extends MarcaPost {
   temChaveCatalogo: boolean;
   catalogoConfigurado: boolean;
+  template: TemplatePost | null;
 }
 
 export interface ImagemGaleria {
@@ -230,6 +281,8 @@ export interface ProdutoCatalogo {
 export interface ConsultaPost {
   id: string;
   nome: string;
+  /** Campos lidos da consulta, para o relacionamento. */
+  colunas: string[];
 }
 
 export interface BuscaProdutosPost {
@@ -278,14 +331,79 @@ export function precoDoRegistro(registro: Registro): string {
 }
 
 /** Linha da consulta do ERP vira produto do post. O código de barras tem preferência: é a chave do catálogo. */
-export function produtoDoRegistro(registro: Registro): ProdutoPost {
+export function produtoDoRegistro(registro: Registro, vinculos?: VinculosPost): ProdutoPost {
   const barras = Object.keys(registro).find((c) => /ean|gtin|barra|codbar/i.test(c) && registro[c]);
-  return {
+  const produto: ProdutoPost = {
     codigo: barras ? String(registro[barras]).trim() : chaveDoRegistro(registro),
     descricao: descricaoDoRegistro(registro),
     preco: precoDoRegistro(registro),
     imagem: null,
+    // Linha enorme não vai junto: o post continua funcionando, só sem trocar de campo depois.
+    ...(JSON.stringify(registro).length <= MAX_REGISTRO ? { registro } : {}),
   };
+  return vinculos ? aplicarVinculos(produto, vinculos, registro) : produto;
+}
+
+const MAX_REGISTRO = 8000;
+
+/** Valor do campo na linha da consulta, sem diferenciar maiúsculas; `null` se a linha não tem a coluna. */
+export function valorDoVinculo(registro: Registro | undefined, vinculo: VinculoCampo, ehPreco = false): string | null {
+  if (!registro) return null;
+  const chave = Object.keys(registro).find((c) => c.toLowerCase() === vinculo.campo.toLowerCase());
+  if (chave === undefined) return null;
+  const bruto = registro[chave];
+  return ehPreco && !vinculo.formato ? formatarPrecoPost(bruto) : formatarCampo(bruto, vinculo.formato);
+}
+
+/** Preenche o produto com os campos relacionados. O que não tem relacionamento fica como está. */
+export function aplicarVinculos(produto: ProdutoPost, vinculos: VinculosPost, registro: Registro | undefined = produto.registro): ProdutoPost {
+  const novo = { ...produto };
+  for (const k of Object.keys(vinculos) as CampoProdutoPost[]) {
+    const valor = valorDoVinculo(registro, vinculos[k]!, k === 'preco' || k === 'precoDe');
+    if (valor === null) continue;
+    if (k === 'descricao' || k === 'preco' || k === 'codigo') novo[k] = valor;
+    else novo[k] = valor || undefined;
+  }
+  // Outro código é outro produto no catálogo: a foto escolhida por ele deixa de valer.
+  if (novo.codigo !== produto.codigo && novo.imagem?.origem === 'CATALOGO') novo.imagem = null;
+  return novo;
+}
+
+/** Elemento da arte que mostra um campo do produto, com o índice do produto. */
+export function campoDoElemento(id: string): { campo: CampoProdutoPost; produto: number } | null {
+  for (const [re, campo] of [
+    [/^nome-(\d+)$/, 'descricao'],
+    [/^preco-de-(\d+)$/, 'precoDe'],
+    [/^preco-(\d+)$/, 'preco'],
+    [/^unidade-(\d+)$/, 'unidade'],
+    [/^detalhe-(\d+)$/, 'detalhe'],
+    [/^selo-(\d+)$/, 'selo'],
+  ] as const) {
+    const m = re.exec(id);
+    if (m) return { campo, produto: Number(m[1]) };
+  }
+  return null;
+}
+
+/** Colunas disponíveis para relacionar: as lidas da consulta e as das linhas que já estão no post. */
+export function colunasParaVincular(deConsulta: readonly string[], produtos: readonly ProdutoPost[]): string[] {
+  return [...new Set([...deConsulta, ...produtos.flatMap((p) => Object.keys(p.registro ?? {}))])];
+}
+
+/** O que o post atual vira ao ser salvo como template padrão: tudo menos os produtos. */
+export function templateDoPost(d: DadosPost): TemplatePost {
+  const c = d.conteudo;
+  const t: TemplatePost = { modelo: d.modelo, variacao: c.variacao, design: d.design ?? {}, ajustes: d.ajustes, vinculos: c.vinculos, consultaId: c.consultaId, rodape: c.rodape, hashtags: c.hashtags, telefone: c.telefone, whatsapp: c.whatsapp, instagram: c.instagram, site: c.site, endereco: c.endereco };
+  return Object.fromEntries(Object.entries(t).filter(([, v]) => v !== undefined)) as unknown as TemplatePost;
+}
+
+/** Post novo a partir do template. As posições só valem no mesmo modelo: os elementos são outros. */
+export function aplicarTemplate(d: DadosPost, t: TemplatePost): DadosPost {
+  const { modelo, variacao, design, ajustes, vinculos, consultaId, ...textos } = t;
+  const mesmoModelo = modelo === d.modelo;
+  const conteudo: ConteudoPost = { ...d.conteudo, ...textos, ...(variacao ? { variacao } : {}), ...(consultaId ? { consultaId } : {}), ...(vinculos ? { vinculos } : {}) };
+  if (vinculos) conteudo.produtos = conteudo.produtos.map((p) => aplicarVinculos(p, vinculos));
+  return { ...d, conteudo, design, ajustes: mesmoModelo ? ajustes : {} };
 }
 
 export function chaveImagemPost(imagem: ImagemPost): string {
@@ -405,7 +523,7 @@ export function montarPost(dados: Pick<DadosPost, 'modelo' | 'formato' | 'conteu
   elementos.push({ id: 'fundo', tipo: 'retangulo', x: 0, y: 0, largura: w, altura: h, cor: fundo?.tipo === 'cor' || fundo?.tipo === 'degrade' ? (fundo.cor ?? principal) : principal, raio: 0, fixo: true, ...(fundo?.tipo === 'degrade' ? { cor2: fundo.cor2 ?? destaque, angulo: fundo.angulo ?? 135 } : {}) });
   if (fundoImagem) {
     elementos.push({ id: 'fundo-imagem', tipo: 'imagem', imagem: fundoImagem, x: 0, y: 0, largura: w, altura: h, ajusteImagem: 'cobrir', fixo: true });
-    elementos.push({ id: 'fundo-veu', tipo: 'retangulo', x: 0, y: 0, largura: w, altura: h, cor: '#000000', opacidade: fundo?.veu ?? 0.35, raio: 0, fixo: true });
+    elementos.push({ id: 'fundo-veu', tipo: 'retangulo', x: 0, y: 0, largura: w, altura: h, cor: '#000000', opacidade: fundo?.veu ?? 0, raio: 0, fixo: true });
   }
 
   const topo = seguro;
@@ -552,10 +670,11 @@ export function montarPost(dados: Pick<DadosPost, 'modelo' | 'formato' | 'conteu
   for (const e of design?.extras ?? []) {
     const y = Math.round(e.yRel * h);
     const base_ = { id: e.id, x: e.x, y, largura: e.largura, altura: e.altura };
-    if (e.tipo === 'texto') elementos.push({ ...base_, tipo: 'texto', texto: e.texto ?? '', tamanho: 64, cor: sobre, negrito: false, alinhamento: 'center', alinhamentoVertical: 'middle' });
+    const textoExtra = (e.vinculo && valorDoVinculo(c.produtos[e.vinculo.produto ?? 0]?.registro, e.vinculo)) ?? e.texto ?? '';
+    if (e.tipo === 'texto') elementos.push({ ...base_, tipo: 'texto', texto: textoExtra, tamanho: 64, cor: sobre, negrito: false, alinhamento: 'center', alinhamentoVertical: 'middle' });
     else if (e.tipo === 'imagem') {
       if (e.imagem) elementos.push({ ...base_, tipo: 'imagem', imagem: e.imagem, ajusteImagem: 'conter' });
-    } else if (e.tipo === 'qr') elementos.push({ ...base_, tipo: 'qr', texto: e.texto ?? '' });
+    } else if (e.tipo === 'qr') elementos.push({ ...base_, tipo: 'qr', texto: textoExtra });
     else if (e.tipo === 'estrela') elementos.push({ ...base_, tipo: 'estrela', cor: destaque, pontas: 14, raioInterno: 0.8 });
     else if (e.tipo === 'linha') elementos.push({ ...base_, tipo: 'linha', cor: sobre, bordaEspessura: 8 });
     else if (e.tipo === 'elipse') elementos.push({ ...base_, tipo: 'elipse', cor: destaque });
@@ -724,10 +843,47 @@ function problemaNoDesign(d: DesignPost): string | null {
     if (!['texto', 'imagem', 'retangulo', 'elipse', 'estrela', 'linha', 'qr'].includes(x.tipo)) return 'Elemento inválido no post.';
     if (![x.x, x.largura, x.altura].every((n) => n !== undefined && numeroOk(n)) || !numeroOk(x.yRel, 2) || x.yRel === undefined || x.largura <= 0 || x.altura <= 0) return 'Elemento inválido no post.';
     if (!opcionalAte(x.texto, 1000)) return 'Texto grande demais em um elemento.';
+    if (x.vinculo !== undefined && (!vinculoValido(x.vinculo) || !numeroOk(x.vinculo.produto, 10))) return 'Relacionamento inválido em um elemento.';
     const problema = problemaNaImagem(x.imagem);
     if (problema) return problema;
   }
   return null;
+}
+
+const TIPOS_FORMATO = ['texto', 'numero', 'moeda', 'data'];
+
+function vinculoValido(v: VinculoCampo): boolean {
+  return textoAte(v?.campo, 200) && !!v.campo && (v.formato === undefined || TIPOS_FORMATO.includes(v.formato?.tipo));
+}
+
+function problemaNosVinculos(v: VinculosPost | undefined, consultaId: string | undefined): string | null {
+  if (consultaId !== undefined && !(typeof consultaId === 'string' && UUID.test(consultaId))) return 'Consulta inválida no post.';
+  if (v === undefined) return null;
+  if (typeof v !== 'object' || v === null) return 'Relacionamento de campos inválido.';
+  for (const [k, vinculo] of Object.entries(v)) {
+    if (!(k in CAMPOS_PRODUTO_POST) || !vinculoValido(vinculo)) return 'Relacionamento de campos inválido.';
+  }
+  return null;
+}
+
+function problemaNosAjustes(ajustes: AjustesPost): string | null {
+  if (typeof ajustes !== 'object' || ajustes === null) return 'Ajustes inválidos no post.';
+  for (const [formato, porElemento] of Object.entries(ajustes)) {
+    const valores = Object.values(porElemento ?? {});
+    if (!FORMATOS_POST[formato as FormatoPost] || valores.length > 120) return 'Ajustes inválidos no post.';
+    for (const a of valores) {
+      if (![a?.x, a?.y, a?.largura, a?.altura, a?.rotacao].every((n) => numeroOk(n))) return 'Ajustes inválidos no post.';
+      if ((a.largura !== undefined && a.largura <= 0) || (a.altura !== undefined && a.altura <= 0)) return 'Ajustes inválidos no post.';
+    }
+  }
+  return null;
+}
+
+export function problemaNoTemplate(t: TemplatePost): string | null {
+  if (typeof t !== 'object' || t === null || !MODELOS_POST[t.modelo]) return 'Template inválido.';
+  if (t.variacao !== undefined && !VARIACOES_POST[t.variacao]) return 'Template inválido.';
+  if (![t.telefone, t.whatsapp, t.instagram, t.site, t.endereco].every((x) => opcionalAte(x, 160)) || !opcionalAte(t.rodape, 200) || !opcionalAte(t.hashtags, 500)) return 'Algum dado do template é grande demais.';
+  return problemaNosVinculos(t.vinculos, t.consultaId) ?? problemaNosAjustes(t.ajustes) ?? problemaNoDesign(t.design);
 }
 
 export function problemaNoPost(d: DadosPost): string | null {
@@ -744,19 +900,11 @@ export function problemaNoPost(d: DadosPost): string | null {
   for (const p of c.produtos) {
     if (!textoAte(p?.codigo, 200) || !textoAte(p?.descricao, 300) || !textoAte(p?.preco, 40)) return 'Dados de produto inválidos no post.';
     if (![p.precoDe, p.unidade, p.selo].every((t) => opcionalAte(t, 40)) || !opcionalAte(p.detalhe, 160)) return 'Dados de produto inválidos no post.';
+    if (p.registro !== undefined && (typeof p.registro !== 'object' || p.registro === null || JSON.stringify(p.registro).length > MAX_REGISTRO)) return 'Dados de produto inválidos no post.';
     const problema = problemaNaImagem(p.imagem ?? null);
     if (problema) return problema;
   }
-  const problema = problemaNaImagem(c.imagem ?? null);
+  const problema = problemaNaImagem(c.imagem ?? null) ?? problemaNosVinculos(c.vinculos, c.consultaId) ?? problemaNosAjustes(d.ajustes);
   if (problema) return problema;
-  if (typeof d.ajustes !== 'object' || d.ajustes === null) return 'Ajustes inválidos no post.';
-  for (const [formato, porElemento] of Object.entries(d.ajustes)) {
-    const valores = Object.values(porElemento ?? {});
-    if (!FORMATOS_POST[formato as FormatoPost] || valores.length > 120) return 'Ajustes inválidos no post.';
-    for (const a of valores) {
-      if (![a?.x, a?.y, a?.largura, a?.altura, a?.rotacao].every((n) => numeroOk(n))) return 'Ajustes inválidos no post.';
-      if ((a.largura !== undefined && a.largura <= 0) || (a.altura !== undefined && a.altura <= 0)) return 'Ajustes inválidos no post.';
-    }
-  }
   return d.design === undefined ? null : problemaNoDesign(d.design);
 }

@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Module, Param, ParseUUIDPipe, Patch, Post, Put, Query, Res } from '@nestjs/common';
 import { IsDefined, IsIn, IsObject, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
 import type { Response } from 'express';
-import type { AjustesPost, ConteudoPost, DadosPost, DesignPost, FormatoPost, ModeloPost } from '@etiquetas/shared';
+import type { AjustesPost, ConteudoPost, DadosPost, DesignPost, FormatoPost, ModeloPost, TemplatePost, VariacaoPost, VinculosPost } from '@etiquetas/shared';
 import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { BanidosModule } from '../banidos/banidos.module';
@@ -34,6 +34,60 @@ class PostDto implements DadosPost {
   @IsOptional()
   @IsObject()
   design?: DesignPost;
+}
+
+/** O conteúdo é conferido por `problemaNoTemplate`, como o dos posts. */
+class TemplateDto implements TemplatePost {
+  @IsIn(['PRODUTO', 'OFERTA', 'AVISO'])
+  modelo: ModeloPost;
+
+  @IsOptional()
+  @IsIn(['CLASSICO', 'FOTO_GRANDE', 'LADO_A_LADO'])
+  variacao?: VariacaoPost;
+
+  @IsDefined()
+  @IsObject()
+  design: DesignPost;
+
+  @IsDefined()
+  @IsObject()
+  ajustes: AjustesPost;
+
+  @IsOptional()
+  @IsObject()
+  vinculos?: VinculosPost;
+
+  @IsOptional()
+  @IsUUID()
+  consultaId?: string;
+
+  @IsOptional()
+  @IsString()
+  rodape?: string;
+
+  @IsOptional()
+  @IsString()
+  hashtags?: string;
+
+  @IsOptional()
+  @IsString()
+  telefone?: string;
+
+  @IsOptional()
+  @IsString()
+  whatsapp?: string;
+
+  @IsOptional()
+  @IsString()
+  instagram?: string;
+
+  @IsOptional()
+  @IsString()
+  site?: string;
+
+  @IsOptional()
+  @IsString()
+  endereco?: string;
 }
 
 class MarcaDto {
@@ -105,6 +159,18 @@ export class PostsController {
   @RequerPermissao('post.editar')
   salvarMarca(@EmpresaAtual() empresaId: string, @Body() dto: MarcaDto, @UsuarioAtual() u: UsuarioRequisicao) {
     return this.posts.salvarMarca(empresaId, { ...dto, logoId: dto.logoId ?? null }, u.id);
+  }
+
+  @Put('template')
+  @RequerPermissao('post.edicao_livre')
+  salvarTemplate(@EmpresaAtual() empresaId: string, @Body() dto: TemplateDto, @UsuarioAtual() u: UsuarioRequisicao) {
+    return this.posts.salvarTemplate(empresaId, dto, u.id);
+  }
+
+  @Delete('template')
+  @RequerPermissao('post.edicao_livre')
+  removerTemplate(@EmpresaAtual() empresaId: string, @UsuarioAtual() u: UsuarioRequisicao) {
+    return this.posts.removerTemplate(empresaId, u.id);
   }
 
   @Get('imagens')

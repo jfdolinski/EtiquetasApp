@@ -188,9 +188,9 @@ describe('busca de produtos no ERP', () => {
     expect(achar).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'c', empresaId: 'e' } }));
     expect(executar).toHaveBeenCalledWith('e', 'c', 'u', { busca: '%a%' }, 50);
     expect(r.banidos).toBe(1);
-    expect(r.produtos).toEqual([
+    expect(r.produtos).toMatchObject([
       { codigo: '789', descricao: 'Café moído', preco: 'R$ 4,99', imagem: null },
-      { codigo: '791', descricao: 'Arroz', preco: 'R$ 9,00', imagem: null },
+      { codigo: '791', descricao: 'Arroz', preco: 'R$ 9,00', imagem: null, registro: { ean: '791', descricao: 'Arroz', preco: '9.00' } },
     ]);
   });
 
@@ -211,6 +211,67 @@ describe('busca de produtos no ERP', () => {
   });
 });
 
+describe('limpeza da galeria e template padrão', () => {
+  const DADOS: DadosPost = { titulo: 'Aviso', modelo: 'AVISO', formato: 'QUADRADO', conteudo: conteudoVazio(), legenda: '', ajustes: {} };
+  const registro = { id: 'p', titulo: 'Aviso', modelo: 'AVISO', formato: 'QUADRADO', conteudo: conteudoVazio(), legenda: '', ajustes: {}, atualizadoEm: new Date() };
+  const comum: UsuarioRequisicao = { id: 'u', empresaId: 'e', superAdmin: false, permissoes: ['post.editar'] };
+  const livre: UsuarioRequisicao = { ...comum, permissoes: ['post.editar', 'post.edicao_livre'] };
+  const USADA = '11111111-1111-4111-8111-111111111111';
+  const LOGO = '22222222-2222-4222-8222-222222222222';
+  const DO_TEMPLATE = '33333333-3333-4333-8333-333333333333';
+  const SOLTA = '44444444-4444-4444-8444-444444444444';
+  const montar = () => {
+    const imagensAntigas = jest.fn().mockResolvedValue([USADA, LOGO, DO_TEMPLATE, SOLTA].map((id) => ({ id })));
+    const apagar = jest.fn().mockResolvedValue({ count: 1 });
+    const marca = jest.fn().mockResolvedValue({ logoId: LOGO, templatePadrao: { design: { fundo: { tipo: 'imagem', imagem: { origem: 'GALERIA', id: DO_TEMPLATE } } } } });
+    const registrar = jest.fn();
+    const prisma = {
+      postSocial: { create: jest.fn().mockResolvedValue(registro), findMany: jest.fn().mockResolvedValue([{ conteudo: { imagem: { origem: 'GALERIA', id: USADA } }, design: {} }]) },
+      usuario: { findUnique: jest.fn().mockResolvedValue({ nome: 'Ana' }) },
+      imagemPost: { findMany: imagensAntigas, deleteMany: apagar },
+      marcaPost: { findUnique: marca },
+    };
+    return { servico: new PostsService(prisma as never, { registrar } as never, {} as never, {} as never), imagensAntigas, apagar, marca, registrar, prisma };
+  };
+
+  it('ao criar um post, apaga só o que ninguém usa, dentro da empresa, e registra na auditoria', async () => {
+    const m = montar();
+    await m.servico.criar('e', DADOS, livre);
+    expect(m.apagar).toHaveBeenCalledWith({ where: { empresaId: 'e', id: { in: [SOLTA] } } });
+    expect(m.registrar).toHaveBeenCalledWith(expect.objectContaining({ acao: 'post.imagem.limpeza', detalhes: { apagadas: 1 } }));
+    expect(m.prisma.postSocial.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { empresaId: 'e' } }));
+  });
+
+  it('imagem enviada há pouco fica: pode estar num post ainda não salvo', async () => {
+    const m = montar();
+    await m.servico.criar('e', DADOS, livre);
+    const limite: Date = m.imagensAntigas.mock.calls[0][0].where.criadoEm.lt;
+    expect(Date.now() - limite.getTime()).toBeGreaterThanOrEqual(3_600_000 - 1000);
+  });
+
+  it('nada a apagar: nem consulta os posts; falha na limpeza não derruba a criação do post', async () => {
+    const vazio = montar();
+    vazio.imagensAntigas.mockResolvedValue([]);
+    await vazio.servico.criar('e', DADOS, livre);
+    expect(vazio.prisma.postSocial.findMany).not.toHaveBeenCalled();
+    const falha = montar();
+    falha.apagar.mockRejectedValue(new Error('banco'));
+    await expect(falha.servico.criar('e', DADOS, livre)).resolves.toMatchObject({ id: 'p' });
+  });
+
+  it('sem a edição livre, o post pode nascer do template padrão, mas não de outra aparência', async () => {
+    const design = { corPrincipal: '#123456' };
+    const ajustes = { QUADRADO: { titulo: { x: 1 } } };
+    const m = montar();
+    m.marca.mockResolvedValue({ templatePadrao: { design, ajustes }, logoId: null });
+    await expect(m.servico.criar('e', { ...DADOS, design, ajustes }, comum)).resolves.toMatchObject({ id: 'p' });
+    await expect(m.servico.criar('e', { ...DADOS, design: { corPrincipal: '#654321' } }, comum)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(m.servico.criar('e', { ...DADOS, ajustes: { QUADRADO: { titulo: { x: 9 } } } }, comum)).rejects.toBeInstanceOf(ForbiddenException);
+    m.marca.mockResolvedValue(null);
+    await expect(m.servico.criar('e', { ...DADOS, design }, comum)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
 describe('PostsService', () => {
   const DADOS: DadosPost = { titulo: 'Aviso', modelo: 'AVISO', formato: 'QUADRADO', conteudo: conteudoVazio(), legenda: '', ajustes: {} };
   const AJUSTES = { QUADRADO: { titulo: { x: 1, y: 1, largura: 10, altura: 10 } } };
@@ -222,7 +283,7 @@ describe('PostsService', () => {
   const criar = jest.fn().mockResolvedValue(registro);
   const contar = jest.fn().mockResolvedValue(0);
   const criarImagem = jest.fn();
-  const prisma = { postSocial: { findFirst: achar, update: atualizar, create: criar }, usuario: { findUnique: jest.fn().mockResolvedValue({ nome: 'Ana' }) }, imagemPost: { count: contar, create: criarImagem } };
+  const prisma = { postSocial: { findFirst: achar, update: atualizar, create: criar }, usuario: { findUnique: jest.fn().mockResolvedValue({ nome: 'Ana' }) }, imagemPost: { count: contar, create: criarImagem }, marcaPost: { findUnique: jest.fn().mockResolvedValue(null) } };
   const servico = new PostsService(prisma as never, { registrar: jest.fn() } as never, {} as never, {} as never);
 
   beforeEach(() => {

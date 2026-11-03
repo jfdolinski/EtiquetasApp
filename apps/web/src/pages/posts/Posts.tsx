@@ -37,6 +37,7 @@ function ListaDePosts() {
     setErroCopia('');
     try {
       const { id: _id, atualizadoEm: _a, ...dados } = await api<PostCompleto>(`/posts/${p.id}`);
+      // A cópia não passa pelo template: é igual ao original.
       navegar('/posts/novo', { state: { copia: { ...dados, titulo: `Cópia de ${dados.titulo}`.slice(0, 120) } } });
     } catch (x) {
       setErroCopia((x as Error).message);

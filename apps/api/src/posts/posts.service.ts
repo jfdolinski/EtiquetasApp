@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   ehConexaoSql,
@@ -9,6 +9,7 @@ import {
   PARAMETRO_PLANILHA,
   PREFIXO_PARAMETRO,
   problemaNoPost,
+  problemaNoTemplate,
   produtoDoRegistro,
   registroBanido,
   type AjustesPost,
@@ -23,6 +24,7 @@ import {
   type PostCompleto,
   type PostResumo,
   type SituacaoMarcaPost,
+  type TemplatePost,
 } from '@etiquetas/shared';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
@@ -38,6 +40,7 @@ const MAX_IMAGENS_POR_EMPRESA = 200;
 const LIMITE_LINHAS_BUSCA = 50;
 const LIMITE_LINHAS_SEM_FILTRO = 5000;
 const COR = /^#[0-9a-f]{6}$/i;
+const CARENCIA_LIMPEZA_MS = 3_600_000;
 
 export interface AtualizarMarca {
   nome: string;
@@ -84,6 +87,8 @@ export class PostsService {
     private readonly banidos: BanidosService,
   ) {}
 
+  private readonly log = new Logger(PostsService.name);
+
   async listar(empresaId: string): Promise<PostResumo[]> {
     const lista = await this.prisma.postSocial.findMany({
       where: { empresaId },
@@ -103,13 +108,61 @@ export class PostsService {
   async criar(empresaId: string, d: DadosPost, usuario: UsuarioRequisicao): Promise<PostCompleto> {
     exigirValido(d);
     const design = d.design ?? {};
-    if ((Object.keys(d.ajustes).length || Object.keys(design).length) && !podeEditarLivre(usuario)) throw new ForbiddenException('Você não tem permissão para a edição livre da arte.');
+    if (!podeEditarLivre(usuario)) {
+      // Sem a permissão, o post nasce como veio do modelo ou do template padrão da empresa.
+      const template = (await this.prisma.marcaPost.findUnique({ where: { empresaId }, select: { templatePadrao: true } }))?.templatePadrao as TemplatePost | null | undefined;
+      const designOk = !Object.keys(design).length || mesmosAjustes(design, template?.design);
+      const ajustesOk = !Object.keys(d.ajustes).length || mesmosAjustes(d.ajustes, template?.ajustes);
+      if (!designOk || !ajustesOk) throw new ForbiddenException('Você não tem permissão para a edição livre da arte.');
+    }
     const autor = await this.prisma.usuario.findUnique({ where: { id: usuario.id }, select: { nome: true } });
     const p = await this.prisma.postSocial.create({
       data: { empresaId, titulo: d.titulo.trim(), modelo: d.modelo, formato: d.formato, conteudo: d.conteudo as unknown as Prisma.InputJsonValue, legenda: d.legenda, ajustes: d.ajustes as Prisma.InputJsonValue, design: design as Prisma.InputJsonValue, autor: autor?.nome ?? null },
     });
     await this.auditoria.registrar({ empresaId, usuarioId: usuario.id, acao: 'post.criar', entidade: 'PostSocial', entidadeId: p.id, detalhes: { titulo: p.titulo, modelo: p.modelo } });
+    await this.limparGaleria(empresaId, usuario.id);
     return completo(p);
+  }
+
+  /**
+   * A cada post criado, some da galeria o que nenhum post, logomarca ou template usa. As recentes
+   * ficam: podem estar num post ainda não salvo. Falhar aqui não atrapalha a criação do post.
+   */
+  private async limparGaleria(empresaId: string, autorId: string) {
+    try {
+      const candidatas = await this.prisma.imagemPost.findMany({ where: { empresaId, criadoEm: { lt: new Date(Date.now() - CARENCIA_LIMPEZA_MS) } }, select: { id: true } });
+      if (!candidatas.length) return;
+      const [posts, marca] = await Promise.all([
+        this.prisma.postSocial.findMany({ where: { empresaId }, select: { conteudo: true, design: true } }),
+        this.prisma.marcaPost.findUnique({ where: { empresaId }, select: { logoId: true, templatePadrao: true } }),
+      ]);
+      const emUso = JSON.stringify([posts, marca]);
+      const ids = candidatas.map((c) => c.id).filter((id) => !emUso.includes(id));
+      if (!ids.length) return;
+      await this.prisma.imagemPost.deleteMany({ where: { empresaId, id: { in: ids } } });
+      await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'post.imagem.limpeza', entidade: 'ImagemPost', entidadeId: empresaId, detalhes: { apagadas: ids.length } });
+    } catch (erro) {
+      this.log.warn(`Limpeza da galeria da empresa ${empresaId} falhou: ${(erro as Error).message}`);
+    }
+  }
+
+  async salvarTemplate(empresaId: string, t: TemplatePost, autorId: string): Promise<SituacaoMarcaPost> {
+    const problema = problemaNoTemplate(t);
+    if (problema) throw new BadRequestException(problema);
+    const m = await this.marca(empresaId);
+    await this.prisma.marcaPost.upsert({
+      where: { empresaId },
+      create: { empresaId, nome: m.nome, corPrincipal: m.corPrincipal, corDestaque: m.corDestaque, templatePadrao: t as unknown as Prisma.InputJsonValue },
+      update: { templatePadrao: t as unknown as Prisma.InputJsonValue },
+    });
+    await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'post.template.salvar', entidade: 'MarcaPost', entidadeId: empresaId, detalhes: { modelo: t.modelo } });
+    return this.marca(empresaId);
+  }
+
+  async removerTemplate(empresaId: string, autorId: string): Promise<SituacaoMarcaPost> {
+    await this.prisma.marcaPost.updateMany({ where: { empresaId }, data: { templatePadrao: Prisma.DbNull } });
+    await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'post.template.remover', entidade: 'MarcaPost', entidadeId: empresaId, detalhes: {} });
+    return this.marca(empresaId);
   }
 
   async atualizar(empresaId: string, id: string, d: DadosPost, usuario: UsuarioRequisicao): Promise<PostCompleto> {
@@ -146,6 +199,7 @@ export class PostsService {
       logoId: m?.logoId ?? null,
       temChaveCatalogo: !!m?.chaveCatalogoCifrada,
       catalogoConfigurado: !!config().catalogoUrl,
+      template: (m?.templatePadrao ?? null) as TemplatePost | null,
     };
   }
 
@@ -193,11 +247,12 @@ export class PostsService {
 
   /** Consultas de onde vêm os dados do produto: as mesmas da etiqueta avulsa. */
   async consultasDeBusca(empresaId: string): Promise<ConsultaPost[]> {
-    return this.prisma.consultaSql.findMany({
+    const lista = await this.prisma.consultaSql.findMany({
       where: { empresaId, ativo: true, OR: [{ finalidade: 'BUSCA_PRODUTO' }, { arquivo: { not: null } }] },
       orderBy: { nome: 'asc' },
-      select: { id: true, nome: true },
+      select: { id: true, nome: true, campos: true },
     });
+    return lista.map((c) => ({ id: c.id, nome: c.nome, colunas: Array.isArray(c.campos) ? (c.campos as { nome?: unknown }[]).map((x) => String(x?.nome ?? '')).filter(Boolean) : [] }));
   }
 
   /** Busca no ERP. Todo `{param.*}` recebe o termo; sem nenhum, lê mais linhas e filtra aqui. Banido não vira propaganda. */
@@ -217,6 +272,6 @@ export class PostsService {
     const todos = (nomes.length ? linhas : filtrarPorTermo(linhas, termo)).slice(0, LIMITE_LINHAS_BUSCA);
     const proibidos = await this.banidos.conjunto(empresaId);
     const permitidos = todos.filter((x) => !registroBanido(x, proibidos));
-    return { produtos: permitidos.map(produtoDoRegistro), banidos: todos.length - permitidos.length, incompleta: !nomes.length && r.truncado ? true : undefined };
+    return { produtos: permitidos.map((x) => produtoDoRegistro(x)), banidos: todos.length - permitidos.length, incompleta: !nomes.length && r.truncado ? true : undefined };
   }
 }

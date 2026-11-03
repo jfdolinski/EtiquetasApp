@@ -211,7 +211,7 @@ function EditorOrigem({
   );
 }
 
-function EditorFormato({ formato, aoMudar }: { formato: FormatoCampo | undefined; aoMudar: (f: FormatoCampo | undefined) => void }) {
+export function EditorFormato({ formato, aoMudar }: { formato: FormatoCampo | undefined; aoMudar: (f: FormatoCampo | undefined) => void }) {
   const tipo = formato?.tipo ?? 'texto';
   return (
     <div className="grid grid-cols-2 gap-2">

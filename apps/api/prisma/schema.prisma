@@ -253,6 +253,8 @@ model MarcaPost {
   corDestaque          String   @map("cor_destaque")
   logoId               String?  @map("logo_id") @db.Uuid
   chaveCatalogoCifrada String?  @map("chave_catalogo_cifrada")
+  /// Aparência e relacionamentos de que todo post novo parte.
+  templatePadrao       Json?    @map("template_padrao")
   atualizadoEm         DateTime @updatedAt @map("atualizado_em")
 
   empresa Empresa     @relation(fields: [empresaId], references: [id], onDelete: Cascade)

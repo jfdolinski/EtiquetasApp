@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
-import { rotuloElemento, type AjusteElemento, type ElementoPost, type EstiloElemento, type ImagemPost, type ProdutoCatalogo } from '@etiquetas/shared';
+import { rotuloElemento, type AjusteElemento, type ElementoPost, type EstiloElemento, type ImagemPost, type ProdutoCatalogo, type VinculoCampo } from '@etiquetas/shared';
 import { SeletorFonte } from '../../components/SeletorFonte';
 import { Botao } from '../../components/ui';
+import { EditorFormato } from '../modelos/Propriedades';
 import { CLASSE_PAINEL } from './apoio';
 import { EscolherImagem } from './EscolherImagem';
 
@@ -95,6 +96,25 @@ function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
 
 export type ModoAlinhar = 'esquerda' | 'centroX' | 'direita' | 'topo' | 'centroY' | 'base';
 
+/** Campo da consulta de onde o elemento tira o valor, com o formato: o mesmo jeito das etiquetas. */
+export function SeletorDeCampo({ rotulo, semCampo, colunas, vinculo, aoMudar }: { rotulo: string; semCampo: string; colunas: string[]; vinculo: VinculoCampo | undefined; aoMudar: (v: VinculoCampo | undefined) => void }) {
+  // Coluna que saiu da consulta continua na lista: o relacionamento não some sem ninguém pedir.
+  const opcoes = vinculo && !colunas.includes(vinculo.campo) ? [vinculo.campo, ...colunas] : colunas;
+  return (
+    <div className="space-y-1">
+      <Linha rotulo={rotulo}>
+        <select className={CLASSE_PAINEL} value={vinculo?.campo ?? ''} onChange={(e) => aoMudar(e.target.value ? { ...vinculo, campo: e.target.value } : undefined)}>
+          <option value="">{semCampo}</option>
+          {opcoes.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+      </Linha>
+      {vinculo && <EditorFormato formato={vinculo.formato} aoMudar={(formato) => aoMudar({ campo: vinculo.campo, ...(formato ? { formato } : {}) })} />}
+    </div>
+  );
+}
+
 interface Props {
   el: ElementoPost;
   varios: boolean;
@@ -112,11 +132,15 @@ interface Props {
   aoRestaurar: () => void;
   catalogo: ProdutoCatalogo | null;
   aoTrocarImagem: ((i: ImagemPost | null) => void) | null;
+  /** Relacionamento com a consulta. Sem ele, o elemento não pode vir de um campo. */
+  campo: { semCampo: string; colunas: string[]; vinculo: VinculoCampo | undefined; aoMudar: (v: VinculoCampo | undefined) => void; produto?: { atual: number; total: number; aoMudar: (n: number) => void } } | null;
 }
 
 /** Tudo o que dá para mudar no elemento selecionado. */
-export function PainelElemento({ el, varios, texto, aoMudarTexto, avisoTexto, aoEstilo, aoAjuste, aoAlinhar, aoCamada, aoDuplicar, aoExcluir, aoRestaurar, catalogo, aoTrocarImagem }: Props) {
+export function PainelElemento({ el, varios, texto, aoMudarTexto, avisoTexto, aoEstilo, aoAjuste, aoAlinhar, aoCamada, aoDuplicar, aoExcluir, aoRestaurar, catalogo, aoTrocarImagem, campo }: Props) {
   const ehExtra = el.id.startsWith('extra-');
+  // Elemento acrescentado ligado a um campo não tem texto próprio; o do produto ainda pode ser corrigido.
+  const textoLivre = !(ehExtra && campo?.vinculo);
   const ehForma = el.tipo === 'retangulo' || el.tipo === 'elipse' || el.tipo === 'estrela';
   const temContornoOuFundo = el.tipo === 'texto';
   return (
@@ -129,7 +153,22 @@ export function PainelElemento({ el, varios, texto, aoMudarTexto, avisoTexto, ao
         </div>
       </div>
 
-      {(el.tipo === 'texto' || el.tipo === 'qr') && texto !== null && (
+      {campo && (
+        <div className="space-y-1">
+          <SeletorDeCampo rotulo="Campo da consulta" semCampo={campo.semCampo} colunas={campo.colunas} vinculo={campo.vinculo} aoMudar={campo.aoMudar} />
+          {campo.vinculo && campo.produto && campo.produto.total > 1 && (
+            <Linha rotulo="De qual produto">
+              <select className={CLASSE_PAINEL} value={campo.produto.atual} onChange={(e) => campo.produto!.aoMudar(Number(e.target.value))}>
+                {Array.from({ length: campo.produto.total }, (_, i) => (
+                  <option key={i} value={i}>Produto {i + 1}</option>
+                ))}
+              </select>
+            </Linha>
+          )}
+          {campo.colunas.length === 0 && <p className="text-xs text-slate-500">Sem campos para escolher: selecione uma consulta na aba Dados, em Relacionamento.</p>}
+        </div>
+      )}
+      {(el.tipo === 'texto' || el.tipo === 'qr') && texto !== null && textoLivre && (
         <Linha rotulo={el.tipo === 'qr' ? 'Link ou texto do QR code' : 'Texto'}>
           <textarea rows={el.tipo === 'qr' ? 2 : 3} className={CLASSE_PAINEL} value={texto} onChange={(e) => aoMudarTexto(e.target.value)} maxLength={1000} />
         </Linha>

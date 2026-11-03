@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { createServer, type Server } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { criarEmpresa, montarListaDeHoje, pedir, superToken, API, type EmpresaTeste } from './apoio';
+import { criarEmpresa, montarListaDeHoje, pedir, sql, superToken, API, type EmpresaTeste } from './apoio';
 
 const PORTA = 8097;
 const BASE = `http://localhost:${PORTA}`;
@@ -126,7 +126,7 @@ test('da Lista do dia ao PNG: dados do ERP, foto real do catálogo e tamanho cer
 
   await expect(page.getByRole('heading', { name: 'Novo post', level: 1 })).toBeVisible();
   // Nome e preço do ERP, não do catálogo.
-  await expect(page.getByLabel('Nome do produto')).toHaveValue(`Produto ${EAN}`);
+  await expect(page.getByRole('textbox', { name: /^Nome do produto/ })).toHaveValue(`Produto ${EAN}`);
   await expect(page.getByLabel('Preço', { exact: true })).toHaveValue('R$ 4,99');
   // A foto real entra sozinha; a de IA fica escondida até pedirem.
   const real = page.locator(`[data-imagem="CATALOGO:${BASE}/files/real.png"]`);
@@ -280,6 +280,134 @@ test('modelo muda o rodapé padrão e no celular a arte encolhe junto', async ({
   // No celular a arte encolhe junto: nada de rolar a página para o lado.
   await page.setViewportSize({ width: 390, height: 800 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+});
+
+test('template padrão: importa a imagem de fundo, vale para os novos posts e "só neste post" não vaza', async ({ page }) => {
+  const c = await criarEmpresa(await superToken());
+  await entrar(page, c);
+  await page.setViewportSize({ width: 1700, height: 1000 });
+  await page.goto('/posts/novo');
+  await page.getByRole('tab', { name: 'Aparência' }).click();
+  await page.getByLabel('Enviar imagem própria para o fundo').setInputFiles({ name: 'fundo.png', mimeType: 'image/png', buffer: PNG });
+  await expect(page.locator('[data-imagem^="GALERIA:"][aria-pressed="true"]').first()).toBeVisible();
+  await expect(page.getByLabel('Tipo de fundo')).toHaveValue('imagem');
+  // O padrão é só deste post: nada é gravado como template sem pedir.
+  await expect(page.getByLabel('Somente neste post')).toBeChecked();
+  expect((await pedir('GET', '/posts/marca', { token: c.adminToken })).j.template).toBeNull();
+
+  await page.getByLabel('Padrão para os novos posts').check();
+  await page.getByRole('button', { name: 'Salvar como template padrão' }).click();
+  await expect(page.getByText(/Template padrão salvo/)).toBeVisible();
+  const template = (await pedir('GET', '/posts/marca', { token: c.adminToken })).j.template;
+  expect(template.design.fundo.tipo).toBe('imagem');
+
+  // Post novo nasce do template; mudar nele não mexe no padrão.
+  await page.goto('/posts/novo');
+  await page.getByRole('tab', { name: 'Aparência' }).click();
+  await expect(page.getByLabel('Tipo de fundo')).toHaveValue('imagem');
+  await page.getByRole('button', { name: /Vermelho oferta/ }).click();
+  expect((await pedir('GET', '/posts/marca', { token: c.adminToken })).j.template.design.corPrincipal).toBeUndefined();
+
+  // Começar sem ele, para um post diferente, e depois tirar o padrão.
+  await page.getByRole('button', { name: 'Começar sem ele' }).click();
+  await expect(page.getByLabel('Tipo de fundo')).toHaveValue('cor');
+  page.once('dialog', (d) => void d.accept());
+  await page.getByRole('button', { name: 'Remover padrão' }).click();
+  await expect(page.getByText(/Template padrão removido/)).toBeVisible();
+  await page.goto('/posts/novo');
+  await page.getByRole('tab', { name: 'Aparência' }).click();
+  await expect(page.getByLabel('Tipo de fundo')).toHaveValue('cor');
+});
+
+test('template só com a permissão, e o que está nele é conferido', async () => {
+  const c = await criarEmpresa(await superToken());
+  const bom = { modelo: 'AVISO', design: { corPrincipal: '#123456' }, ajustes: {} };
+  expect((await pedir('PUT', '/posts/template', { corpo: bom })).status).toBe(401);
+  expect((await pedir('PUT', '/posts/template', { token: c.adminToken, corpo: { ...bom, design: { corPrincipal: 'vermelho' } } })).status).toBe(400);
+  expect((await pedir('PUT', '/posts/template', { token: c.adminToken, corpo: { ...bom, vinculos: { outro: { campo: 'a' } } } })).status).toBe(400);
+  expect((await pedir('PUT', '/posts/template', { token: c.adminToken, corpo: bom })).status).toBe(200);
+  // De outra empresa não se vê nem se apaga.
+  const d = await criarEmpresa(await superToken());
+  expect((await pedir('GET', '/posts/marca', { token: d.adminToken })).j.template).toBeNull();
+  await pedir('DELETE', '/posts/template', { token: d.adminToken });
+  expect((await pedir('GET', '/posts/marca', { token: c.adminToken })).j.template.design.corPrincipal).toBe('#123456');
+});
+
+test('galeria: post novo apaga o que ninguém usa, preserva o resto e cada post vê só as próprias', async ({ page }) => {
+  const c = await criarEmpresa(await superToken());
+  const envia = async (nome: string) => (await pedir('POST', '/posts/imagens', { token: c.adminToken, corpo: { nome, dados: DATA_PNG } })).j.id as string;
+  const [usada, solta, recente, logo] = [await envia('usada.png'), await envia('solta.png'), await envia('recente.png'), await envia('logo.png')];
+  await sql(`UPDATE imagens_post SET criado_em = now() - interval '2 hours' WHERE id = ANY($1::uuid[])`, [[usada, solta, logo]]);
+  await pedir('PUT', '/posts/marca', { token: c.adminToken, corpo: { nome: 'C', corPrincipal: '#000000', corDestaque: '#ffffff', logoId: logo } });
+  const aviso = (titulo: string, imagem: object | null) => ({ titulo, modelo: 'AVISO', formato: 'QUADRADO', conteudo: { titulo: 'x', texto: '', rodape: '', produtos: [], imagem }, legenda: '', ajustes: {} });
+  const r = await pedir('POST', '/posts', { token: c.adminToken, corpo: aviso('Com imagem', { origem: 'GALERIA', id: usada }) });
+  expect(r.status).toBe(201);
+  const ids = (await pedir('GET', '/posts/imagens', { token: c.adminToken })).j.map((i: any) => i.id);
+  expect(ids).toContain(usada);
+  expect(ids).toContain(logo);
+  expect(ids).toContain(recente);
+  expect(ids).not.toContain(solta);
+  // O post antigo segue com a imagem dele depois de outro post novo.
+  await pedir('POST', '/posts', { token: c.adminToken, corpo: aviso('Sem imagem', null) });
+  const arquivo = await fetch(`${API}/posts/imagens/${usada}/arquivo`, { headers: { authorization: `Bearer ${c.adminToken}` } });
+  expect(arquivo.status).toBe(200);
+
+  // No editor de um post novo, a galeria começa limpa: as de outros posts ficam recolhidas.
+  await entrar(page, c);
+  await page.goto('/posts/novo');
+  await page.getByRole('tab', { name: 'Adicionar' }).click();
+  await expect(page.getByText(/Imagens de outros posts \(\d+\)/)).toBeVisible();
+  await expect(page.locator(`[data-imagem="GALERIA:${usada}"]`)).toBeHidden();
+  await page.getByText(/Imagens de outros posts/).click();
+  await expect(page.locator(`[data-imagem="GALERIA:${usada}"]`)).toBeVisible();
+});
+
+test('relacionamento: cada informação vem do campo escolhido, com formato, e fica salvo', async ({ page }) => {
+  const c = await criarEmpresa(await superToken());
+  const { itemIds } = await montarListaDeHoje(c, { produtos: [EAN] });
+  await sql(`UPDATE itens_lista SET registro = $2 WHERE id = $1`, [itemIds[0], JSON.stringify({ ean: EAN, descricao: 'Nome padrão', nome_loja: 'Nome da loja', preco: '4.99', pv_promo: '3.5', antigo: '9', und: 'kg', vence: '2026-12-31' })]);
+  await entrar(page, c);
+  await page.setViewportSize({ width: 1700, height: 1000 });
+  await page.goto('/hoje');
+  await page.getByRole('button', { name: 'Criar post' }).click();
+  await expect(page.getByRole('textbox', { name: /^Nome do produto/ })).toHaveValue('Nome padrão');
+
+  await page.getByLabel('Nome do produto vem de').selectOption('nome_loja');
+  await expect(page.getByRole('textbox', { name: /^Nome do produto/ })).toHaveValue('Nome da loja');
+  await page.getByLabel('Preço vem de').selectOption('pv_promo');
+  await expect(page.getByLabel('Preço', { exact: true })).toHaveValue('R$ 3,50');
+  await page.getByLabel('Preço anterior vem de').selectOption('antigo');
+  await expect(page.getByLabel('Preço anterior', { exact: true })).toHaveValue('R$ 9,00');
+  await page.getByLabel('Detalhe vem de').selectOption('vence');
+  await page.getByLabel('Formato').last().selectOption('data');
+  await expect(page.getByLabel('Detalhe', { exact: true })).toHaveValue('31/12/2026');
+  // Tirar o relacionamento volta ao automático.
+  await page.getByLabel('Nome do produto vem de').selectOption('');
+  await expect(page.getByRole('textbox', { name: /^Nome do produto/ })).toHaveValue('Nome padrão');
+  await page.getByLabel('Nome do produto vem de').selectOption('nome_loja');
+
+  // Pelo elemento na arte: o mesmo relacionamento.
+  await page.getByRole('button', { name: 'Selecionar Preço', exact: true }).click();
+  const painel = page.getByRole('group', { name: 'Propriedades: Preço' });
+  await expect(painel.getByLabel('Campo da consulta')).toHaveValue('pv_promo');
+
+  // Elemento acrescentado também tira o valor de um campo, sem texto próprio.
+  await page.getByRole('tab', { name: 'Adicionar' }).click();
+  await page.getByRole('button', { name: 'Adicionar Texto' }).click();
+  const novo = page.getByRole('group', { name: /^Propriedades: Texto: / });
+  await novo.getByLabel('Campo da consulta').selectOption('und');
+  await expect(page.getByRole('group', { name: 'Propriedades: Texto: kg' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(page).toHaveURL(/\/posts\/[0-9a-f-]{36}$/);
+  await page.reload();
+  await expect(page.getByLabel('Nome do produto vem de')).toHaveValue('nome_loja');
+  await expect(page.getByLabel('Preço vem de')).toHaveValue('pv_promo');
+  await expect(page.getByLabel('Preço', { exact: true })).toHaveValue('R$ 3,50');
+
+  // Produto novo no mesmo post já vem pelo relacionamento: e correção à mão continua valendo.
+  await page.getByLabel('Preço', { exact: true }).fill('R$ 1,00');
+  await expect(page.getByLabel('Preço', { exact: true })).toHaveValue('R$ 1,00');
 });
 
 test('as cores da marca aparecem nos seletores', async ({ page }) => {

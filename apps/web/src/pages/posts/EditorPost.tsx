@@ -3,7 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import {
   alterarTextoDoElemento,
+  aplicarTemplate,
+  aplicarVinculos,
   AVISO_BUSCA_INCOMPLETA,
+  CAMPOS_PRODUTO_POST,
+  campoDoElemento,
+  colunasParaVincular,
   conteudoVazio,
   coresDoPost,
   FORMATOS_POST,
@@ -14,10 +19,12 @@ import {
   PALETAS_POST,
   produtoDoRegistro,
   RODAPE_PADRAO,
+  templateDoPost,
   TONS_LEGENDA,
   VARIACOES_POST,
   type AjusteElemento,
   type BuscaProdutosPost,
+  type CampoProdutoPost,
   type ConsultaPost,
   type DadosPost,
   type DesignPost,
@@ -33,9 +40,12 @@ import {
   type ProdutoPost,
   type Registro,
   type SituacaoMarcaPost,
+  type TemplatePost,
   type TipoExtra,
   type TomLegenda,
   type VariacaoPost,
+  type VinculoCampo,
+  type VinculosPost,
 } from '@etiquetas/shared';
 import { api } from '../../api';
 import { useAuth } from '../../auth';
@@ -43,8 +53,8 @@ import { ExigeEmpresa } from '../../components/ExigeEmpresa';
 import { SeletorFonte } from '../../components/SeletorFonte';
 import { Alerta, Botao, Cabecalho, Campo, Selecao } from '../../components/ui';
 import { useImagensPost } from './apoio';
-import { EscolherImagem } from './EscolherImagem';
-import { Camadas, Cor, PainelElemento, type ModoAlinhar } from './PainelElemento';
+import { ContextoGaleria, EscolherImagem } from './EscolherImagem';
+import { Camadas, Cor, PainelElemento, SeletorDeCampo, type ModoAlinhar } from './PainelElemento';
 import { TelaPost, type TelaPostControle } from './TelaPost';
 
 const FORMATOS = Object.keys(FORMATOS_POST) as FormatoPost[];
@@ -61,10 +71,12 @@ export function EditorPost() {
   );
 }
 
-function novoPost(registros: Registro[]): DadosPost {
-  const produtos = registros.slice(0, MODELOS_POST.OFERTA.maxProdutos).map(produtoDoRegistro);
-  const modelo: ModeloPost = produtos.length > 1 ? 'OFERTA' : 'PRODUTO';
-  return { titulo: produtos[0]?.descricao.slice(0, 120) ?? '', modelo, formato: 'QUADRADO', conteudo: { ...conteudoVazio(), titulo: modelo === 'OFERTA' ? 'Ofertas' : '', produtos }, legenda: '', ajustes: {}, design: {} };
+function novoPost(registros: Registro[], template: TemplatePost | null): DadosPost {
+  const produtos = registros.slice(0, MODELOS_POST.OFERTA.maxProdutos).map((r) => produtoDoRegistro(r));
+  // Sem produto escolhido, vale o modelo do template; com produtos, a quantidade decide.
+  const modelo: ModeloPost = produtos.length > 1 ? 'OFERTA' : produtos.length === 1 ? 'PRODUTO' : (template?.modelo ?? 'PRODUTO');
+  const d: DadosPost = { titulo: produtos[0]?.descricao.slice(0, 120) ?? '', modelo, formato: 'QUADRADO', conteudo: { ...conteudoVazio(), titulo: modelo === 'OFERTA' ? 'Ofertas' : '', rodape: modelo === 'AVISO' ? '' : RODAPE_PADRAO, produtos }, legenda: '', ajustes: {}, design: {} };
+  return template ? aplicarTemplate(d, template) : d;
 }
 
 function Carregador() {
@@ -74,7 +86,7 @@ function Carregador() {
   const { data: marca } = useQuery({ queryKey: ['posts-marca'], queryFn: () => api<SituacaoMarcaPost>('/posts/marca') });
   if (error) return <Alerta>{error.message}</Alerta>;
   if (!marca || (id && !post)) return <div className="text-sm text-slate-500">Carregando…</div>;
-  return <Editor key={id ?? 'novo'} id={id ?? null} inicial={post ?? state?.copia ?? novoPost(state?.registros ?? [])} marca={marca} />;
+  return <Editor key={id ?? 'novo'} id={id ?? null} inicial={post ?? state?.copia ?? novoPost(state?.registros ?? [], marca.template)} marca={marca} />;
 }
 
 /** Histórico para desfazer. Digitação no mesmo campo vira um passo só. */
@@ -142,11 +154,8 @@ function useCatalogo(codigo: string): ProdutoCatalogo | null {
   return data;
 }
 
-function BuscarNoErp({ aoIncluir }: { aoIncluir: (p: ProdutoPost) => void }) {
-  const { data: consultas = [] } = useQuery({ queryKey: ['posts-consultas'], queryFn: () => api<ConsultaPost[]>('/posts/consultas') });
-  const [consultaId, setConsultaId] = useState('');
+function BuscarNoErp({ consultas, escolhida, aoIncluir }: { consultas: ConsultaPost[]; escolhida: string; aoIncluir: (p: ProdutoPost) => void }) {
   const [termo, setTermo] = useState('');
-  const escolhida = consultaId || consultas[0]?.id || '';
   const buscar = useMutation({ mutationFn: () => api<BuscaProdutosPost>('/posts/produtos/busca', { metodo: 'POST', corpo: { consultaId: escolhida, termo: termo.trim() } }) });
 
   function enviar(e: FormEvent) {
@@ -160,15 +169,6 @@ function BuscarNoErp({ aoIncluir }: { aoIncluir: (p: ProdutoPost) => void }) {
   return (
     <div className="space-y-2">
       <form onSubmit={enviar} className="flex flex-wrap items-end gap-2">
-        {consultas.length > 1 && (
-          <div className="min-w-40 flex-1">
-            <Selecao rotulo="Consulta" value={escolhida} onChange={(e) => setConsultaId(e.target.value)}>
-              {consultas.map((c) => (
-                <option key={c.id} value={c.id}>{c.nome}</option>
-              ))}
-            </Selecao>
-          </div>
-        )}
         <div className="min-w-40 flex-1">
           <Campo rotulo="Buscar no ERP" placeholder="Código de barras ou nome" value={termo} onChange={(e) => setTermo(e.target.value)} />
         </div>
@@ -234,7 +234,29 @@ function Editor({ id, inicial, marca }: { id: string | null; inicial: DadosPost;
   const [tom, setTom] = useState<TomLegenda>('direto');
   const [salvo, setSalvo] = useState(d);
   const [exportando, setExportando] = useState(false);
+  const [escopoTemplate, setEscopoTemplate] = useState<'post' | 'padrao'>('post');
+  const [enviadas, setEnviadas] = useState<ReadonlySet<string>>(new Set());
   const tela = useRef<TelaPostControle>(null);
+  const { data: consultas = [] } = useQuery({ queryKey: ['posts-consultas'], queryFn: () => api<ConsultaPost[]>('/posts/consultas'), enabled: pode('post.editar') });
+
+  const salvarTemplate = useMutation({
+    mutationFn: () => api('/posts/template', { metodo: 'PUT', corpo: templateDoPost(d) }),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ['posts-marca'] });
+      setAviso('Template padrão salvo: os próximos posts nascem dele. Os posts já feitos não mudam.');
+    },
+  });
+  const removerTemplate = useMutation({
+    mutationFn: () => api('/posts/template', { metodo: 'DELETE' }),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ['posts-marca'] });
+      setAviso('Template padrão removido. Os posts já feitos não mudam.');
+    },
+  });
+
+  // Galeria limpa em cada post: só o que ele usa ou o que foi enviado nesta edição.
+  const textoDoPost = useMemo(() => JSON.stringify(d), [d]);
+  const galeria = useMemo(() => ({ doPost: (id: string) => enviadas.has(id) || id === marca.logoId || textoDoPost.includes(id), aoEnviar: (id: string) => setEnviadas((e) => new Set(e).add(id)) }), [enviadas, marca.logoId, textoDoPost]);
 
   const design: DesignPost = useMemo(() => d.design ?? {}, [d.design]);
   const elementos = useMemo(() => montarPost(d, marca), [d, marca]);
@@ -251,6 +273,42 @@ function Editor({ id, inicial, marca }: { id: string | null; inicial: DadosPost;
   // Imagem de produto selecionada: o painel oferece as outras fotos dele no catálogo.
   const indiceFoto = el ? /^imagem-(\d+)$/.exec(el.id)?.[1] : undefined;
   const catalogoDoElemento = useCatalogo(indiceFoto === undefined ? '' : (conteudo.produtos[Number(indiceFoto)]?.codigo ?? ''));
+  const consultaEscolhida = conteudo.consultaId && consultas.some((c) => c.id === conteudo.consultaId) ? conteudo.consultaId : (consultas[0]?.id ?? '');
+  const colunas = colunasParaVincular(consultas.find((c) => c.id === consultaEscolhida)?.colunas ?? [], conteudo.produtos);
+
+  /** Relacionar traz o valor na hora; tirar volta ao que o sistema acha sozinho pelo nome da coluna. */
+  function mudarVinculo(campo: CampoProdutoPost, vinculo: VinculoCampo | undefined) {
+    mudar((a) => {
+      const { [campo]: _antes, ...resto } = a.conteudo.vinculos ?? {};
+      const vinculos: VinculosPost = vinculo ? { ...resto, [campo]: vinculo } : resto;
+      const produtos = a.conteudo.produtos.map((p) => {
+        if (vinculo) return aplicarVinculos(p, { [campo]: vinculo });
+        return p.registro ? { ...p, [campo]: produtoDoRegistro(p.registro)[campo] } : p;
+      });
+      return { ...a, conteudo: { ...a.conteudo, vinculos, produtos } };
+    });
+  }
+
+  function mudarExtra(idExtra: string, m: Partial<ExtraPost>) {
+    mudar((a) => ({ ...a, design: { ...a.design, extras: a.design?.extras?.map((x) => (x.id === idExtra ? semVazios({ ...x, ...m }) : x)) } }));
+  }
+
+  function campoDoPainel(e: ElementoPost) {
+    if (e.id.startsWith('extra-')) {
+      if (e.tipo !== 'texto' && e.tipo !== 'qr') return null;
+      const extra = design.extras?.find((x) => x.id === e.id);
+      return {
+        semCampo: 'Texto fixo',
+        colunas,
+        vinculo: extra?.vinculo,
+        aoMudar: (v: VinculoCampo | undefined) => mudarExtra(e.id, { vinculo: v && { ...v, produto: extra?.vinculo?.produto ?? 0 } }),
+        produto: { atual: extra?.vinculo?.produto ?? 0, total: conteudo.produtos.length, aoMudar: (produto: number) => extra?.vinculo && mudarExtra(e.id, { vinculo: { ...extra.vinculo, produto } }) },
+      };
+    }
+    const doProduto = campoDoElemento(e.id);
+    if (!doProduto) return null;
+    return { semCampo: 'Automático, pelo nome da coluna', colunas, vinculo: conteudo.vinculos?.[doProduto.campo], aoMudar: (v: VinculoCampo | undefined) => mudarVinculo(doProduto.campo, v) };
+  }
 
   useEffect(() => {
     if (!alterado) return;
@@ -278,7 +336,8 @@ function Editor({ id, inicial, marca }: { id: string | null; inicial: DadosPost;
       if (a.conteudo.produtos.length >= MODELOS_POST.OFERTA.maxProdutos) return a;
       // Com um produto já escolhido e pedindo mais um, o modelo vira oferta.
       const modelo = a.modelo === 'PRODUTO' && a.conteudo.produtos.length >= 1 ? 'OFERTA' : a.modelo === 'AVISO' ? 'PRODUTO' : a.modelo;
-      return { ...a, modelo, ajustes: modelo === a.modelo ? a.ajustes : {}, titulo: a.titulo || p.descricao.slice(0, 120), conteudo: { ...a.conteudo, titulo: modelo === 'OFERTA' && !a.conteudo.titulo ? 'Ofertas' : a.conteudo.titulo, produtos: [...a.conteudo.produtos, p] } };
+      const novo = a.conteudo.vinculos ? aplicarVinculos(p, a.conteudo.vinculos) : p;
+      return { ...a, modelo, ajustes: modelo === a.modelo ? a.ajustes : {}, titulo: a.titulo || novo.descricao.slice(0, 120), conteudo: { ...a.conteudo, titulo: modelo === 'OFERTA' && !a.conteudo.titulo ? 'Ofertas' : a.conteudo.titulo, produtos: [...a.conteudo.produtos, novo] } };
     });
   }
 
@@ -504,6 +563,7 @@ function Editor({ id, inicial, marca }: { id: string | null; inicial: DadosPost;
         {aviso && <Alerta tipo="info">{aviso}</Alerta>}
         {!marca.catalogoConfigurado && <Alerta tipo="aviso">O catálogo não está configurado neste servidor. Por enquanto, só imagem própria.</Alerta>}
       </div>
+      <ContextoGaleria.Provider value={galeria}>
       <div className="grid items-start gap-4 lg:grid-cols-[320px_minmax(0,1fr)] 2xl:grid-cols-[340px_minmax(0,1fr)_300px]">
         <div className="min-w-0 space-y-4">
           <div role="tablist" aria-label="Partes do editor" className="flex overflow-hidden rounded-md border border-slate-300 bg-white">
@@ -555,11 +615,27 @@ function Editor({ id, inicial, marca }: { id: string | null; inicial: DadosPost;
                   ))}
                   {!somenteLeitura && conteudo.produtos.length < MODELOS_POST.OFERTA.maxProdutos && (
                     <>
-                      <BuscarNoErp aoIncluir={incluir} />
+                      <BuscarNoErp consultas={consultas} escolhida={consultaEscolhida} aoIncluir={incluir} />
                       <Botao variante="secundario" onClick={() => incluir({ codigo: '', descricao: 'Novo produto', preco: '', imagem: null })}>Incluir à mão</Botao>
                     </>
                   )}
                   {conteudo.produtos.length < limites.minProdutos && <Alerta tipo="aviso">Este modelo precisa de pelo menos {limites.minProdutos} produto(s).</Alerta>}
+                </Grupo>
+              )}
+
+              {limites.maxProdutos > 0 && !somenteLeitura && (
+                <Grupo titulo="Relacionamento com a consulta">
+                  {consultas.length > 0 && (
+                    <Selecao rotulo="Consulta" value={consultaEscolhida} onChange={(e) => mudarConteudo({ consultaId: e.target.value })}>
+                      {consultas.map((c) => (
+                        <option key={c.id} value={c.id}>{c.nome}</option>
+                      ))}
+                    </Selecao>
+                  )}
+                  <p className="text-xs text-slate-500">Diga de qual campo vem cada informação, como nas etiquetas. Sem escolher, o sistema procura pelo nome da coluna.</p>
+                  {(Object.keys(CAMPOS_PRODUTO_POST) as CampoProdutoPost[]).map((c) => (
+                    <SeletorDeCampo key={c} rotulo={`${CAMPOS_PRODUTO_POST[c]} vem de`} semCampo="Automático, pelo nome da coluna" colunas={colunas} vinculo={conteudo.vinculos?.[c]} aoMudar={(v) => mudarVinculo(c, v)} />
+                  ))}
                 </Grupo>
               )}
 
@@ -580,6 +656,33 @@ function Editor({ id, inicial, marca }: { id: string | null; inicial: DadosPost;
 
           {aba === 'aparencia' && (
             <div className="space-y-4">
+              <Grupo titulo="Template">
+                <EscolherImagem titulo="o fundo" catalogo={null} marcada={design.fundo?.imagem ?? null} somenteLeitura={false} aoEscolher={(imagem) => mudarDesign({ fundo: { ...design.fundo, tipo: imagem ? 'imagem' : 'cor', imagem } })} />
+                <fieldset className="space-y-1 text-sm">
+                  <legend className="mb-1 text-xs font-medium text-slate-600">Usar esta aparência</legend>
+                  <label className="flex items-center gap-2">
+                    <input type="radio" name="escopo-template" checked={escopoTemplate === 'post'} onChange={() => setEscopoTemplate('post')} />
+                    Somente neste post
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="radio" name="escopo-template" checked={escopoTemplate === 'padrao'} onChange={() => setEscopoTemplate('padrao')} />
+                    Padrão para os novos posts
+                  </label>
+                </fieldset>
+                {escopoTemplate === 'post' ? (
+                  <p className="text-xs text-slate-500">O que mudar aqui vale só para este post, ao salvar.</p>
+                ) : (
+                  <Botao disabled={salvarTemplate.isPending} onClick={() => { setAviso(''); salvarTemplate.mutate(); }}>{salvarTemplate.isPending ? 'Salvando…' : 'Salvar como template padrão'}</Botao>
+                )}
+                {salvarTemplate.error && <Alerta>{salvarTemplate.error.message}</Alerta>}
+                {marca.template && (
+                  <div className="flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-white p-2 text-xs text-slate-600">
+                    Existe um template padrão.
+                    {!id && <Botao variante="secundario" onClick={() => mudar((a) => ({ ...a, design: {}, ajustes: {} }))}>Começar sem ele</Botao>}
+                    <Botao variante="secundario" disabled={removerTemplate.isPending} onClick={() => window.confirm('Remover o template padrão? Os posts já feitos não mudam.') && removerTemplate.mutate()}>Remover padrão</Botao>
+                  </div>
+                )}
+              </Grupo>
               <Grupo titulo="Paletas prontas">
                 <div className="grid grid-cols-2 gap-1">
                   {PALETAS_POST.map((p) => (
@@ -619,10 +722,10 @@ function Editor({ id, inicial, marca }: { id: string | null; inicial: DadosPost;
                 )}
                 {fundoTipo === 'imagem' && (
                   <>
-                    <EscolherImagem titulo="o fundo" catalogo={null} marcada={design.fundo?.imagem ?? null} somenteLeitura={false} aoEscolher={(imagem) => mudarFundo({ imagem })} />
+                    {!design.fundo?.imagem && <p className="text-xs text-slate-500">Escolha a imagem acima, em Template.</p>}
                     <label className="block text-sm">
-                      <span className="mb-0.5 flex justify-between text-xs font-medium text-slate-600">Véu escuro <span>{Math.round((design.fundo?.veu ?? 0.35) * 100)}%</span></span>
-                      <input type="range" aria-label="Véu escuro" className="w-full" min={0} max={90} value={Math.round((design.fundo?.veu ?? 0.35) * 100)} onChange={(e) => mudarFundo({ veu: e.target.valueAsNumber / 100 })} />
+                      <span className="mb-0.5 flex justify-between text-xs font-medium text-slate-600">Véu escuro <span>{Math.round((design.fundo?.veu ?? 0) * 100)}%</span></span>
+                      <input type="range" aria-label="Véu escuro" className="w-full" min={0} max={90} value={Math.round((design.fundo?.veu ?? 0) * 100)} onChange={(e) => mudarFundo({ veu: e.target.valueAsNumber / 100 })} />
                     </label>
                   </>
                 )}
@@ -727,6 +830,7 @@ function Editor({ id, inicial, marca }: { id: string | null; inicial: DadosPost;
                 aoRestaurar={() => restaurar(el.id)}
                 catalogo={catalogoDoElemento}
                 aoTrocarImagem={trocadorDeImagem(el)}
+                campo={campoDoPainel(el)}
               />
             ) : (
               <p className="rounded border border-dashed border-slate-300 p-3 text-sm text-slate-500">Clique em um elemento na arte, ou escolha uma camada, para editar.</p>
@@ -735,6 +839,7 @@ function Editor({ id, inicial, marca }: { id: string | null; inicial: DadosPost;
           </aside>
         )}
       </div>
+      </ContextoGaleria.Provider>
     </>
   );
 }
