@@ -91,6 +91,15 @@ async function confere(texto, tempoMs = 30_000) {
   falha(`não apareceu: ${texto}`);
 }
 
+// A lista da avulsa fica abaixo dos campos: em tela pequena, é preciso rolar para vê-la.
+async function rolar(direcao) {
+  const [, largura, altura] = /(\d+)x(\d+)/.exec(adb('shell wm size'));
+  const x = Math.round(+largura / 2);
+  const [de, para] = direcao === 'baixo' ? [0.6, 0.15] : [0.15, 0.6];
+  adb(`shell input swipe ${x} ${Math.round(+altura * de)} ${x} ${Math.round(+altura * para)} 400`);
+  await espera(1000);
+}
+
 async function digitar(rotulo, valor) {
   // No próprio campo: o título acima dele tem o mesmo texto.
   const m = /class="android\.widget\.EditText"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(lerTela());
@@ -161,8 +170,10 @@ print('avulsa-digitado');
 await tocar('Buscar');
 await espera(4000);
 print('avulsa-buscou');
+await rolar('baixo');
 await confere('Café torrado', 20_000);
 print('avulsa-na-lista');
+await rolar('cima');
 await tocar('Imprimir');
 await espera(1500);
 print('avulsa-confirmar');
@@ -181,8 +192,11 @@ await tocar('Tabela sem parametro');
 await tocar('Cartazes');
 await digitar('Código de barras, código ou nome', '7891000100110');
 await tocar('Buscar');
+await espera(3000);
+await rolar('baixo');
 await confere('Arroz branco', 20_000);
 print('avulsa-sem-parametro');
+await rolar('cima');
 await tocar('Gerar PDF');
 await espera(1500);
 {
