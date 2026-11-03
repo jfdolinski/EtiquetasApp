@@ -398,9 +398,11 @@ export class ListasService {
     const modelo = await this.prisma.modeloEtiqueta.findFirst({ where: { id: modeloId, empresaId, ativo: true }, select: { consultaId: true } });
     if (!modelo) throw new NotFoundException('Modelo não encontrado.');
     if (!modelo.consultaId) throw new BadRequestException('Este modelo não tem consulta vinculada.');
-    // Sem {param.*} a consulta não filtra: lê mais linhas e procura o termo aqui.
+    // Sem {param.*} a consulta não filtra: o filtro vai para o banco, e o termo é conferido aqui.
     const procurarAqui = Boolean(termo?.trim()) && Object.keys(parametros).length === 0;
-    const r = await this.consultas.executar(empresaId, modelo.consultaId, usuarioId, parametros, procurarAqui ? LIMITE_LINHAS_LISTA : LIMITE_LINHAS_BUSCA);
+    const r = procurarAqui
+      ? await this.consultas.buscarPorTermo(empresaId, modelo.consultaId, usuarioId, termo!, LIMITE_LINHAS_LISTA)
+      : await this.consultas.executar(empresaId, modelo.consultaId, usuarioId, parametros, LIMITE_LINHAS_BUSCA);
     const banidos = await this.banidos.conjunto(empresaId);
     const linhas = linhasParaRegistros(r.colunas, r.linhas);
     const todos = procurarAqui ? filtrarPorTermo(linhas, termo!).slice(0, LIMITE_LINHAS_BUSCA) : linhas;

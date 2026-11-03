@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   avisosDosCampos,
@@ -12,6 +12,7 @@ import {
   ErroPlaceholder,
   extrairPlaceholders,
   PARAMETRO_PLANILHA,
+  planoDeBuscaNoBanco,
   PREFIXO_PARAMETRO,
   type CampoDinamico,
   type ConsultaSqlResumo,
@@ -111,6 +112,8 @@ export function agoraNoFuso(agora: Date, fuso: string): { data: string; dataHora
 /** Consultas SQL da empresa. Todo método recebe `empresaId` e filtra por ele. */
 @Injectable()
 export class ConsultasService {
+  private readonly log = new Logger(ConsultasService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
@@ -273,6 +276,40 @@ export class ConsultasService {
     const consulta = await this.buscar(empresaId, id);
     if (!consulta.ativo) throw new BadRequestException('Esta consulta está desativada.');
     return this.executarSelecionada(empresaId, consulta, usuarioId, parametros, limiteLinhas);
+  }
+
+  /**
+   * Procura um termo em consulta sem `{param.*}`, filtrando no banco do cliente: não importa o
+   * tamanho da tabela. Se não der (colunas não lidas, ou o banco recusar a subconsulta, como
+   * `ORDER BY` no SQL Server), lê até `limiteLinhas` como antes: nesse caso `truncado` diz que
+   * o resultado pode estar incompleto. Quem chama confere as linhas: o filtro é um pouco mais largo.
+   */
+  async buscarPorTermo(empresaId: string, id: string, usuarioId: string, termo: string, limiteLinhas: number): Promise<ResultadoConsulta> {
+    const consulta = await this.buscar(empresaId, id);
+    if (!consulta.ativo) throw new BadRequestException('Esta consulta está desativada.');
+    const tipo = consulta.conexao.tipo;
+    if (ehConexaoSql(tipo)) {
+      // Campos de outro SQL gerariam filtro por coluna que não existe mais.
+      const atuais = consulta.camposHash === hashCampos(consulta.conexaoId, fonteDaConsulta(consulta));
+      const etapas = atuais ? planoDeBuscaNoBanco(consulta.sql, tipo, (consulta.campos ?? []) as unknown as CampoDinamico[], termo) : [];
+      const inicio = Date.now();
+      try {
+        for (const [i, etapa] of etapas.entries()) {
+          const compilado = await this.compilar(empresaId, usuarioId, etapa.sql, tipo, etapa.parametros);
+          const r = await this.conexoes.executar(empresaId, consulta.conexaoId, compilado.sql, compilado.parametros, limiteLinhas);
+          // Vazio na última etapa é resposta: o produto não está no banco.
+          if (r.linhas.length || i === etapas.length - 1) {
+            this.registrarExecucao(empresaId, consulta, r.duracaoMs ?? Date.now() - inicio, r.linhas.length, null);
+            return r;
+          }
+        }
+      } catch (erro) {
+        // Agente offline falharia de novo; o resto pode ser só a subconsulta. Tentativa não conta como erro da consulta.
+        if (!(erro instanceof HttpException) || erro instanceof ServiceUnavailableException) throw erro;
+        this.log.warn(`Consulta ${consulta.id}: filtro no banco recusado, lendo as linhas (${erro.message.slice(0, 200)})`);
+      }
+    }
+    return this.executarSelecionada(empresaId, consulta, usuarioId, {}, limiteLinhas);
   }
 
   /**

@@ -235,6 +235,8 @@ export interface ConsultaPost {
 export interface BuscaProdutosPost {
   produtos: ProdutoPost[];
   banidos: number;
+  /** A consulta tem linhas demais e o banco não aceitou o filtro: pode faltar produto. */
+  incompleta?: boolean;
 }
 
 export const RODAPE_PADRAO = 'Imagens ilustrativas. Ofertas válidas enquanto durarem os estoques.';

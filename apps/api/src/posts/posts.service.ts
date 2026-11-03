@@ -210,11 +210,13 @@ export class PostsService {
           .filter(ehParametro)
           .map((p) => p.slice(PREFIXO_PARAMETRO.length))
       : [PARAMETRO_PLANILHA];
-    const r = await this.consultas.executar(empresaId, consultaId, usuarioId, Object.fromEntries(nomes.map((n) => [n, termo])), nomes.length ? LIMITE_LINHAS_BUSCA : LIMITE_LINHAS_SEM_FILTRO);
+    const r = nomes.length
+      ? await this.consultas.executar(empresaId, consultaId, usuarioId, Object.fromEntries(nomes.map((n) => [n, termo])), LIMITE_LINHAS_BUSCA)
+      : await this.consultas.buscarPorTermo(empresaId, consultaId, usuarioId, termo, LIMITE_LINHAS_SEM_FILTRO);
     const linhas = linhasParaRegistros(r.colunas, r.linhas);
     const todos = (nomes.length ? linhas : filtrarPorTermo(linhas, termo)).slice(0, LIMITE_LINHAS_BUSCA);
     const proibidos = await this.banidos.conjunto(empresaId);
     const permitidos = todos.filter((x) => !registroBanido(x, proibidos));
-    return { produtos: permitidos.map(produtoDoRegistro), banidos: todos.length - permitidos.length };
+    return { produtos: permitidos.map(produtoDoRegistro), banidos: todos.length - permitidos.length, incompleta: !nomes.length && r.truncado ? true : undefined };
   }
 }

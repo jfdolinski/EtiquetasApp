@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import {
   alterarTextoDoElemento,
+  AVISO_BUSCA_INCOMPLETA,
   conteudoVazio,
   coresDoPost,
   FORMATOS_POST,
@@ -175,6 +176,7 @@ function BuscarNoErp({ aoIncluir }: { aoIncluir: (p: ProdutoPost) => void }) {
       </form>
       {buscar.error && <Alerta>{buscar.error.message}</Alerta>}
       {buscar.data && buscar.data.banidos > 0 && <Alerta tipo="info">{buscar.data.banidos} produto(s) banido(s) ficaram de fora.</Alerta>}
+      {buscar.data?.incompleta && <Alerta tipo="aviso">{AVISO_BUSCA_INCOMPLETA}</Alerta>}
       {buscar.data && buscar.data.produtos.length === 0 && <p className="text-sm text-slate-500">Produto não encontrado.</p>}
       {buscar.data && buscar.data.produtos.length > 0 && (
         <ul className="max-h-48 divide-y divide-slate-100 overflow-auto rounded border border-slate-200 bg-white text-sm">

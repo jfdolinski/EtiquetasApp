@@ -2,6 +2,7 @@ export * from './agente';
 export * from './agendamentos';
 export * from './auditoria';
 export * from './avulsa';
+export * from './buscaNoBanco';
 export * from './cnpj';
 export * from './cobranca';
 export * from './consultas';

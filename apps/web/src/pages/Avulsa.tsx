@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
+  AVISO_BUSCA_INCOMPLETA,
   colunaDeBusca,
   PARAMETRO_PLANILHA,
   parametrosDaBusca,
@@ -37,6 +38,8 @@ export function Avulsa() {
     </ExigeEmpresa>
   );
 }
+
+const naoEncontrado = (r: BuscaAvulsaResposta) => `Produto não encontrado.${r.incompleta ? ` ${AVISO_BUSCA_INCOMPLETA}` : ''}`;
 
 function carregar(chave: string): LinhaAvulsa[] {
   try {
@@ -142,7 +145,7 @@ function EtiquetaAvulsa() {
       const registros = preenchidos.length === 1 ? registrosDoCodigo(r.registros, colunaBusca, preenchidos[0]) : r.registros;
       if (registros.length === 0) {
         if (r.banidos) return setAviso('Este produto está banido: a etiqueta dele não é impressa.');
-        setAviso('Produto não encontrado.');
+        setAviso(naoEncontrado(r));
         if (preenchidos.length !== 1 || colunas.length === 0) return;
         const id = crypto.randomUUID();
         const registro = Object.fromEntries(colunas.map((c) => [c, c === colunaBusca ? preenchidos[0] : '']));
@@ -167,7 +170,8 @@ function EtiquetaAvulsa() {
       setAviso(
         `${quantas} produto(s) ${somar ? 'adicionado(s) à lista' : 'na lista'}` +
           (repetidos ? `, ${repetidos} já estava(m) nela` : '') +
-          (umSo ? '.' : '. Informe a quantidade de etiquetas de cada um (ou use “Alterar em massa”).'),
+          (umSo ? '.' : '. Informe a quantidade de etiquetas de cada um (ou use “Alterar em massa”).') +
+          (r.incompleta ? ` ${AVISO_BUSCA_INCOMPLETA}` : ''),
       );
       limparBusca();
     },
@@ -198,7 +202,7 @@ function EtiquetaAvulsa() {
       if (achados.length === 0) {
         if (r.banidos) setAviso(`O produto “${valor}” está banido: a etiqueta dele não é impressa.`);
         else {
-          setAviso('Produto não encontrado.');
+          setAviso(naoEncontrado(r));
           focarDigitacao(linhaId);
         }
       } else if (achados.length === 1) {

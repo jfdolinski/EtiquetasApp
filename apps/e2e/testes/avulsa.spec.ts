@@ -70,6 +70,15 @@ test('o que existe continua vindo: código exato e nome', async ({ page }) => {
   await expect(page.locator('tbody tr')).toHaveCount(2);
 });
 
+test('busca incompleta avisa: "não encontrado" não é certeza', async ({ page }) => {
+  await abrir(page, []);
+  await page.unroute('**/api/avulsa/buscar');
+  await page.route('**/api/avulsa/buscar', (r) => r.fulfill({ json: { registros: [], colunas: [], banidos: 0, incompleta: true } }));
+  await page.getByLabel('Código, EAN ou nome').fill('999');
+  await page.getByRole('button', { name: 'Buscar' }).click();
+  await expect(page.getByText(/Produto não encontrado\. A consulta tem muitas linhas/)).toBeVisible();
+});
+
 test('consulta sem parâmetro: o campo de busca aparece, manda o termo ao servidor e exige digitar', async ({ page }) => {
   const pedidos = await abrir(page, []);
   const buscar = page.getByRole('button', { name: 'Buscar' });

@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, NotFoundException, ServiceUnavailableException, UnprocessableEntityException } from '@nestjs/common';
 import type { ConexoesService } from '../agentes/conexoes.service';
 import type { AuditoriaService } from '../auditoria/auditoria.service';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -69,6 +69,85 @@ let referenciasDoTeste: { alias: string; nome: string; alternativos: string[]; o
 
 afterEach(() => {
   referenciasDoTeste = [];
+});
+
+describe('buscarPorTermo', () => {
+  const SQL = 'SELECT ean, descricao FROM produtos WHERE loja = {empresa.codigo_erp}';
+  const CAMPOS = [
+    { nome: 'ean', tipoBanco: 'VARCHAR', categoria: 'texto' },
+    { nome: 'descricao', tipoBanco: 'VARCHAR', categoria: 'texto' },
+  ];
+  const resultado = (linhas: unknown[][], truncado = false) => ({ colunas: [{ nome: 'ean', tipo: 'VARCHAR' }], linhas, truncado, duracaoMs: 1 });
+  const preparar = (extra: Record<string, unknown> = {}) => {
+    const m = montar();
+    m.prisma.consultaSql.findFirst.mockResolvedValue(consultaBanco({ sql: SQL, campos: CAMPOS, camposHash: hashCampos('c1', SQL), ...extra }));
+    return m;
+  };
+  const chamadas = (m: ReturnType<typeof montar>) => m.conexoes.executar.mock.calls.map((c) => ({ sql: c[2] as string, parametros: c[3], limite: c[4] }));
+
+  it('código exato achado no banco: uma consulta só, filtrada e com parâmetro ligado', async () => {
+    const m = preparar();
+    m.conexoes.executar.mockResolvedValueOnce(resultado([['789']]) as never);
+    const r = await m.servico.buscarPorTermo(EMPRESA, 'q1', 'u1', '789', 5000);
+    expect(r.linhas).toEqual([['789']]);
+    const [c, ...resto] = chamadas(m);
+    expect(resto).toEqual([]);
+    expect(c.sql).toContain('"ean" = $');
+    // O valor de {empresa.codigo_erp} segue vindo do banco próprio, dentro do filtro.
+    expect(c.sql).toContain('loja = $');
+    expect(c.parametros).toEqual(expect.arrayContaining(['07', '789']));
+    expect(c.sql).not.toContain("'789'");
+  });
+
+  it('sem código exato, procura o texto contido; vazio aí é "não está no banco", sem ler a tabela', async () => {
+    const m = preparar();
+    m.conexoes.executar.mockResolvedValue(resultado([]) as never);
+    const r = await m.servico.buscarPorTermo(EMPRESA, 'q1', 'u1', 'feijao', 5000);
+    expect(r.linhas).toEqual([]);
+    const c = chamadas(m);
+    expect(c).toHaveLength(2);
+    expect(c[1].sql).toContain('LIKE');
+    expect(c[1].parametros).toEqual(expect.arrayContaining(['%f__j__%']));
+  });
+
+  it('banco recusa o filtro (ORDER BY no SQL Server): lê as linhas como antes e avisa se ficou incompleto', async () => {
+    const m = preparar();
+    m.conexoes.executar.mockRejectedValueOnce(new UnprocessableEntityException('ORDER BY inválido em subconsulta'));
+    m.conexoes.executar.mockResolvedValueOnce(resultado([['1']], true) as never);
+    const r = await m.servico.buscarPorTermo(EMPRESA, 'q1', 'u1', '789', 5000);
+    expect(r.truncado).toBe(true);
+    const c = chamadas(m);
+    expect(c).toHaveLength(2);
+    expect(c[1].sql).not.toContain('etiquetas_busca');
+    expect(c[1].limite).toBe(5000);
+  });
+
+  it('agente offline não tenta de novo: o erro é esse mesmo', async () => {
+    const m = preparar();
+    m.conexoes.executar.mockRejectedValueOnce(new ServiceUnavailableException('offline'));
+    await expect(m.servico.buscarPorTermo(EMPRESA, 'q1', 'u1', '789', 5000)).rejects.toThrow('offline');
+    expect(m.conexoes.executar).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['campos de outro SQL', { camposHash: 'antigo' }],
+    ['campos ainda não lidos', { campos: [], camposHash: null }],
+  ])('com %s, não filtra no banco', async (_n, extra) => {
+    const m = preparar(extra);
+    await m.servico.buscarPorTermo(EMPRESA, 'q1', 'u1', '789', 5000);
+    const c = chamadas(m);
+    expect(c).toHaveLength(1);
+    expect(c[0].sql).not.toContain('etiquetas_busca');
+  });
+
+  it('consulta desativada ou de outra empresa não roda', async () => {
+    const desativada = preparar({ ativo: false });
+    await expect(desativada.servico.buscarPorTermo(EMPRESA, 'q1', 'u1', '789', 5000)).rejects.toThrow(BadRequestException);
+    expect(desativada.conexoes.executar).not.toHaveBeenCalled();
+    const alheia = montar();
+    await expect(alheia.servico.buscarPorTermo(EMPRESA, 'outra', 'u1', '789', 5000)).rejects.toThrow(NotFoundException);
+    expect(alheia.prisma.consultaSql.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'outra', empresaId: EMPRESA } }));
+  });
 });
 
 describe('ConsultasService', () => {

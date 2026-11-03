@@ -96,12 +96,14 @@ describe('busca de produtos no ERP', () => {
   const achar = jest.fn();
   const executar = jest.fn();
   const conjunto = jest.fn();
-  const servico = new PostsService({ consultaSql: { findFirst: achar } } as never, {} as never, { executar } as never, { conjunto } as never);
+  const buscarPorTermo = jest.fn();
+  const servico = new PostsService({ consultaSql: { findFirst: achar } } as never, {} as never, { executar, buscarPorTermo } as never, { conjunto } as never);
   const resultado = { colunas: [{ nome: 'ean' }, { nome: 'descricao' }, { nome: 'preco' }], linhas: [['789', 'Café moído', '4.99'], ['790', 'Café banido', '5.00'], ['791', 'Arroz', '9.00']] };
 
   beforeEach(() => {
     achar.mockReset();
     executar.mockReset().mockResolvedValue(resultado);
+    buscarPorTermo.mockReset().mockResolvedValue(resultado);
     conjunto.mockReset().mockResolvedValue(new Set(['790']));
   });
 
@@ -117,11 +119,14 @@ describe('busca de produtos no ERP', () => {
     ]);
   });
 
-  it('consulta sem parâmetro: lê mais linhas e procura o termo aqui', async () => {
+  it('consulta sem parâmetro: filtra no banco, confere as linhas aqui e avisa se ficou incompleto', async () => {
     achar.mockResolvedValue({ sql: 'SELECT ean, descricao, preco FROM p', conexao: { tipo: 'POSTGRES' } });
+    buscarPorTermo.mockResolvedValue({ ...resultado, truncado: true });
     const r = await servico.buscarProdutos('e', 'c', 'arroz', 'u');
-    expect(executar).toHaveBeenCalledWith('e', 'c', 'u', {}, 5000);
+    expect(buscarPorTermo).toHaveBeenCalledWith('e', 'c', 'u', 'arroz', 5000);
+    expect(executar).not.toHaveBeenCalled();
     expect(r.produtos.map((p) => p.descricao)).toEqual(['Arroz']);
+    expect(r.incompleta).toBe(true);
   });
 
   it('planilha recebe o termo no parâmetro de busca dela', async () => {
