@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
-import { formatarCnpj, PERIODOS_PAINEL, textoDuracao, type PainelEmpresa, type PainelPlataformaLinha } from '@etiquetas/shared';
+import { formatarCnpj, PERIODOS_PAINEL, textoDuracao, textoNaTela, type PainelEmpresa, type PainelPlataformaLinha } from '@etiquetas/shared';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Alerta, Cabecalho, Selo, Tabela, formatarData } from '../components/ui';
@@ -81,7 +81,7 @@ function Grafico({ dias }: { dias: PainelEmpresa['impressao']['porDia'] }) {
   const maximo = Math.max(1, ...dias.map((d) => d.etiquetas));
   const total = dias.reduce((s, d) => s + d.etiquetas, 0);
   if (total === 0) return <p className="py-8 text-center text-sm text-slate-500">Nenhuma etiqueta concluída no período.</p>;
-  const dia = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+  const dia = (iso: string) => textoNaTela(iso);
   const atual = foco === null ? null : dias[foco];
   return (
     <figure>

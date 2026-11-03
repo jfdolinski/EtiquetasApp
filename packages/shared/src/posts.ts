@@ -1,6 +1,6 @@
 import { FONTES } from './etiquetas/design';
 import type { FormatoCampo, Registro } from './etiquetas/tipos';
-import { formatarCampo } from './etiquetas/valores';
+import { dataIsoDe, formatarCampo, textoNaTela } from './etiquetas/valores';
 import { chaveDoRegistro, descricaoDoRegistro } from './impressao';
 
 /**
@@ -352,7 +352,8 @@ export function valorDoVinculo(registro: Registro | undefined, vinculo: VinculoC
   const chave = Object.keys(registro).find((c) => c.toLowerCase() === vinculo.campo.toLowerCase());
   if (chave === undefined) return null;
   const bruto = registro[chave];
-  return ehPreco && !vinculo.formato ? formatarPrecoPost(bruto) : formatarCampo(bruto, vinculo.formato);
+  if (ehPreco && !vinculo.formato) return formatarPrecoPost(bruto);
+  return vinculo.formato || !dataIsoDe(bruto) ? formatarCampo(bruto, vinculo.formato) : textoNaTela(bruto);
 }
 
 /** Preenche o produto com os campos relacionados. O que não tem relacionamento fica como está. */

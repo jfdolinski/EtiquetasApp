@@ -1,4 +1,4 @@
-import type { ResultadoConsulta } from '@etiquetas/shared';
+import { textoNaTela, type ResultadoConsulta } from '@etiquetas/shared';
 
 /** Linhas devolvidas pelo agente, com o tipo de cada coluna no cabeçalho. */
 export function TabelaResultado({ resultado }: { resultado: ResultadoConsulta }) {
@@ -32,7 +32,7 @@ export function TabelaResultado({ resultado }: { resultado: ResultadoConsulta })
               <tr key={i}>
                 {linha.map((v, j) => (
                   <td key={j} className="max-w-xs truncate px-3 py-1.5 whitespace-nowrap">
-                    {v === null ? <span className="text-slate-400">null</span> : typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                    {v === null ? <span className="text-slate-400">null</span> : textoNaTela(v)}
                   </td>
                 ))}
               </tr>

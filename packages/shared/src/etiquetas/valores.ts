@@ -23,12 +23,48 @@ function pad(n: number, d = 2) {
   return String(n).padStart(d, '0');
 }
 
-/** Lê AAAA-MM-DD, ISO 8601 ou Date; devolve [ano, mês, dia] sem passar por fuso. */
+/** Lê AAAA-MM-DD, ISO 8601, DD/MM/AAAA ou Date; devolve [ano, mês, dia] sem passar por fuso. */
 function partesData(v: unknown): [number, number, number] | null {
   if (v instanceof Date && !Number.isNaN(v.getTime())) return [v.getFullYear(), v.getMonth() + 1, v.getDate()];
   if (typeof v !== 'string') return null;
   const m = v.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+  if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
+  // O operador digita a data como a vê na tela.
+  const br = v.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return br ? [Number(br[3]), Number(br[2]), Number(br[1])] : null;
+}
+
+const HORARIO = String.raw`(?:[T ]\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?: ?(?:Z|[+-]\d{2}(?::?\d{2})?))?)?`;
+const ANO_PRIMEIRO = new RegExp(String.raw`^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})${HORARIO}$`);
+const DIA_PRIMEIRO = new RegExp(String.raw`^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})${HORARIO}$`);
+const ANO_CURTO = new RegExp(String.raw`^(\d{1,2})/(\d{1,2})/(\d{2})${HORARIO}$`);
+
+/**
+ * AAAA-MM-DD do texto que parece data, num dos formatos que os ERPs e as planilhas devolvem; senão
+ * null. Número nunca é data ("20261103" pode ser EAN-8), e o horário é ignorado sem converter fuso:
+ * uma coluna DATE que chega à meia-noite em UTC não pode virar o dia anterior.
+ */
+export function dataIsoDe(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  let a: number, m: number, d: number;
+  let g = t.match(ANO_PRIMEIRO);
+  if (g) [a, m, d] = [Number(g[1]), Number(g[2]), Number(g[3])];
+  else if ((g = t.match(DIA_PRIMEIRO))) [d, m, a] = [Number(g[1]), Number(g[2]), Number(g[3])];
+  else if ((g = t.match(ANO_CURTO))) [d, m, a] = [Number(g[1]), Number(g[2]), 2000 + Number(g[3])];
+  else return null;
+  if (a < 1900 || a > 2199) return null;
+  const data = new Date(Date.UTC(a, m - 1, d));
+  if (data.getUTCMonth() !== m - 1 || data.getUTCDate() !== d) return null;
+  return `${a}-${pad(m)}-${pad(d)}`;
+}
+
+/** Como um valor vindo da consulta aparece nas telas: o que parece data vira DD/MM/AAAA. Só para mostrar. */
+export function textoNaTela(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'object') return JSON.stringify(v);
+  const iso = dataIsoDe(v);
+  return iso ? formatarData(iso, 'dd/MM/yyyy') : String(v);
 }
 
 export function formatarData(v: unknown, formato: FormatoData): string {

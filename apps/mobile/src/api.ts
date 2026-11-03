@@ -36,6 +36,11 @@ export async function lerSessao(): Promise<Sessao | null> {
 export const gravarSessao = (s: Sessao) => cofre.setItemAsync(CHAVE, JSON.stringify(s));
 export const apagarSessao = () => cofre.deleteItemAsync(CHAVE);
 
+const CHAVE_LINHAS = 'etiquetas.linhasPorProduto';
+
+export const lerTextoLinhasPorProduto = () => cofre.getItemAsync(CHAVE_LINHAS);
+export const gravarLinhasPorProduto = (n: number | null) => (n === null ? cofre.deleteItemAsync(CHAVE_LINHAS) : cofre.setItemAsync(CHAVE_LINHAS, String(n)));
+
 export class ErroApi extends Error {
   constructor(
     readonly status: number,

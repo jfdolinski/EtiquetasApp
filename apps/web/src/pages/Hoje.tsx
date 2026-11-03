@@ -6,7 +6,7 @@ import {
   problemaNasFolhas,
   QUANTIDADE_MAXIMA_ITEM,
   registroBanido,
-  textoCelula,
+  textoNaTela,
   type BanirResposta,
   type ImprimirResposta,
   type ItemListaResumo,
@@ -235,7 +235,7 @@ function ListaDoDia() {
                       </td>
                       {g.colunas.map((c, n) => (
                         <td key={c} className="whitespace-nowrap px-2 py-2">
-                          {textoCelula(i.registro[c])}
+                          {textoNaTela(i.registro[c])}
                           {n === 0 && i.trabalhoId && <span className="ml-2"><Selo cor="vermelho">Falhou antes</Selo></span>}
                         </td>
                       ))}

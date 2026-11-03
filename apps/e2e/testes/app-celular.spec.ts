@@ -135,6 +135,40 @@ test('Lista do dia mostra todos os campos, um abaixo do outro, e o valor longo t
   await page.screenshot({ path: 'test-results/app-lista-colunas.png' });
 });
 
+test('data aparece como DD/MM/AAAA e o parâmetro limita as linhas de cada produto, valendo ao reabrir', async ({ page }) => {
+  const outra = await criarEmpresa(await superToken());
+  const { itemIds } = await montarListaDeHoje(outra, { produtos: ['7891000100103'] });
+  const registro = { codigo: 'C1', validade: '2026-11-03T00:00:00Z', nome: 'Café', marca: 'Acme' };
+  await sql(`UPDATE itens_lista SET registro = $2 WHERE id = $1`, [itemIds[0], JSON.stringify(registro)]);
+  await vincular(page, outra);
+  await page.getByRole('tab', { name: 'Lista do dia' }).click();
+  await expect(page.getByText('03/11/2026', { exact: true })).toBeVisible();
+  await expect(page.getByText('Acme', { exact: true })).toBeVisible();
+
+  await page.getByRole('tab', { name: 'Avisos' }).click();
+  await expect(page.getByLabel('Linhas por produto escolhidas')).toHaveText('Todas');
+  await page.getByRole('button', { name: 'Menos linhas' }).click();
+  await expect(page.getByLabel('Linhas por produto escolhidas')).toHaveText('5');
+  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Menos linhas' }).click();
+  await expect(page.getByLabel('Linhas por produto escolhidas')).toHaveText('2');
+
+  await page.getByRole('tab', { name: 'Lista do dia' }).click();
+  // O modelo tem as próprias colunas, que vêm primeiro: com 2 linhas, os campos do fim saem da tela.
+  await expect(page.getByText('Lista do dia', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Acme', { exact: true })).toHaveCount(0);
+
+  await page.reload();
+  await page.getByRole('tab', { name: 'Lista do dia' }).click();
+  // O modelo tem as próprias colunas, que vêm primeiro: com 2 linhas, os campos do fim saem da tela.
+  await expect(page.getByText('Lista do dia', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Acme', { exact: true })).toHaveCount(0);
+
+  await page.getByRole('tab', { name: 'Avisos' }).click();
+  await page.getByText('Mostrar todas', { exact: true }).click();
+  await page.getByRole('tab', { name: 'Lista do dia' }).click();
+  await expect(page.getByText('Acme', { exact: true })).toBeVisible();
+});
+
 test('banner aparece no aplicativo, conta exibição e clique, e some quando sai do ar', async ({ page, context }) => {
   const erros = vigiarErros(page);
   const token = await superToken();

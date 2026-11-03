@@ -1,7 +1,7 @@
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import type { NotificacaoResumo } from '../../../packages/shared/src/notificacoes';
 import type { UsuarioLogado } from '../../../packages/shared/src/tipos';
-import { tempoDesde } from './regras';
+import { proximasLinhasPorProduto, tempoDesde } from './regras';
 import { Alerta, Botao, cores } from './ui';
 
 const COR_NIVEL = { info: cores.azul, aviso: '#d97706', erro: cores.erro };
@@ -17,8 +17,10 @@ export function TelaAvisos(props: {
   marcarLida: (id: string) => void;
   marcarTodas: () => void;
   desvincular: () => void;
+  linhasPorProduto: number | null;
+  mudarLinhasPorProduto: (n: number | null) => void;
 }) {
-  const { usuario, avisos, erro, carregando, avisosNoCelular, atualizar, marcarLida, marcarTodas, desvincular } = props;
+  const { usuario, avisos, erro, carregando, avisosNoCelular, atualizar, marcarLida, marcarTodas, desvincular, linhasPorProduto, mudarLinhasPorProduto } = props;
   const podeVer = usuario.superAdmin || usuario.permissoes.includes('notificacao.ver');
   const naoLidas = avisos.filter((a) => !a.lidaEm && !a.resolvidaEm).length;
 
@@ -53,6 +55,20 @@ export function TelaAvisos(props: {
       )}
       ListFooterComponent={
         <View style={{ marginTop: 32 }}>
+          <View style={estilos.ajuste}>
+            <View style={{ flex: 1 }}>
+              <Text style={estilos.avisoTitulo}>Linhas por produto</Text>
+              <Text style={estilos.quando}>Quantas linhas cada produto mostra na Lista do dia e na Etiqueta avulsa, neste celular.</Text>
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Menos linhas" hitSlop={8} disabled={linhasPorProduto === 1} onPress={() => mudarLinhasPorProduto(proximasLinhasPorProduto(linhasPorProduto, -1))} style={estilos.passo}>
+              <Text style={estilos.passoTexto}>−</Text>
+            </Pressable>
+            <Text accessibilityLabel="Linhas por produto escolhidas" style={estilos.linhasValor}>{linhasPorProduto ?? 'Todas'}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Mais linhas" hitSlop={8} disabled={linhasPorProduto === null} onPress={() => mudarLinhasPorProduto(proximasLinhasPorProduto(linhasPorProduto, 1))} style={estilos.passo}>
+              <Text style={estilos.passoTexto}>+</Text>
+            </Pressable>
+          </View>
+          {linhasPorProduto !== null ? <Text accessibilityRole="button" style={estilos.link} onPress={() => mudarLinhasPorProduto(null)}>Mostrar todas</Text> : null}
           <Botao titulo="Desvincular este celular" variante="perigo" onPress={desvincular} />
         </View>
       }
@@ -74,4 +90,8 @@ const estilos = StyleSheet.create({
   avisoTitulo: { fontSize: 15, fontWeight: '600', color: cores.texto },
   mensagem: { fontSize: 14, color: cores.texto, marginTop: 2, lineHeight: 20 },
   resolvido: { fontSize: 12, color: cores.ok, fontWeight: '600', marginTop: 4 },
+  ajuste: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: cores.branco, borderWidth: 1, borderColor: cores.borda, borderRadius: 10, padding: 12, marginBottom: 8 },
+  passo: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: cores.borda, borderRadius: 8 },
+  passoTexto: { fontSize: 20, fontWeight: '700', color: cores.azul },
+  linhasValor: { minWidth: 44, textAlign: 'center', fontSize: 15, fontWeight: '700', color: cores.texto },
 });

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { adicionarProduto, colunasVisiveis, contaExibicao, corpoDaBusca, linkDeBannerValido, impressoraDoModelo, parametrosDaBusca, registrosDoCodigo, avisosNovos, chavesDosAvisos, codigoValido, lerQrDeVinculo, pendentesPorModelo, quantidadeValida, registroParaDigitar, servidorValido, tempoDesde, versaoMaisNova } from './regras.ts';
+import { adicionarProduto, colunasVisiveis, lerLinhasPorProduto, proximasLinhasPorProduto, textoNaTela, contaExibicao, corpoDaBusca, linkDeBannerValido, impressoraDoModelo, parametrosDaBusca, registrosDoCodigo, avisosNovos, chavesDosAvisos, codigoValido, lerQrDeVinculo, pendentesPorModelo, quantidadeValida, registroParaDigitar, servidorValido, tempoDesde, versaoMaisNova } from './regras.ts';
 
 test('QR de vínculo: lê o formato certo', () => {
   assert.deepEqual(lerQrDeVinculo('etiquetas://vincular?servidor=https%3A%2F%2Fapp.exemplo.com&codigo=ABCDEFGH23'), { servidor: 'https://app.exemplo.com', codigo: 'ABCDEFGH23' });
@@ -149,6 +149,23 @@ test('impressora: a escolhida, depois a padrão, depois a única', () => {
   assert.equal(impressoraDoModelo(null, 'pdf', duas), null);
   assert.equal(impressoraDoModelo('sumiu', 'pdf', [duas[0]]), 'a');
   assert.equal(impressoraDoModelo(null, null, []), null);
+});
+
+test('o que parece data aparece como DD/MM/AAAA, sem converter fuso; código fica como está', () => {
+  for (const v of ['2026-11-03', '2026-11-03T00:00:00Z', '2026-11-03T23:59:59.123-03:00', '2026-11-03 14:22:00', '2026/11/03', '3/11/2026', '03-11-2026', '03.11.2026 08:00', '03/11/26']) assert.equal(textoNaTela(v), '03/11/2026', v);
+  for (const v of ['7891000100103', '20261103', '2026-13-03', '31/02/2026', '12-10-25', '1.234,56', '4.99', '03/11/2026 promoção', '0001-01-01']) assert.equal(textoNaTela(v), v);
+  assert.equal(textoNaTela(20261103), '20261103');
+  assert.equal(textoNaTela(null), '');
+});
+
+test('linhas por produto: só de 1 a 30; o resto vale como todas', () => {
+  assert.equal(lerLinhasPorProduto('5'), 5);
+  for (const t of [null, '', '0', '31', 'abc', '5.5', '-1']) assert.equal(lerLinhasPorProduto(t), null);
+  assert.equal(proximasLinhasPorProduto(null, -1), 5);
+  assert.equal(proximasLinhasPorProduto(null, 1), null);
+  assert.equal(proximasLinhasPorProduto(5, 1), 6);
+  assert.equal(proximasLinhasPorProduto(1, -1), 1);
+  assert.equal(proximasLinhasPorProduto(30, 1), null);
 });
 
 test('busca: com parâmetro vai nele; sem parâmetro, o termo vai para o servidor procurar', () => {

@@ -47,6 +47,31 @@ test('busca sem resultado não traz a lista inteira: avisa e libera a linha para
   await expect(page.getByLabel('descricao', { exact: true })).toHaveValue('Produto novo');
 });
 
+test('data aparece como DD/MM/AAAA na grade, o valor original vai à impressão e dá para digitar outra', async ({ page }) => {
+  await abrir(page, ['busca']);
+  const produto = { ean: '789', descricao: 'Café', validade: '2026-11-03T00:00:00Z' };
+  await page.route('**/api/avulsa/buscar', (r) => r.fulfill({ json: { registros: [produto], colunas: [], banidos: 0 } }));
+  let enviados: any[] = [];
+  await page.route('**/api/avulsa/imprimir', async (r) => {
+    enviados = r.request().postDataJSON().itens;
+    await r.fulfill({ status: 201, json: { trabalhos: [], avisos: [] } });
+  });
+  await page.getByLabel('Código, EAN ou nome').fill('789');
+  await page.getByRole('button', { name: 'Buscar' }).click();
+  const celula = page.getByLabel('validade', { exact: true });
+  await expect(celula).toHaveValue('03/11/2026');
+  // Entrar e sair sem mudar nada não troca o valor; digitar não é reformatado no meio do caminho.
+  await celula.click();
+  await page.getByLabel('descricao', { exact: true }).click();
+  await expect(celula).toHaveValue('03/11/2026');
+  await celula.fill('');
+  await celula.pressSequentially('04/11/2026');
+  await expect(celula).toHaveValue('04/11/2026');
+  await page.getByLabel('descricao', { exact: true }).click();
+  await expect(celula).toHaveValue('04/11/2026');
+  expect(enviados).toEqual([]);
+});
+
 test('código digitado na linha, sem produto: sem janela de escolha, com a linha liberada', async ({ page }) => {
   await abrir(page, ['busca']);
   await page.getByRole('button', { name: '+ Nova linha' }).click();

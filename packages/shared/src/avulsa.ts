@@ -4,6 +4,7 @@
  * usadas pela tela; o servidor só recebe os registros finais.
  */
 import type { Registro } from './etiquetas/tipos';
+import { dataIsoDe, textoNaTela } from './etiquetas/valores';
 import { QUANTIDADE_MAXIMA_ITEM } from './impressao';
 
 export interface LinhaAvulsa {
@@ -78,14 +79,14 @@ function condicao(filtro: string): (v: unknown) => boolean {
         return op === '>' ? n > alvo : op === '<' ? n < alvo : op === '>=' ? n >= alvo : op === '<=' ? n <= alvo : n === alvo;
       };
     }
-    if (op === '=') return (v) => simplificar(textoCelula(v)) === simplificar(alvoTexto);
+    if (op === '=') return (v) => simplificar(textoNaTela(v)) === simplificar(alvoTexto);
   }
   if (f.startsWith('!')) {
     const alvo = simplificar(f.slice(1));
-    return (v) => !simplificar(textoCelula(v)).includes(alvo);
+    return (v) => !simplificar(textoNaTela(v)).includes(alvo);
   }
   const alvo = simplificar(f);
-  return (v) => simplificar(textoCelula(v)).includes(alvo);
+  return (v) => simplificar(textoNaTela(v)).includes(alvo);
 }
 
 /**
@@ -100,7 +101,7 @@ export function filtrarLinhas(linhas: LinhaAvulsa[], colunas: string[], busca: s
   if (!palavras.length && !porColuna.length) return linhas;
   return linhas.filter((l) => {
     if (palavras.length) {
-      const tudo = simplificar(colunas.map((c) => textoCelula(l.registro[c])).join(' '));
+      const tudo = simplificar(colunas.map((c) => textoNaTela(l.registro[c])).join(' '));
       if (!palavras.every((p) => tudo.includes(p))) return false;
     }
     return porColuna.every(({ c, ok }) => ok(c === COLUNA_QUANTIDADE ? l.quantidade : l.registro[c]));
@@ -109,7 +110,7 @@ export function filtrarLinhas(linhas: LinhaAvulsa[], colunas: string[], busca: s
 
 const colador = new Intl.Collator('pt-BR', { numeric: true, sensitivity: 'base' });
 
-/** Ordena por uma coluna: números como números, texto em ordem alfabética, vazios no fim. */
+/** Ordena por uma coluna: números como números, datas pelo dia, texto em ordem alfabética, vazios no fim. */
 export function ordenarLinhas(linhas: LinhaAvulsa[], coluna: string, direcao: Direcao): LinhaAvulsa[] {
   const valor = (l: LinhaAvulsa) => (coluna === COLUNA_QUANTIDADE ? l.quantidade : l.registro[coluna]);
   const sinal = direcao === 'asc' ? 1 : -1;
@@ -119,6 +120,9 @@ export function ordenarLinhas(linhas: LinhaAvulsa[], coluna: string, direcao: Di
     const ta = textoCelula(va).trim();
     const tb = textoCelula(vb).trim();
     if (!ta || !tb) return ta ? -1 : tb ? 1 : 0; // vazios sempre no fim
+    const da = dataIsoDe(va);
+    const db = dataIsoDe(vb);
+    if (da && db) return da.localeCompare(db) * sinal;
     const na = numeroDe(va);
     const nb = numeroDe(vb);
     if (na !== null && nb !== null) return (na - nb) * sinal;
@@ -238,7 +242,7 @@ export function alterarEmMassa(
         novo = r.toFixed(Math.min(casas, 6));
       }
     } else {
-      const texto = textoCelula(atual);
+      const texto = textoNaTela(atual);
       switch (op) {
         case 'definir':
           novo = normalizarEntrada(valor);
@@ -263,7 +267,7 @@ export function alterarEmMassa(
           break;
       }
     }
-    if (novo === atual) return l;
+    if (novo === atual || novo === textoNaTela(atual)) return l;
     alteradas++;
     return { ...l, registro: { ...l.registro, [coluna]: novo } };
   });

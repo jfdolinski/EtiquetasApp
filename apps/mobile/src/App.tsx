@@ -6,10 +6,11 @@ import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import type { NotificacaoResumo } from '../../../packages/shared/src/notificacoes';
 import type { UsuarioLogado } from '../../../packages/shared/src/tipos';
-import { apagarSessao, clienteDa, gravarSessao, lerSessao, versaoPublicada, type Sessao } from './api';
+import { apagarSessao, clienteDa, gravarLinhasPorProduto, gravarSessao, lerSessao, lerTextoLinhasPorProduto, versaoPublicada, type Sessao } from './api';
 import { avisarAgora, prepararNotificacoes, tokenDePush } from './avisos';
 import { BannerPublicidade } from './BannerPublicidade';
-import { avisosNovos, chavesDosAvisos, versaoMaisNova } from './regras';
+import { LinhasPorProduto } from './colunas';
+import { avisosNovos, chavesDosAvisos, lerLinhasPorProduto, versaoMaisNova } from './regras';
 import { TelaAvisos } from './TelaAvisos';
 import { MEMORIA_AVULSA_VAZIA, TelaAvulsa, type MemoriaAvulsa } from './TelaAvulsa';
 import { TelaInicio } from './TelaInicio';
@@ -66,6 +67,7 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
   const [versaoNova, setVersaoNova] = useState<string | null>(null);
   // Aqui, e não na tela: ir a outra guia e voltar não perde a lista que está sendo lida.
   const [memoriaAvulsa, setMemoriaAvulsa] = useState<MemoriaAvulsa>(MEMORIA_AVULSA_VAZIA);
+  const [linhasPorProduto, setLinhasPorProduto] = useState<number | null>(null);
   const vistos = useRef<Set<string> | null>(null);
   const usuario = sessao.usuario;
   const podeVerAvisos = usuario.superAdmin || usuario.permissoes.includes('notificacao.ver');
@@ -113,6 +115,10 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
     // Só ao abrir este vínculo: `sessao` muda aqui dentro.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessao.token]);
+
+  useEffect(() => {
+    void lerTextoLinhasPorProduto().then((t) => setLinhasPorProduto(lerLinhasPorProduto(t)));
+  }, []);
 
   useEffect(() => {
     void buscarAvisos();
@@ -171,11 +177,17 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
         </Pressable>
       ) : null}
       <View style={{ flex: 1 }}>
+        <LinhasPorProduto.Provider value={linhasPorProduto}>
         {aba === 'inicio' && <TelaInicio api={api} usuario={usuario} irParaLista={() => setAba('lista')} />}
         {aba === 'lista' && <TelaLista api={api} usuario={usuario} />}
         {aba === 'avulsa' && podeImprimir && <TelaAvulsa api={api} sessao={sessao} memoria={memoriaAvulsa} setMemoria={setMemoriaAvulsa} />}
         {aba === 'avisos' && (
           <TelaAvisos
+            linhasPorProduto={linhasPorProduto}
+            mudarLinhasPorProduto={(n) => {
+              setLinhasPorProduto(n);
+              void gravarLinhasPorProduto(n);
+            }}
             usuario={usuario}
             avisos={avisos}
             erro={erroAvisos}
@@ -187,6 +199,7 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
             desvincular={desvincular}
           />
         )}
+        </LinhasPorProduto.Provider>
       </View>
       <BannerPublicidade api={api} />
       <View style={estilos.abas} accessibilityRole="tablist">

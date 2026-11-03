@@ -10,6 +10,7 @@ import {
   QUANTIDADE_MAXIMA_ITEM,
   ROTULO_OPERACAO,
   textoCelula,
+  textoNaTela,
   type Direcao,
   type LinhaAvulsa,
   type OperacaoMassa,
@@ -63,12 +64,14 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
   const [ordem, setOrdem] = useState<{ coluna: string; direcao: Direcao } | null>(null);
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
   const [massaAberta, setMassaAberta] = useState(false);
+  // A célula sendo digitada mostra o texto como está: "04/11/20" não pode virar 04/11/2020 no meio da digitação.
+  const [digitando, setDigitando] = useState<{ id: string; coluna: string } | null>(null);
 
   const visiveis = useMemo(() => filtrarLinhas(linhas, colunas, busca, filtros), [linhas, colunas, busca, filtros]);
 
   // Cada coluna na largura do maior valor (de 8 a 42 caracteres), para não cortar a descrição.
   const larguras = useMemo(
-    () => Object.fromEntries(colunas.map((c) => [c, Math.min(42, Math.max(8, c.length + 3, ...linhas.map((l) => textoCelula(l.registro[c]).length + 2)))])),
+    () => Object.fromEntries(colunas.map((c) => [c, Math.min(42, Math.max(8, c.length + 3, ...linhas.map((l) => textoNaTela(l.registro[c]).length + 2)))])),
     [linhas, colunas],
   );
   const idsVisiveis = new Set(visiveis.map((l) => l.id));
@@ -260,9 +263,12 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
                   <td key={c} className="px-1 py-0.5">
                     <input
                       autoFocus={focarId === l.id && (colunaBusca && buscarProduto ? c === colunaBusca : i === 0)}
-                      value={textoCelula(l.registro[c])}
+                      value={digitando?.id === l.id && digitando.coluna === c ? textoCelula(l.registro[c]) : textoNaTela(l.registro[c])}
                       onFocus={comecarEdicao}
-                      onBlur={() => terminarEdicao(l.id, c)}
+                      onBlur={() => {
+                        setDigitando(null);
+                        terminarEdicao(l.id, c);
+                      }}
                       onKeyDown={(e) => {
                         // Leitor de código de barras termina com Enter: busca e vai para a quantidade.
                         if (e.key === 'Enter' && c === colunaBusca && buscarProduto) {
@@ -275,7 +281,10 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
                         }
                       }}
                       disabled={buscando?.has(l.id)}
-                      onChange={(e) => editar(l.id, (x) => ({ ...x, registro: { ...x.registro, [c]: e.target.value } }))}
+                      onChange={(e) => {
+                        setDigitando({ id: l.id, coluna: c });
+                        editar(l.id, (x) => ({ ...x, registro: { ...x.registro, [c]: e.target.value } }));
+                      }}
                       className={CLASSE_ENTRADA}
                       style={{ width: `${larguras[c]}ch` }}
                       aria-label={c}

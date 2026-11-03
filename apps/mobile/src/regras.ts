@@ -115,6 +115,43 @@ export function textoCelula(v: unknown): string {
   return typeof v === 'object' ? JSON.stringify(v) : String(v);
 }
 
+const HORARIO = String.raw`(?:[T ]\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?: ?(?:Z|[+-]\d{2}(?::?\d{2})?))?)?`;
+const ANO_PRIMEIRO = new RegExp(String.raw`^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})${HORARIO}$`);
+const DIA_PRIMEIRO = new RegExp(String.raw`^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})${HORARIO}$`);
+const ANO_CURTO = new RegExp(String.raw`^(\d{1,2})/(\d{1,2})/(\d{2})${HORARIO}$`);
+
+/** O que parece data vira DD/MM/AAAA, sem converter fuso; número nunca é data. Mesma regra do site (shared/etiquetas/valores.ts). */
+export function textoNaTela(v: unknown): string {
+  if (typeof v !== 'string') return textoCelula(v);
+  const t = v.trim();
+  let a: number, m: number, d: number;
+  let g = t.match(ANO_PRIMEIRO);
+  if (g) [a, m, d] = [Number(g[1]), Number(g[2]), Number(g[3])];
+  else if ((g = t.match(DIA_PRIMEIRO))) [d, m, a] = [Number(g[1]), Number(g[2]), Number(g[3])];
+  else if ((g = t.match(ANO_CURTO))) [d, m, a] = [Number(g[1]), Number(g[2]), 2000 + Number(g[3])];
+  else return v;
+  if (a < 1900 || a > 2199) return v;
+  const data = new Date(Date.UTC(a, m - 1, d));
+  if (data.getUTCMonth() !== m - 1 || data.getUTCDate() !== d) return v;
+  return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${a}`;
+}
+
+export const LINHAS_POR_PRODUTO_MAXIMO = 30;
+
+/** O que ficou gravado no celular: número de 1 a 30; qualquer outra coisa vale como "todas" (null). */
+export function lerLinhasPorProduto(texto: string | null): number | null {
+  if (!texto || !/^\d{1,2}$/.test(texto)) return null;
+  const n = Number(texto);
+  return n >= 1 && n <= LINHAS_POR_PRODUTO_MAXIMO ? n : null;
+}
+
+/** Botões − e +: de "todas" o − começa em 5; passar do máximo volta a "todas". */
+export function proximasLinhasPorProduto(atual: number | null, passo: 1 | -1): number | null {
+  if (atual === null) return passo === -1 ? 5 : null;
+  const n = atual + passo;
+  return n < 1 ? 1 : n > LINHAS_POR_PRODUTO_MAXIMO ? null : n;
+}
+
 /** Todas as colunas: primeiro as do modelo, na ordem dele, depois as que só os registros trazem. */
 export function colunasVisiveis(doModelo: readonly string[], registros: readonly Registro[]): string[] {
   return [...new Set([...doModelo, ...registros.flatMap((r) => Object.keys(r))])];

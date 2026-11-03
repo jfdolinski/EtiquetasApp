@@ -9,7 +9,7 @@ import {
   registroBanido,
   registrosDoCodigo,
   somarResultados,
-  textoCelula,
+  textoNaTela,
   type BanirResposta,
   type BuscaAvulsaResposta,
   type ImpressoraResumo,
@@ -328,7 +328,7 @@ function EtiquetaAvulsa() {
                       setEscolha(null);
                     }}
                   >
-                    {Object.values(r).map(textoCelula).filter(Boolean).join(' · ')}
+                    {Object.values(r).map(textoNaTela).filter(Boolean).join(' · ')}
                   </button>
                 ))}
               </div>

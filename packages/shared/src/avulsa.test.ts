@@ -14,6 +14,7 @@ import {
   somarResultados,
   type LinhaAvulsa,
 } from './avulsa';
+import { formatarData, textoNaTela } from './etiquetas/valores';
 
 const linhas: LinhaAvulsa[] = [
   { id: 'a', quantidade: 1, registro: { codigo: '0012', descricao: 'Açúcar cristal 1kg', preco: '4.99', estoque: 30 } },
@@ -73,6 +74,52 @@ describe('grade da etiqueta avulsa', () => {
     expect(r.novas).toBe(1);
     expect(r.linhas[0]).toMatchObject({ id: 'n0', quantidade: 1, registro: { codigo: '0200' } });
     expect(r.linhas).toHaveLength(4);
+  });
+});
+
+describe('o que parece data, nas telas', () => {
+  it.each([
+    ['2026-11-03', '03/11/2026'],
+    ['2026-11-03T00:00:00Z', '03/11/2026'],
+    ['2026-11-03T23:59:59.123-03:00', '03/11/2026'],
+    ['2026-11-03 14:22:00', '03/11/2026'],
+    ['2026/11/03', '03/11/2026'],
+    ['3/11/2026', '03/11/2026'],
+    ['03-11-2026', '03/11/2026'],
+    ['03.11.2026 08:00', '03/11/2026'],
+    ['03/11/26', '03/11/2026'],
+  ])('%s vira %s', (valor, esperado) => expect(textoNaTela(valor)).toBe(esperado));
+
+  it.each([['7891000100103'], ['20261103'], ['2026-13-03'], ['31/02/2026'], ['12-10-25'], ['1.234,56'], ['4.99'], ['03/11/2026 promoção'], ['0001-01-01']])('%s fica como está', (valor) => expect(textoNaTela(valor)).toBe(valor));
+
+  it('número, nulo e objeto não viram data', () => {
+    expect(textoNaTela(20261103)).toBe('20261103');
+    expect(textoNaTela(null)).toBe('');
+    expect(textoNaTela({ a: 1 })).toBe('{"a":1}');
+  });
+
+  it('a etiqueta entende a data digitada como aparece na tela', () => {
+    expect(formatarData('04/11/2026', 'yyyy-MM-dd')).toBe('2026-11-04');
+    expect(formatarData('2026-11-04T00:00:00Z', 'dd/MM/yy')).toBe('04/11/26');
+  });
+
+  const linhas: LinhaAvulsa[] = [
+    { id: 'a', quantidade: 1, registro: { validade: '2026-11-03T00:00:00Z' } },
+    { id: 'b', quantidade: 1, registro: { validade: '01/12/2026' } },
+    { id: 'c', quantidade: 1, registro: { validade: '2025-12-31' } },
+  ];
+
+  it('filtra pelo que aparece na tela e ordena pelo dia', () => {
+    expect(filtrarLinhas(linhas, ['validade'], '03/11', {}).map((l) => l.id)).toEqual(['a']);
+    expect(filtrarLinhas(linhas, ['validade'], '', { validade: '=31/12/2025' }).map((l) => l.id)).toEqual(['c']);
+    expect(ordenarLinhas(linhas, 'validade', 'asc').map((l) => l.id)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('alteração em massa parte do que aparece e não mexe no que não mudou', () => {
+    const r = alterarEmMassa(linhas, new Set(['a', 'c']), 'validade', 'substituir', '/2025', '/2030');
+    expect(r.alteradas).toBe(1);
+    expect(r.linhas[0].registro.validade).toBe('2026-11-03T00:00:00Z');
+    expect(r.linhas[2].registro.validade).toBe('31/12/2030');
   });
 });
 
