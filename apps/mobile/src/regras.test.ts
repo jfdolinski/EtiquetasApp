@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { adicionarProduto, colunasVisiveis, corpoDaBusca, impressoraDoModelo, parametrosDaBusca, registrosDoCodigo, avisosNovos, chavesDosAvisos, codigoValido, lerQrDeVinculo, pendentesPorModelo, quantidadeValida, registroParaDigitar, servidorValido, tempoDesde, versaoMaisNova } from './regras.ts';
+import { adicionarProduto, colunasVisiveis, contaExibicao, corpoDaBusca, linkDeBannerValido, impressoraDoModelo, parametrosDaBusca, registrosDoCodigo, avisosNovos, chavesDosAvisos, codigoValido, lerQrDeVinculo, pendentesPorModelo, quantidadeValida, registroParaDigitar, servidorValido, tempoDesde, versaoMaisNova } from './regras.ts';
 
 test('QR de vínculo: lê o formato certo', () => {
   assert.deepEqual(lerQrDeVinculo('etiquetas://vincular?servidor=https%3A%2F%2Fapp.exemplo.com&codigo=ABCDEFGH23'), { servidor: 'https://app.exemplo.com', codigo: 'ABCDEFGH23' });
@@ -81,10 +81,11 @@ test('avisos novos: a primeira carga não avisa; repetição e novo avisam; reso
 });
 
 test('sempre as 5 primeiras colunas, na ordem do modelo', () => {
-  assert.deepEqual(colunasVisiveis(['codigo', 'descricao', 'preco', 'unidade', 'marca', 'estoque'], [{ preco: 1, codigo: 2 }]), ['codigo', 'descricao', 'preco', 'unidade', 'marca']);
-  // Modelo sem colunas cadastradas: usa as dos registros. Com menos de 5: completa.
-  assert.deepEqual(colunasVisiveis([], [{ a: 1, b: 2, c: 3, d: 4, e: 5, f: 6 }]), ['a', 'b', 'c', 'd', 'e']);
-  assert.deepEqual(colunasVisiveis(['a'], [{ a: 1, b: 2 }]), ['a', 'b']);
+  assert.deepEqual(colunasVisiveis(['codigo', 'descricao', 'preco', 'unidade', 'marca', 'estoque'], [{ preco: 1, codigo: 2 }]), ['codigo', 'descricao', 'preco', 'unidade', 'marca', 'estoque']);
+  // Modelo sem colunas cadastradas: usa as dos registros, sem limite de quantidade.
+  assert.deepEqual(colunasVisiveis([], [{ a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7 }]), ['a', 'b', 'c', 'd', 'e', 'f', 'g']);
+  // O que só os registros trazem vem depois das colunas do modelo.
+  assert.deepEqual(colunasVisiveis(['a'], [{ b: 2, a: 1 }]), ['a', 'b']);
   assert.deepEqual(colunasVisiveis([], []), []);
 });
 
@@ -100,6 +101,17 @@ test('código lido: o igual ganha dos parecidos, ignorando zeros à esquerda', (
   const b = { ean: '78910001001039', nome: 'B' };
   assert.deepEqual(registrosDoCodigo([a, b], '7891000100103'), [a]);
   assert.deepEqual(registrosDoCodigo([], '1'), []);
+});
+
+test('banner: conta exibição uma vez a cada 10 minutos e só abre link http(s)', () => {
+  assert.equal(contaExibicao(undefined, 1000), true);
+  assert.equal(contaExibicao(1000, 1000 + 10 * 60_000 - 1), false);
+  assert.equal(contaExibicao(1000, 1000 + 10 * 60_000), true);
+  assert.equal(linkDeBannerValido('https://exemplo.com.br/oferta'), true);
+  assert.equal(linkDeBannerValido('http://exemplo.com.br'), true);
+  assert.equal(linkDeBannerValido('javascript:alert(1)'), false);
+  assert.equal(linkDeBannerValido('intent://x'), false);
+  assert.equal(linkDeBannerValido(null), false);
 });
 
 test('nada a ver com o termo não é resultado: vira produto não encontrado', () => {

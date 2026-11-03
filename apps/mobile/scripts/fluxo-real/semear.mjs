@@ -25,6 +25,10 @@ const criada = await pedir('POST', '/empresas', { token: superL.token, corpo: { 
 const empresaId = (criada.empresa ?? criada).id;
 const { token } = await pedir('POST', '/auth/login', { corpo: { email: adminEmail, senha: 'SenhaAdmin123' } });
 
+// Banner com imagem de verdade (um pixel): o emulador confere que aparece no aparelho.
+const hoje = new Date().toISOString().slice(0, 10);
+await pedir('POST', '/banners', { token: superL.token, corpo: { anunciante: 'Anunciante do fluxo', texto: 'Oferta de teste', imagem: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', link: 'https://exemplo.com.br', inicio: hoje } });
+
 const ag = await pedir('POST', '/agentes', { token, corpo: { nome: 'Agente do fluxo' } });
 const agenteId = ag.agente?.id ?? ag.id;
 const codigoAtivacao = ag.codigoAtivacao ?? ag.codigo;

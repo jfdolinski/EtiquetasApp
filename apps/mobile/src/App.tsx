@@ -8,6 +8,7 @@ import type { NotificacaoResumo } from '../../../packages/shared/src/notificacoe
 import type { UsuarioLogado } from '../../../packages/shared/src/tipos';
 import { apagarSessao, clienteDa, gravarSessao, lerSessao, versaoPublicada, type Sessao } from './api';
 import { avisarAgora, prepararNotificacoes, tokenDePush } from './avisos';
+import { BannerPublicidade } from './BannerPublicidade';
 import { avisosNovos, chavesDosAvisos, versaoMaisNova } from './regras';
 import { TelaAvisos } from './TelaAvisos';
 import { MEMORIA_AVULSA_VAZIA, TelaAvulsa, type MemoriaAvulsa } from './TelaAvulsa';
@@ -187,6 +188,7 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
           />
         )}
       </View>
+      <BannerPublicidade api={api} />
       <View style={estilos.abas} accessibilityRole="tablist">
         <BotaoAba rotulo="Início" ativa={aba === 'inicio'} aoTocar={() => setAba('inicio')} />
         <BotaoAba rotulo="Lista do dia" ativa={aba === 'lista'} aoTocar={() => setAba('lista')} />

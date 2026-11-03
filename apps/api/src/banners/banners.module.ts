@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { IsBoolean, IsNumber, IsOptional, IsString, Matches, MaxLength, Min, MinLength } from 'class-validator';
 import type { BannerPublicitario, BannerVigente } from '@etiquetas/shared';
-import { ApenasSuperAdmin, UsuarioAtual } from '../auth/decorators';
+import { ApenasSuperAdmin, PermitidoNoApp, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { hojeNoFuso } from '../cobranca/mensagens-cobranca.service';
@@ -189,8 +189,9 @@ export class BannersService {
 export class BannersController {
   constructor(private readonly banners: BannersService) {}
 
-  /** Qualquer usuário logado: o espaço aparece para todos. */
+  /** Qualquer usuário logado: o espaço aparece para todos, no site e no aplicativo. */
   @Get('vigentes')
+  @PermitidoNoApp()
   vigentes() {
     return this.banners.vigentes();
   }
@@ -222,12 +223,14 @@ export class BannersController {
 
   /** O super-admin conferindo o próprio cadastro não infla os números vendidos ao anunciante. */
   @Post(':id/exibicao')
+  @PermitidoNoApp()
   @HttpCode(204)
   async exibicao(@Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() usuario: UsuarioRequisicao) {
     if (!usuario.superAdmin) await this.banners.contar(id, 'exibicoes');
   }
 
   @Post(':id/clique')
+  @PermitidoNoApp()
   @HttpCode(204)
   async clique(@Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() usuario: UsuarioRequisicao) {
     if (!usuario.superAdmin) await this.banners.contar(id, 'cliques');

@@ -20,6 +20,8 @@ function vigiarErros(page: Page) {
 
 async function vincular(page: Page, empresa: EmpresaTeste) {
   const v = await pedir('POST', '/app/vinculos', { token: empresa.adminToken });
+  // Um IP por vínculo: o limite de 10 por minuto é da API, não destes testes.
+  await page.setExtraHTTPHeaders({ 'x-forwarded-for': `10.88.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}` });
   await page.goto('/');
   await page.getByRole('button', { name: 'Digitar o código' }).click();
   await page.getByLabel('Endereço do sistema').fill(new URL(API).origin);
@@ -108,22 +110,75 @@ test('avisos aparecem, ficam lidos, e desvincular no sistema derruba o app', asy
   expect(erros).toEqual([]);
 });
 
-test('Lista do dia mostra os 5 primeiros campos, um abaixo do outro', async ({ page }) => {
+test('Lista do dia mostra todos os campos, um abaixo do outro, e o valor longo termina em reticências', async ({ page }) => {
   const outra = await criarEmpresa(await superToken());
   const { itemIds } = await montarListaDeHoje(outra, { produtos: ['7891000100103'] });
-  await sql(`UPDATE itens_lista SET registro = $2 WHERE id = $1`, [itemIds[0], JSON.stringify({ codigo: 'C1', nome: 'Café', preco: '4.99', un: 'UN', marca: 'Acme', estoque: 'NAO-MOSTRAR' })]);
+  const longo = `Descrição muito comprida ${'de produto '.repeat(12)}fim`;
+  const registro = { codigo: 'C1', nome: 'Café', preco: '4.99', un: 'UN', marca: 'Acme', estoque: 'Sexto', local: 'Sétimo', grupo: 'Oitavo', obs: longo };
+  await sql(`UPDATE itens_lista SET registro = $2 WHERE id = $1`, [itemIds[0], JSON.stringify(registro)]);
   await vincular(page, outra);
   await page.getByRole('tab', { name: 'Lista do dia' }).click();
-  await expect(page.getByText('C1', { exact: true })).toBeVisible();
-  await expect(page.getByText('Café', { exact: true })).toBeVisible();
-  await expect(page.getByText('4.99', { exact: true })).toBeVisible();
-  await expect(page.getByText('NAO-MOSTRAR')).toBeHidden();
+  for (const valor of ['C1', 'Café', '4.99', 'UN', 'Acme', 'Sexto', 'Sétimo', 'Oitavo']) await expect(page.getByText(valor, { exact: true })).toBeVisible();
   // Um abaixo do outro: cada campo começa abaixo do anterior, na mesma coluna.
   const a = (await page.getByText('C1', { exact: true }).boundingBox())!;
   const b = (await page.getByText('Café', { exact: true }).boundingBox())!;
   expect(Math.abs(b.y - a.y)).toBeGreaterThan(10);
   expect(Math.abs(b.x - a.x)).toBeLessThan(2);
+  // Longo não quebra a linha: mesma altura de um valor curto, cortado no fim com reticências.
+  const celula = page.getByText(longo, { exact: true });
+  const caixa = (await celula.boundingBox())!;
+  expect(Math.abs(caixa.height - b.height)).toBeLessThan(2);
+  const corte = await celula.evaluate((el) => ({ reticencias: getComputedStyle(el).textOverflow, cortado: el.scrollWidth > el.clientWidth }));
+  expect(corte).toEqual({ reticencias: 'ellipsis', cortado: true });
+  // E nada vaza para o lado no celular.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   await page.screenshot({ path: 'test-results/app-lista-colunas.png' });
+});
+
+test('banner aparece no aplicativo, conta exibição e clique, e some quando sai do ar', async ({ page, context }) => {
+  const erros = vigiarErros(page);
+  const token = await superToken();
+  const outra = await criarEmpresa(token);
+  const anunciante = `Anunciante ${Date.now()}`;
+  const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  await context.route('**://exemplo.com.br/**', (r) => r.fulfill({ contentType: 'text/html', body: 'Oferta' }));
+  const { j: banner } = await pedir('POST', '/banners', { token, corpo: { anunciante, texto: 'Oferta do anunciante', imagem: png, link: 'https://exemplo.com.br/oferta', valorMensal: 99, contato: 'segredo@anunciante', inicio: hoje } });
+  try {
+    await vincular(page, outra);
+    await expect(page.getByText(`Publicidade · ${anunciante}`)).toBeVisible();
+    // Nas outras guias também, e sem botão de fechar.
+    await page.getByRole('tab', { name: 'Avisos' }).click();
+    await expect(page.getByText(`Publicidade · ${anunciante}`)).toBeVisible();
+    await expect(page.getByRole('button', { name: /fechar/i })).toHaveCount(0);
+    await page.screenshot({ path: 'test-results/app-banner.png' });
+    await expect.poll(async () => (await sql<{ exibicoes: number }>('SELECT exibicoes FROM banners_publicitarios WHERE id = $1', [banner.id]))[0].exibicoes).toBe(1);
+
+    const [aba] = await Promise.all([context.waitForEvent('page'), page.getByRole('link', { name: 'Oferta do anunciante' }).click()]);
+    expect(aba.url()).toContain('exemplo.com.br/oferta');
+    await aba.close();
+    await expect.poll(async () => (await sql<{ cliques: number }>('SELECT cliques FROM banners_publicitarios WHERE id = $1', [banner.id]))[0].cliques).toBe(1);
+    // Trocar de guia e voltar não conta outra exibição.
+    await page.getByRole('tab', { name: 'Início' }).click();
+    expect((await sql<{ exibicoes: number }>('SELECT exibicoes FROM banners_publicitarios WHERE id = $1', [banner.id]))[0].exibicoes).toBe(1);
+
+    const v = await pedir('POST', '/app/vinculos', { token: outra.adminToken });
+    const celular = await pedir('POST', '/app/vincular', { corpo: { codigo: v.j.codigo, nome: 'Outro', plataforma: 'ANDROID', versao: '1.0.0' } });
+    const vigentes = await pedir('GET', '/banners/vigentes', { token: celular.j.token });
+    expect(vigentes.status).toBe(200);
+    const visto = vigentes.j.find((b: any) => b.id === banner.id);
+    expect(visto.valorMensal).toBeUndefined();
+    expect(visto.contato).toBeUndefined();
+    // O token do celular só lê: o cadastro continua fora do alcance dele.
+    expect((await pedir('GET', '/banners', { token: celular.j.token })).status).toBe(403);
+    expect((await pedir('DELETE', `/banners/${banner.id}`, { token: celular.j.token })).status).toBe(403);
+  } finally {
+    await pedir('DELETE', `/banners/${banner.id}`, { token });
+  }
+  await page.reload();
+  await expect(page.getByRole('tab', { name: 'Início' })).toBeVisible();
+  await expect(page.getByText(`Publicidade · ${anunciante}`)).toHaveCount(0);
+  expect(erros).toEqual([]);
 });
 
 test('Etiqueta avulsa: busca, soma o produto repetido, escolhe entre vários e imprime', async ({ page }) => {
@@ -134,8 +189,8 @@ test('Etiqueta avulsa: busca, soma o produto repetido, escolhe entre vários e i
   await page.route('**/api/avulsa/modelos', (r) => r.fulfill({ json: [{ id: modeloId, nome: 'Gôndola', impressoraId, impressoraLinguagem: 'ZPL', parametros: ['busca'], campos: ['codigo', 'nome', 'preco', 'un', 'marca', 'estoque'], folha: null }] }));
   await page.route('**/api/avulsa/buscar', async (r) => {
     const termo = r.request().postDataJSON().parametros.busca;
-    const A = { codigo: '789', nome: 'Café', preco: '4.99', un: 'UN', marca: 'Acme', estoque: 'NAO-MOSTRAR' };
-    const B = { codigo: '790', nome: 'Café forte', preco: '5.99', un: 'UN', marca: 'Acme', estoque: 'NAO-MOSTRAR' };
+    const A = { codigo: '789', nome: 'Café', preco: '4.99', un: 'UN', marca: 'Acme', estoque: 'SEXTO-A' };
+    const B = { codigo: '790', nome: 'Café forte', preco: '5.99', un: 'UN', marca: 'Acme', estoque: 'SEXTO-B' };
     await r.fulfill({ json: { registros: termo === '789' ? [A] : termo === 'cafe' ? [A, B] : [], colunas: [], banidos: 0 } });
   });
   await vincular(page, outra);
@@ -156,7 +211,7 @@ test('Etiqueta avulsa: busca, soma o produto repetido, escolhe entre vários e i
   await page.getByRole('button', { name: 'Buscar' }).click();
   await expect(page.getByText('Produto adicionado à lista.')).toBeVisible();
   await expect(page.getByText('4.99', { exact: true })).toBeVisible();
-  await expect(page.getByText('NAO-MOSTRAR')).toBeHidden();
+  await expect(page.getByText('SEXTO-A')).toBeVisible();
 
   await campo.fill('789');
   await page.getByRole('button', { name: 'Buscar' }).click();

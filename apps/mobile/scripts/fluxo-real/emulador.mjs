@@ -139,6 +139,7 @@ await tocar('=Vincular');
 if (await aguardar('=Allow', 10_000)) await tocar('=Allow');
 await confere('Mercado Fluxo', 30_000);
 print('inicio');
+await confere('Publicidade · Anunciante do fluxo', 15_000);
 
 // ---- Lista do dia ----
 await tocar('Lista do dia');
@@ -146,6 +147,8 @@ await confere('pendente');
 await espera(1500);
 print('lista');
 await confere('Café torrado');
+// A sexta coluna da consulta também aparece, agora que são todas.
+await confere('SEXTA-COLUNA', 10_000);
 
 // ---- Etiqueta avulsa ----
 await tocar('Etiqueta avulsa');

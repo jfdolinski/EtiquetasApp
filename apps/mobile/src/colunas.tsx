@@ -2,14 +2,14 @@ import { StyleSheet, Text, View } from 'react-native';
 import { textoCelula } from './regras';
 import { cores } from './ui';
 
-/** Os campos do produto um abaixo do outro: o nome da coluna e, ao lado, o valor. */
+/** Os campos do produto um abaixo do outro: o nome da coluna e, ao lado, o valor, sempre em uma linha só. */
 export function CamposDoProduto({ colunas, registro }: { colunas: string[]; registro: Record<string, unknown> }) {
   return (
     <View style={{ flex: 1, minWidth: 0 }}>
       {colunas.map((c) => (
         <View key={c} style={estilos.linha}>
           <Text style={estilos.rotulo} numberOfLines={1}>{c}</Text>
-          <Text style={estilos.valor}>{textoCelula(registro[c]) || '—'}</Text>
+          <Text style={estilos.valor} numberOfLines={1} ellipsizeMode="tail">{textoCelula(registro[c]) || '—'}</Text>
         </View>
       ))}
     </View>

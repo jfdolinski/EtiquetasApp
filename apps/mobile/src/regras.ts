@@ -104,8 +104,6 @@ export interface LinhaAvulsa {
   quantidade: number;
 }
 
-export const COLUNAS_NO_CELULAR = 5;
-
 export interface ImpressoraApp {
   id: string;
   nome: string;
@@ -117,9 +115,21 @@ export function textoCelula(v: unknown): string {
   return typeof v === 'object' ? JSON.stringify(v) : String(v);
 }
 
-/** As primeiras colunas do modelo; sem cadastro (ou com menos de 3), completa com as dos registros. */
-export function colunasVisiveis(doModelo: readonly string[], registros: readonly Registro[], quantas = COLUNAS_NO_CELULAR): string[] {
-  return [...new Set([...doModelo, ...registros.flatMap((r) => Object.keys(r))])].slice(0, quantas);
+/** Todas as colunas: primeiro as do modelo, na ordem dele, depois as que só os registros trazem. */
+export function colunasVisiveis(doModelo: readonly string[], registros: readonly Registro[]): string[] {
+  return [...new Set([...doModelo, ...registros.flatMap((r) => Object.keys(r))])];
+}
+
+/** O mesmo intervalo do site: trocar de guia ou voltar ao app não vira exibição nova para o anunciante. */
+export const INTERVALO_EXIBICAO_MS = 10 * 60_000;
+
+export function contaExibicao(ultima: number | undefined, agora: number): boolean {
+  return ultima === undefined || agora - ultima >= INTERVALO_EXIBICAO_MS;
+}
+
+/** O servidor já recusa outros endereços; aqui é a segunda trava antes de abrir fora do app. */
+export function linkDeBannerValido(link: string | null): link is string {
+  return !!link && /^https?:\/\/\S+$/i.test(link);
 }
 
 /** Em qual {param.*} vai o valor buscado; os outros seguem nulos. Mesma regra do site (shared/avulsa.ts). */
