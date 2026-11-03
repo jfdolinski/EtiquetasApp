@@ -61,6 +61,81 @@ describe('CatalogoService', () => {
     });
   });
 
+  describe('avisarConsulta', () => {
+    const colunas = [{ nome: 'CodBarras', tipo: 'texto' }, { nome: 'descricao', tipo: 'texto' }];
+    const esperar = () => new Promise((r) => setTimeout(r, 20));
+    const comChave = () => buscaMarca.mockResolvedValue({ chaveCatalogoCifrada: cifrar('segredo', config().chaveCriptografia) });
+    const urls = () => pedido.mock.calls.map((c) => String(c[0]).replace(`${BASE}/api/v1/barcodes/`, ''));
+    // Serviço novo a cada teste: os códigos já avisados ficam guardados nele.
+    const novo = () => new CatalogoService({ marcaPost: { findUnique: buscaMarca } } as never);
+
+    it('avisa com a chave, na forma do catálogo, e uma vez só por dia', async () => {
+      comChave();
+      pedido.mockImplementation(async () => resposta({}));
+      const s = novo();
+      const linhas = [['07896004801216', 'A'], ['0000001343519', 'B'], ['12345670', 'C'], ['17896004801213', 'D'], ['7896004801216', 'repetido'], ['5692', 'interno'], [null, 'vazio']];
+      s.avisarConsulta('e', { colunas, linhas });
+      await esperar();
+      expect(urls().sort()).toEqual(['0000001343519', '12345670', '17896004801213', '7896004801216']);
+      expect((pedido.mock.calls[0][1] as RequestInit).headers).toEqual({ 'X-Api-Key': 'segredo' });
+      pedido.mockClear();
+      s.avisarConsulta('e', { colunas, linhas });
+      await esperar();
+      expect(pedido).not.toHaveBeenCalled();
+      s.avisarConsulta('outra', { colunas, linhas });
+      await esperar();
+      expect(pedido).toHaveBeenCalledTimes(4);
+    });
+
+    it('sem chave, sem coluna de barras ou sem catálogo não chama nada', async () => {
+      const s = novo();
+      s.avisarConsulta('e', { colunas, linhas: [['7896004801216', 'A']] });
+      comChave();
+      s.avisarConsulta('e2', { colunas: [{ nome: 'codigo', tipo: 'texto' }], linhas: [['7896004801216']] });
+      await esperar();
+      expect(pedido).not.toHaveBeenCalled();
+    });
+
+    it('na busca que leu linhas a mais, só avisa as que têm o termo', async () => {
+      comChave();
+      pedido.mockImplementation(async () => resposta({}));
+      novo().avisarConsulta('e', { colunas, linhas: [['7896004801216', 'Dipirona'], ['7891000100103', 'Outro']] }, 'dipi');
+      await esperar();
+      expect(urls()).toEqual(['7896004801216']);
+    });
+
+    it('catálogo fora do ar não derruba nada e a próxima consulta tenta de novo', async () => {
+      comChave();
+      pedido.mockRejectedValueOnce(new Error('rede'));
+      const s = novo();
+      const r = { colunas, linhas: [['7896004801216', 'A']] };
+      s.avisarConsulta('e', r);
+      await esperar();
+      pedido.mockImplementation(async () => resposta({}));
+      s.avisarConsulta('e', r);
+      await esperar();
+      expect(pedido).toHaveBeenCalledTimes(2);
+    });
+
+    it('chave recusada descarta o resto da fila daquela empresa', async () => {
+      comChave();
+      pedido.mockImplementation(async () => resposta({}, 401));
+      const linhas = Array.from({ length: 50 }, (_, i) => [String(7896004800000 + i), 'x']);
+      novo().avisarConsulta('e', { colunas, linhas });
+      await esperar();
+      expect(pedido.mock.calls.length).toBeLessThanOrEqual(4);
+    });
+
+    it('limita os avisos de uma consulta enorme', async () => {
+      comChave();
+      pedido.mockImplementation(async () => resposta({}));
+      const linhas = Array.from({ length: 1500 }, (_, i) => [String(7896004800000 + i), 'x']);
+      novo().avisarConsulta('e', { colunas, linhas });
+      await new Promise((r) => setTimeout(r, 300));
+      expect(pedido).toHaveBeenCalledTimes(1000);
+    });
+  });
+
   it('envia a chave da empresa e tenta sem os zeros à esquerda', async () => {
     buscaMarca.mockResolvedValue({ chaveCatalogoCifrada: cifrar('segredo', config().chaveCriptografia) });
     pedido.mockResolvedValueOnce(resposta({}, 404)).mockResolvedValueOnce(resposta({ name: 'Café', images: [] }));

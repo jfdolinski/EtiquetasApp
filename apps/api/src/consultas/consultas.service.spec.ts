@@ -1,6 +1,7 @@
 import { BadRequestException, NotFoundException, ServiceUnavailableException, UnprocessableEntityException } from '@nestjs/common';
 import type { ConexoesService } from '../agentes/conexoes.service';
 import type { AuditoriaService } from '../auditoria/auditoria.service';
+import type { CatalogoService } from '../posts/catalogo.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import { agoraNoFuso, ConsultasService, hashCampos } from './consultas.service';
 
@@ -58,10 +59,12 @@ function montar() {
       duracaoMs: 3,
     })),
   };
+  const catalogo = { avisarConsulta: jest.fn() };
   return {
-    servico: new ConsultasService(prisma as unknown as PrismaService, auditoria, conexoes as unknown as ConexoesService),
+    servico: new ConsultasService(prisma as unknown as PrismaService, auditoria, conexoes as unknown as ConexoesService, catalogo as unknown as CatalogoService),
     prisma,
     conexoes,
+    catalogo,
   };
 }
 
@@ -84,6 +87,40 @@ describe('buscarPorTermo', () => {
     return m;
   };
   const chamadas = (m: ReturnType<typeof montar>) => m.conexoes.executar.mock.calls.map((c) => ({ sql: c[2] as string, parametros: c[3], limite: c[4] }));
+
+  describe('aviso ao catálogo', () => {
+    it('avisa o que a busca achou, sem o termo quando o banco já filtrou', async () => {
+      const m = preparar();
+      const r = resultado([['789']]);
+      m.conexoes.executar.mockResolvedValueOnce(r as never);
+      await m.servico.buscarPorTermo(EMPRESA, 'q1', 'u1', '789', 5000);
+      expect(m.catalogo.avisarConsulta).toHaveBeenCalledWith(EMPRESA, r);
+    });
+
+    it('quando leu a tabela sem filtro, passa o termo para não avisar o resto das linhas', async () => {
+      const m = preparar();
+      const r = resultado([['789'], ['111']]);
+      m.conexoes.executar.mockRejectedValueOnce(new BadRequestException('sintaxe') as never).mockResolvedValueOnce(r as never);
+      await m.servico.buscarPorTermo(EMPRESA, 'q1', 'u1', '789', 5000);
+      expect(m.catalogo.avisarConsulta).toHaveBeenCalledWith(EMPRESA, r, '789');
+    });
+
+    it('execução salva avisa; prévia e leitura dos campos não', async () => {
+      const m = preparar();
+      await m.servico.previa(EMPRESA, { conexaoId: 'c1', sql: SQL }, 'u1');
+      await m.servico.atualizarCampos(EMPRESA, 'q1', 'u1');
+      expect(m.catalogo.avisarConsulta).not.toHaveBeenCalled();
+      await m.servico.executar(EMPRESA, 'q1', 'u1', {}, 100);
+      expect(m.catalogo.avisarConsulta).toHaveBeenCalledTimes(1);
+    });
+
+    it('consulta que falha não avisa', async () => {
+      const m = preparar();
+      m.conexoes.executar.mockRejectedValueOnce(new ServiceUnavailableException('offline') as never);
+      await expect(m.servico.executar(EMPRESA, 'q1', 'u1', {}, 100)).rejects.toThrow();
+      expect(m.catalogo.avisarConsulta).not.toHaveBeenCalled();
+    });
+  });
 
   it('código exato achado no banco: uma consulta só, filtrada e com parâmetro ligado', async () => {
     const m = preparar();

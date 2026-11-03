@@ -194,6 +194,6 @@ export class PostsController {
 @Module({
   imports: [ConsultasModule, BanidosModule],
   controllers: [PostsController],
-  providers: [PostsService, CatalogoService],
+  providers: [PostsService],
 })
 export class PostsModule {}

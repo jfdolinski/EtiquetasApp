@@ -27,6 +27,7 @@ import { ConexoesService } from '../agentes/conexoes.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { config } from '../config';
 import { sha256 } from '../cripto';
+import { CatalogoService } from '../posts/catalogo.service';
 import { ehViolacaoUnica } from '../prisma/erros';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AtualizarConsultaDto, CriarConsultaDto, PreviaConsultaDto, PreviaPlanilhaDto, ValoresParametros } from './dto';
@@ -118,6 +119,7 @@ export class ConsultasService {
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
     private readonly conexoes: ConexoesService,
+    private readonly catalogo: CatalogoService,
   ) {}
 
   async listar(empresaId: string): Promise<ConsultaSqlResumo[]> {
@@ -275,7 +277,9 @@ export class ConsultasService {
   ): Promise<ResultadoConsulta> {
     const consulta = await this.buscar(empresaId, id);
     if (!consulta.ativo) throw new BadRequestException('Esta consulta está desativada.');
-    return this.executarSelecionada(empresaId, consulta, usuarioId, parametros, limiteLinhas);
+    const resultado = await this.executarSelecionada(empresaId, consulta, usuarioId, parametros, limiteLinhas);
+    this.catalogo.avisarConsulta(empresaId, resultado);
+    return resultado;
   }
 
   /**
@@ -300,6 +304,7 @@ export class ConsultasService {
           // Vazio na última etapa é resposta: o produto não está no banco.
           if (r.linhas.length || i === etapas.length - 1) {
             this.registrarExecucao(empresaId, consulta, r.duracaoMs ?? Date.now() - inicio, r.linhas.length, null);
+            this.catalogo.avisarConsulta(empresaId, r);
             return r;
           }
         }
@@ -309,7 +314,9 @@ export class ConsultasService {
         this.log.warn(`Consulta ${consulta.id}: filtro no banco recusado, lendo as linhas (${erro.message.slice(0, 200)})`);
       }
     }
-    return this.executarSelecionada(empresaId, consulta, usuarioId, {}, limiteLinhas);
+    const resultado = await this.executarSelecionada(empresaId, consulta, usuarioId, {}, limiteLinhas);
+    this.catalogo.avisarConsulta(empresaId, resultado, termo);
+    return resultado;
   }
 
   /**
