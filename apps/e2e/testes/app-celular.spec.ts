@@ -138,7 +138,8 @@ test('Lista do dia mostra todos os campos, um abaixo do outro, e o valor longo t
 test('data aparece como DD/MM/AAAA e o parâmetro limita as linhas de cada produto, valendo ao reabrir', async ({ page }) => {
   const outra = await criarEmpresa(await superToken());
   const { itemIds } = await montarListaDeHoje(outra, { produtos: ['7891000100103'] });
-  const registro = { codigo: 'C1', validade: '2026-11-03T00:00:00Z', nome: 'Café', marca: 'Acme' };
+  // O banco guarda as chaves da mais curta para a mais longa: un, nome, validade, fornecedor.
+  const registro = { un: 'UN', nome: 'Café', validade: '2026-11-03T00:00:00Z', fornecedor: 'Acme' };
   await sql(`UPDATE itens_lista SET registro = $2 WHERE id = $1`, [itemIds[0], JSON.stringify(registro)]);
   await vincular(page, outra);
   await page.getByRole('tab', { name: 'Lista do dia' }).click();
@@ -153,14 +154,16 @@ test('data aparece como DD/MM/AAAA e o parâmetro limita as linhas de cada produ
   await expect(page.getByLabel('Linhas por produto escolhidas')).toHaveText('2');
 
   await page.getByRole('tab', { name: 'Lista do dia' }).click();
-  // O modelo tem as próprias colunas, que vêm primeiro: com 2 linhas, os campos do fim saem da tela.
-  await expect(page.getByText('Lista do dia', { exact: true }).first()).toBeVisible();
+  // Primeiro espera a lista carregar: antes disso, nenhum campo aparece.
+  await expect(page.getByText('Café', { exact: true })).toBeVisible();
+  await expect(page.getByText('03/11/2026', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Acme', { exact: true })).toHaveCount(0);
 
   await page.reload();
   await page.getByRole('tab', { name: 'Lista do dia' }).click();
-  // O modelo tem as próprias colunas, que vêm primeiro: com 2 linhas, os campos do fim saem da tela.
-  await expect(page.getByText('Lista do dia', { exact: true }).first()).toBeVisible();
+  // Primeiro espera a lista carregar: antes disso, nenhum campo aparece.
+  await expect(page.getByText('Café', { exact: true })).toBeVisible();
+  await expect(page.getByText('03/11/2026', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Acme', { exact: true })).toHaveCount(0);
 
   await page.getByRole('tab', { name: 'Avisos' }).click();
