@@ -428,6 +428,9 @@ model ConsultaSql {
   /// SHA-256 de conexaoId + sql quando os campos foram lidos; diferente do atual = desatualizados.
   camposHash          String?            @map("campos_hash")
   camposAtualizadosEm DateTime?          @map("campos_atualizados_em")
+  /// Nomes das colunas nas telas, definidos pelo super-admin. Só valem com o mesmo hash de campos: mudou a consulta, voltam os originais.
+  rotulosColunas      Json               @default("{}") @map("rotulos_colunas")
+  rotulosHash         String?            @map("rotulos_hash")
   /// Consulta do template do ERP de onde esta foi copiada.
   templateConsultaId  String?            @map("template_consulta_id") @db.Uuid
   /// SHA-256 do SQL do template no momento da cópia: compara com a consulta (ajustada?)

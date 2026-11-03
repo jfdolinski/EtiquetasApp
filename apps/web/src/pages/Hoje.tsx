@@ -8,6 +8,7 @@ import {
   registroBanido,
   textoNaTela,
   type BanirResposta,
+  type RotulosColunas,
   type ImprimirResposta,
   type ItemListaResumo,
   type LimitesFolha,
@@ -16,6 +17,7 @@ import {
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { BanirProdutos } from '../components/BanirProdutos';
+import { BotaoRenomearColunas, NomeDaColuna, useRenomearColunas } from '../components/RenomearColunas';
 import { ExigeEmpresa } from '../components/ExigeEmpresa';
 import { AcompanharTrabalhos } from '../components/Trabalhos';
 import { Alerta, Botao, Cabecalho, Selo, formatarData } from '../components/ui';
@@ -37,6 +39,8 @@ interface Grupo {
   itens: ItemListaResumo[];
   /** Todas as colunas que a consulta do modelo trouxe, na ordem dela. */
   colunas: string[];
+  consultaId: string | null;
+  rotulos: RotulosColunas;
 }
 
 function agrupar(lista: ListaDiariaResumo, itens: ItemListaResumo[]): Grupo[] {
@@ -54,6 +58,8 @@ function agrupar(lista: ListaDiariaResumo, itens: ItemListaResumo[]): Grupo[] {
         folha: modelos.get(item.modeloId)?.folha ?? null,
         itens: [],
         colunas: [...(modelos.get(item.modeloId)?.colunas ?? [])],
+        consultaId: modelos.get(item.modeloId)?.consultaId ?? null,
+        rotulos: modelos.get(item.modeloId)?.rotulos ?? {},
       });
     }
     const grupo = grupos.get(chave)!;
@@ -68,6 +74,7 @@ function ListaDoDia() {
   const navegar = useNavigate();
   const cliente = useQueryClient();
   const chave = ['lista-hoje', empresaId];
+  const renomear = useRenomearColunas(() => void cliente.invalidateQueries({ queryKey: chave }));
   const { data, isLoading, error } = useQuery({ queryKey: chave, queryFn: () => api<{ lista: ListaDiariaResumo | null }>('/listas/hoje') });
   const lista = data?.lista ?? null;
 
@@ -158,9 +165,12 @@ function ListaDoDia() {
             : 'Busca nos bancos do ERP os produtos que precisam de etiqueta hoje.'
         }
         acoes={
-          <Botao variante={lista ? 'secundario' : 'primario'} disabled={gerar.isPending} onClick={() => gerar.mutate()}>
-            {gerar.isPending ? 'Consultando…' : lista ? 'Atualizar lista' : 'Gerar lista de hoje'}
-          </Botao>
+          <div className="flex flex-wrap items-center gap-2">
+            <BotaoRenomearColunas renomear={renomear} disponivel={lista?.modelos.some((m) => m.consultaId) ?? false} />
+            <Botao variante={lista ? 'secundario' : 'primario'} disabled={gerar.isPending} onClick={() => gerar.mutate()}>
+              {gerar.isPending ? 'Consultando…' : lista ? 'Atualizar lista' : 'Gerar lista de hoje'}
+            </Botao>
+          </div>
         }
       />
       <div className="space-y-4">
@@ -208,7 +218,7 @@ function ListaDoDia() {
                     <th className="w-10 px-4 py-2" />
                     <th className="w-28 px-2 py-2 font-medium">Etiquetas</th>
                     {g.colunas.map((c) => (
-                      <th key={c} className="whitespace-nowrap px-2 py-2 font-medium">{c}</th>
+                      <th key={c} className="whitespace-nowrap px-2 py-2 font-medium"><NomeDaColuna renomear={renomear} consultaId={g.consultaId} rotulos={g.rotulos} coluna={c} /></th>
                     ))}
                     <th className="w-24 px-4 py-2" />
                   </tr>

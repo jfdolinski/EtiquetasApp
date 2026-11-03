@@ -1,9 +1,9 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put } from '@nestjs/common';
 import { ConexoesService } from '../agentes/conexoes.service';
-import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
+import { ApenasSuperAdmin, EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { ConsultasService } from './consultas.service';
-import { AtualizarConsultaDto, CriarConsultaDto, PreviaConsultaDto, PreviaPlanilhaDto } from './dto';
+import { AtualizarConsultaDto, CriarConsultaDto, PreviaConsultaDto, PreviaPlanilhaDto, SalvarRotulosDto } from './dto';
 
 @Controller('consultas')
 export class ConsultasController {
@@ -69,6 +69,12 @@ export class ConsultasController {
     @UsuarioAtual() autor: UsuarioRequisicao,
   ) {
     return this.consultas.atualizar(empresaId, id, dto, autor.id);
+  }
+
+  @Put(':id/rotulos')
+  @ApenasSuperAdmin()
+  salvarRotulos(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: SalvarRotulosDto, @UsuarioAtual() autor: UsuarioRequisicao) {
+    return this.consultas.salvarRotulos(empresaId, id, dto.rotulos, autor.id);
   }
 
   @Post(':id/atualizar-campos')

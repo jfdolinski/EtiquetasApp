@@ -88,6 +88,9 @@ export interface ListaDiariaResumo {
     folha: LimitesFolha | null;
     /** Colunas da consulta do modelo, na ordem dela (o banco reordena as chaves de `registro`). */
     colunas: string[];
+    /** Consulta do modelo; sem ela, não há coluna para renomear. */
+    consultaId: string | null;
+    rotulos: RotulosColunas;
   }[];
   impressoras: { id: string; nome: string; linguagem: LinguagemImpressora }[];
 }
@@ -114,6 +117,29 @@ export interface ImprimirResposta {
   avisos: string[];
 }
 
+/** Nome mostrado nas telas para cada coluna da consulta. Só muda o que aparece: os dados seguem com o nome original. */
+export type RotulosColunas = Record<string, string>;
+
+export const TAMANHO_MAXIMO_ROTULO = 60;
+
+export function rotuloDaColuna(rotulos: RotulosColunas | undefined, coluna: string): string {
+  return rotulos?.[coluna] || coluna;
+}
+
+/** O que será guardado: sem espaços nas pontas e sem nome vazio ou igual ao original. null = inválido. */
+export function normalizarRotulos(rotulos: Record<string, unknown>): RotulosColunas | null {
+  const novo: RotulosColunas = {};
+  const entradas = Object.entries(rotulos);
+  if (entradas.length > 500) return null;
+  for (const [coluna, valor] of entradas) {
+    if (typeof valor !== 'string') return null;
+    const texto = valor.trim();
+    if (texto.length > TAMANHO_MAXIMO_ROTULO) return null;
+    if (texto && texto !== coluna) novo[coluna] = texto;
+  }
+  return novo;
+}
+
 /** Modelo disponível para etiqueta avulsa: consulta de busca e os parâmetros que ela pede. */
 export interface ModeloAvulso {
   id: string;
@@ -124,6 +150,8 @@ export interface ModeloAvulso {
   parametros: string[];
   /** Campos do modelo: colunas da consulta e campos usados no layout (para incluir linhas à mão). */
   campos: string[];
+  consultaId: string | null;
+  rotulos: RotulosColunas;
   /** Mínimo e máximo de etiquetas por folha do modelo. */
   folha: LimitesFolha | null;
 }

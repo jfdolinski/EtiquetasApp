@@ -9,12 +9,15 @@ import {
   ordenarLinhas,
   QUANTIDADE_MAXIMA_ITEM,
   ROTULO_OPERACAO,
+  rotuloDaColuna,
   textoCelula,
   textoNaTela,
   type Direcao,
   type LinhaAvulsa,
   type OperacaoMassa,
+  type RotulosColunas,
 } from '@etiquetas/shared';
+import { BotaoRenomearColunas, NomeDaColuna, useRenomearColunas } from '../../components/RenomearColunas';
 import { Alerta, Botao } from '../../components/ui';
 
 const CLASSE_ENTRADA = 'w-full rounded border border-transparent bg-transparent px-1.5 py-1 text-sm hover:border-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none';
@@ -22,6 +25,10 @@ const CLASSE_ENTRADA = 'w-full rounded border border-transparent bg-transparent 
 interface Props {
   linhas: LinhaAvulsa[];
   colunas: string[];
+  /** Consulta do modelo e os nomes das colunas nas telas. */
+  consultaId: string | null;
+  rotulos: RotulosColunas;
+  aoRenomear: () => void;
   /** Troca a lista guardando a anterior para desfazer. */
   alterar: (novas: LinhaAvulsa[]) => void;
   /** Troca sem histórico (digitação em andamento). */
@@ -50,7 +57,7 @@ interface Props {
  * Grade editável da etiqueta avulsa: filtro geral e por coluna, ordenação pelo cabeçalho,
  * edição na célula, seleção, exclusão, duplicação e alteração em massa.
  */
-export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfazer, desfazer, novaLinha, focarId, pedidoFoco, colunaBusca, buscarProduto, buscando, banir, rodape }: Props) {
+export function Grade({ linhas, colunas, consultaId, rotulos, aoRenomear, alterar, substituir, lembrar, podeDesfazer, desfazer, novaLinha, focarId, pedidoFoco, colunaBusca, buscarProduto, buscando, banir, rodape }: Props) {
   const tabela = useRef<HTMLTableElement>(null);
   useEffect(() => {
     if (!pedidoFoco) return;
@@ -64,6 +71,7 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
   const [ordem, setOrdem] = useState<{ coluna: string; direcao: Direcao } | null>(null);
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
   const [massaAberta, setMassaAberta] = useState(false);
+  const renomear = useRenomearColunas(aoRenomear);
   // A célula sendo digitada mostra o texto como está: "04/11/20" não pode virar 04/11/2020 no meio da digitação.
   const [digitando, setDigitando] = useState<{ id: string; coluna: string } | null>(null);
 
@@ -71,8 +79,8 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
 
   // Cada coluna na largura do maior valor (de 8 a 42 caracteres), para não cortar a descrição.
   const larguras = useMemo(
-    () => Object.fromEntries(colunas.map((c) => [c, Math.min(42, Math.max(8, c.length + 3, ...linhas.map((l) => textoNaTela(l.registro[c]).length + 2)))])),
-    [linhas, colunas],
+    () => Object.fromEntries(colunas.map((c) => [c, Math.min(42, Math.max(8, rotuloDaColuna(rotulos, c).length + 3, ...linhas.map((l) => textoNaTela(l.registro[c]).length + 2)))])),
+    [linhas, colunas, rotulos],
   );
   const idsVisiveis = new Set(visiveis.map((l) => l.id));
   const selecionadasVisiveis = [...selecionadas].filter((id) => idsVisiveis.has(id));
@@ -140,11 +148,11 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
   const seta = (c: string) => (ordem?.coluna === c ? (ordem.direcao === 'asc' ? ' ▲' : ' ▼') : '');
   const cabecalho = (c: string, rotulo: string, classe = '') => (
     <th key={c} className={`px-2 py-2 text-left font-medium text-slate-600 ${classe}`}>
-      <button type="button" onClick={() => alternarOrdem(c)} className="whitespace-nowrap hover:text-blue-700" title="Ordenar a lista por esta coluna (clique de novo para inverter)">
+      {renomear.ativo && c !== COLUNA_QUANTIDADE ? <NomeDaColuna renomear={renomear} consultaId={consultaId} rotulos={rotulos} coluna={c} /> : <button type="button" onClick={() => alternarOrdem(c)} className="whitespace-nowrap hover:text-blue-700" title="Ordenar a lista por esta coluna (clique de novo para inverter)">
         {rotulo}
         {c === colunaBusca && buscarProduto && <span title="Ao preencher, busca o produto na consulta do modelo"> 🔍</span>}
         <span className="text-blue-700">{seta(c)}</span>
-      </button>
+      </button>}
     </th>
   );
   const filtroColuna = (c: string) => (
@@ -195,6 +203,7 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
         <Botao variante="secundario" onClick={desfazer} disabled={!podeDesfazer} title="Desfaz a última alteração da lista">
           ↶ Desfazer
         </Botao>
+        <BotaoRenomearColunas renomear={renomear} disponivel={consultaId !== null} />
         <span className="ml-auto text-xs text-slate-500">
           {filtrando ? `${visiveis.length} de ${linhas.length} linhas` : `${linhas.length} linha(s)`}
           {selecionadasVisiveis.length > 0 && ` · ${selecionadasVisiveis.length} selecionada(s)`}
@@ -205,6 +214,7 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
         <AlteracaoEmMassa
           linhas={linhas}
           colunas={colunas}
+          rotulos={rotulos}
           alvo={selecionadasVisiveis.length ? selecionadasVisiveis : visiveis.map((l) => l.id)}
           porSelecao={selecionadasVisiveis.length > 0}
           aplicar={alterar}
@@ -225,7 +235,7 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
                 />
               </th>
               {cabecalho(COLUNA_QUANTIDADE, 'Etiquetas', 'w-24')}
-              {colunas.map((c) => cabecalho(c, c))}
+              {colunas.map((c) => cabecalho(c, rotuloDaColuna(rotulos, c)))}
               <th className="w-20 px-2 py-2" />
             </tr>
             {mostrarFiltros && (
@@ -287,7 +297,7 @@ export function Grade({ linhas, colunas, alterar, substituir, lembrar, podeDesfa
                       }}
                       className={CLASSE_ENTRADA}
                       style={{ width: `${larguras[c]}ch` }}
-                      aria-label={c}
+                      aria-label={rotuloDaColuna(rotulos, c)}
                     />
                   </td>
                 ))}
@@ -321,6 +331,7 @@ const OPERACOES_TEXTO: OperacaoMassa[] = ['definir', 'limpar', 'substituir', 'pr
 function AlteracaoEmMassa({
   linhas,
   colunas,
+  rotulos,
   alvo,
   porSelecao,
   aplicar,
@@ -328,6 +339,7 @@ function AlteracaoEmMassa({
 }: {
   linhas: LinhaAvulsa[];
   colunas: string[];
+  rotulos: RotulosColunas;
   alvo: string[];
   porSelecao: boolean;
   aplicar: (novas: LinhaAvulsa[]) => void;
@@ -369,7 +381,7 @@ function AlteracaoEmMassa({
           <select value={coluna} onChange={(e) => (setColuna(e.target.value), setResultado(null))} className="mt-0.5 block rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
             <option value={COLUNA_QUANTIDADE}>Quantidade de etiquetas</option>
             {colunas.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>{rotuloDaColuna(rotulos, c)}</option>
             ))}
           </select>
         </label>

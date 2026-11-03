@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AVISO_BUSCA_INCOMPLETA,
   colunaDeBusca,
@@ -89,6 +89,7 @@ function useListaDoModelo(chave: string) {
 
 function EtiquetaAvulsa() {
   const { empresaId, pode } = useAuth();
+  const cliente = useQueryClient();
   const { data: modelos = [], isLoading } = useQuery({
     queryKey: ['avulsa-modelos', empresaId],
     queryFn: () => api<ModeloAvulso[]>('/avulsa/modelos'),
@@ -347,6 +348,9 @@ function EtiquetaAvulsa() {
             focarId={focarId}
             pedidoFoco={pedidoFoco}
             colunaBusca={colunaBusca}
+            consultaId={modelo?.consultaId ?? null}
+            rotulos={modelo?.rotulos ?? {}}
+            aoRenomear={() => void cliente.invalidateQueries({ queryKey: ['avulsa-modelos', empresaId] })}
             buscarProduto={(id, valor) => void buscarProduto(id, valor)}
             buscando={buscando}
             banir={pode('produto_banido.editar') ? setBanindo : undefined}

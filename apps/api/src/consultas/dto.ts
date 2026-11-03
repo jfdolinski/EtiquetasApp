@@ -58,6 +58,11 @@ export class CriarConsultaDto {
   aba?: string;
 }
 
+export class SalvarRotulosDto {
+  @IsObject()
+  rotulos: Record<string, unknown>;
+}
+
 /** Testa um arquivo no editor, antes de salvar a consulta. */
 export class PreviaPlanilhaDto {
   @IsUUID('all', { message: 'Selecione a conexão.' })

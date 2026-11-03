@@ -234,7 +234,7 @@ export function TelaAvulsa({ api, sessao, memoria, setMemoria }: { api: Api; ses
                 <Text style={estilos.rotulo}>Vários produtos encontrados. Toque no certo:</Text>
                 {escolha.map((r, i) => (
                   <Pressable key={i} accessibilityRole="button" onPress={() => incluir(r)} style={estilos.item}>
-                    <CamposDoProduto colunas={colunasVisiveis(modelo?.campos ?? [], escolha)} registro={r} />
+                    <CamposDoProduto colunas={colunasVisiveis(modelo?.campos ?? [], escolha)} rotulos={modelo?.rotulos} registro={r} />
                   </Pressable>
                 ))}
                 <Botao titulo="Cancelar" variante="secundario" onPress={() => setEscolha(null)} />
@@ -245,8 +245,8 @@ export function TelaAvulsa({ api, sessao, memoria, setMemoria }: { api: Api; ses
                 <Text style={estilos.rotulo}>Digite os dados do produto:</Text>
                 {Object.keys(digitando).map((c) => (
                   <View key={c} style={{ marginBottom: 8 }}>
-                    <Text style={estilos.sub}>{c}</Text>
-                    <TextInput accessibilityLabel={c} style={estilos.campoLinha} value={String(digitando[c] ?? '')} autoCorrect={false} onChangeText={(t) => setDigitando((d) => (d ? { ...d, [c]: t } : d))} />
+                    <Text style={estilos.sub}>{modelo?.rotulos?.[c] || c}</Text>
+                    <TextInput accessibilityLabel={modelo?.rotulos?.[c] || c} style={estilos.campoLinha} value={String(digitando[c] ?? '')} autoCorrect={false} onChangeText={(t) => setDigitando((d) => (d ? { ...d, [c]: t } : d))} />
                   </View>
                 ))}
                 <Botao titulo="Adicionar à lista" disabled={!Object.values(digitando).some((v) => String(v ?? '').trim())} onPress={() => incluir(digitando)} />
@@ -258,7 +258,7 @@ export function TelaAvulsa({ api, sessao, memoria, setMemoria }: { api: Api; ses
         }
         renderItem={({ item: l }) => (
           <View style={estilos.item}>
-            <CamposDoProduto colunas={colunas} registro={l.registro} />
+            <CamposDoProduto colunas={colunas} rotulos={modelo?.rotulos} registro={l.registro} />
             <View style={{ alignItems: 'center', gap: 4 }}>
               <Text style={estilos.tituloQtd}>Qtd.</Text>
               <TextInput

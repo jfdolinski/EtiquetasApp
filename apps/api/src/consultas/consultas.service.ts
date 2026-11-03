@@ -11,10 +11,13 @@ import {
   ehParametro,
   ErroPlaceholder,
   extrairPlaceholders,
+  normalizarRotulos,
   PARAMETRO_PLANILHA,
   planoDeBuscaNoBanco,
   PREFIXO_PARAMETRO,
+  TAMANHO_MAXIMO_ROTULO,
   type CampoDinamico,
+  type RotulosColunas,
   type ConsultaSqlResumo,
   type PreviaConsulta,
   type PreviaPlanilha,
@@ -69,6 +72,11 @@ export interface OrigemTemplate {
 type ConsultaSelecionada = Prisma.ConsultaSqlGetPayload<{ select: typeof SELECAO }>;
 
 type ReferenciaObrigatoria = { alias: string; nome: string; alternativos: string[]; obrigatoriaEm: FinalidadeConsulta[] };
+
+/** Os nomes das colunas valem só para a consulta em que foram dados: mudou o SQL, a conexão ou o arquivo, voltam os originais. */
+export function rotulosVigentes(c: { conexaoId: string; sql: string; arquivo: string | null; aba: string | null; rotulosColunas: unknown; rotulosHash: string | null }): RotulosColunas {
+  return c.rotulosHash === hashCampos(c.conexaoId, fonteDaConsulta(c)) ? (c.rotulosColunas as RotulosColunas) : {};
+}
 
 /** Hash que amarra os campos lidos ao SQL e à conexão de onde vieram. */
 export function hashCampos(conexaoId: string, sql: string): string {
@@ -353,6 +361,18 @@ export class ConsultasService {
   }
 
   /** Relê as colunas da consulta (ex.: depois que o agente voltou a ficar online). */
+  async salvarRotulos(empresaId: string, id: string, rotulos: Record<string, unknown>, autorId: string): Promise<{ rotulos: RotulosColunas }> {
+    const consulta = await this.buscar(empresaId, id);
+    const novos = normalizarRotulos(rotulos);
+    if (!novos) throw new BadRequestException(`Cada nome de coluna precisa ter até ${TAMANHO_MAXIMO_ROTULO} caracteres.`);
+    await this.prisma.consultaSql.update({
+      where: { id: consulta.id },
+      data: { rotulosColunas: novos, rotulosHash: hashCampos(consulta.conexaoId, fonteDaConsulta(consulta)) },
+    });
+    await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'consulta.renomear_colunas', entidade: 'ConsultaSql', entidadeId: consulta.id, detalhes: { rotulos: novos } });
+    return { rotulos: novos };
+  }
+
   async atualizarCampos(empresaId: string, id: string, autorId: string): Promise<SalvarConsultaResposta> {
     const consulta = await this.buscar(empresaId, id);
     return this.lerCamposAoSalvar(empresaId, consulta, autorId, true);

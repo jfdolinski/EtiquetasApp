@@ -27,7 +27,7 @@ import {
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { BanidosService } from '../banidos/banidos.service';
 import { config } from '../config';
-import { agoraNoFuso, ConsultasService } from '../consultas/consultas.service';
+import { agoraNoFuso, ConsultasService, rotulosVigentes } from '../consultas/consultas.service';
 import { validarRegistros } from '../modelos/modelos.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MAXIMO_ETIQUETAS_POR_PEDIDO, type AtualizarItemDto, type ImprimirAvulsaDto, type ImprimirListaDto } from './dto';
@@ -84,7 +84,7 @@ export class ListasService {
     });
     if (!lista) return null;
     const [modelos, impressoras] = await Promise.all([
-      this.prisma.modeloEtiqueta.findMany({ where: { empresaId }, select: { id: true, nome: true, layout: true, consulta: { select: { campos: true } } } }),
+      this.prisma.modeloEtiqueta.findMany({ where: { empresaId }, select: { id: true, nome: true, layout: true, consulta: { select: { id: true, campos: true, conexaoId: true, sql: true, arquivo: true, aba: true, rotulosColunas: true, rotulosHash: true } } } }),
       this.prisma.impressora.findMany({ where: { empresaId }, select: { id: true, nome: true, linguagem: true } }),
     ]);
     return {
@@ -98,6 +98,8 @@ export class ListasService {
         nome: m.nome,
         folha: limitesPorFolha(m.layout as unknown as LayoutEtiqueta),
         colunas: Array.isArray(m.consulta?.campos) ? (m.consulta.campos as { nome?: unknown }[]).map((c) => String(c?.nome ?? '')).filter(Boolean) : [],
+        consultaId: m.consulta?.id ?? null,
+        rotulos: m.consulta ? rotulosVigentes(m.consulta) : {},
       })),
       impressoras,
     };
@@ -370,7 +372,7 @@ export class ListasService {
         impressoraId: true,
         impressora: { select: { linguagem: true } },
         layout: true,
-        consulta: { select: { sql: true, campos: true, conexao: { select: { tipo: true } } } },
+        consulta: { select: { id: true, sql: true, campos: true, conexaoId: true, arquivo: true, aba: true, rotulosColunas: true, rotulosHash: true, conexao: { select: { tipo: true } } } },
       },
     });
     return modelos.map((m) => {
@@ -389,7 +391,7 @@ export class ListasService {
       // Campos da consulta (na ordem dela) e os que o layout usa: o operador pode digitar qualquer um.
       const daConsulta = Array.isArray(m.consulta!.campos) ? (m.consulta!.campos as { nome?: unknown }[]).map((c) => String(c?.nome ?? '')) : [];
       const campos = [...new Set([...daConsulta, ...camposUsados(m.layout as unknown as LayoutEtiqueta)].filter(Boolean))];
-      return { id: m.id, nome: m.nome, impressoraId: m.impressoraId, impressoraLinguagem: m.impressora?.linguagem ?? null, parametros, campos, folha: limitesPorFolha(m.layout as unknown as LayoutEtiqueta) };
+      return { id: m.id, nome: m.nome, impressoraId: m.impressoraId, impressoraLinguagem: m.impressora?.linguagem ?? null, parametros, campos, consultaId: m.consulta!.id, rotulos: rotulosVigentes(m.consulta!), folha: limitesPorFolha(m.layout as unknown as LayoutEtiqueta) };
     });
   }
 

@@ -172,6 +172,20 @@ test('data aparece como DD/MM/AAAA e o parâmetro limita as linhas de cada produ
   await expect(page.getByText('Acme', { exact: true })).toBeVisible();
 });
 
+test('o nome dado à coluna pelo super-admin aparece no aplicativo', async ({ page }) => {
+  const tokenSuper = await superToken();
+  const outra = await criarEmpresa(tokenSuper);
+  const { modeloId } = await montarListaDeHoje(outra, { produtos: ['7891000100103'] });
+  const [{ id: conexao }] = await sql<{ id: string }>(`INSERT INTO conexoes_banco (id, empresa_id, nome, tipo, host, porta, banco, usuario, atualizado_em) VALUES (gen_random_uuid(), $1, 'Conexão', 'POSTGRES', 'localhost', 5432, 'erp', 'leitor', now()) RETURNING id`, [outra.id]);
+  const [{ id: consulta }] = await sql<{ id: string }>(`INSERT INTO consultas_sql (id, empresa_id, conexao_id, nome, sql, atualizado_em) VALUES (gen_random_uuid(), $1, $2, 'Consulta', 'SELECT 1', now()) RETURNING id`, [outra.id, conexao]);
+  await sql(`UPDATE modelos_etiqueta SET consulta_id = $1 WHERE id = $2`, [consulta, modeloId]);
+  await pedir('PUT', `/consultas/${consulta}/rotulos`, { token: tokenSuper, empresa: outra.id, corpo: { rotulos: { preco: 'Valor' } } });
+  await vincular(page, outra);
+  await page.getByRole('tab', { name: 'Lista do dia' }).click();
+  await expect(page.getByText('Valor', { exact: true })).toBeVisible();
+  await expect(page.getByText('preco', { exact: true })).toHaveCount(0);
+});
+
 test('banner aparece no aplicativo, conta exibição e clique, e some quando sai do ar', async ({ page, context }) => {
   const erros = vigiarErros(page);
   const token = await superToken();

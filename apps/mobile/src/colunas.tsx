@@ -7,13 +7,13 @@ import { cores } from './ui';
 export const LinhasPorProduto = createContext<number | null>(null);
 
 /** Os campos do produto um abaixo do outro: o nome da coluna e, ao lado, o valor, sempre em uma linha só. */
-export function CamposDoProduto({ colunas, registro }: { colunas: string[]; registro: Record<string, unknown> }) {
+export function CamposDoProduto({ colunas, rotulos, registro }: { colunas: string[]; rotulos?: Record<string, string>; registro: Record<string, unknown> }) {
   const limite = useContext(LinhasPorProduto);
   return (
     <View style={{ flex: 1, minWidth: 0 }}>
       {(limite === null ? colunas : colunas.slice(0, limite)).map((c) => (
         <View key={c} style={estilos.linha}>
-          <Text style={estilos.rotulo} numberOfLines={1}>{c}</Text>
+          <Text style={estilos.rotulo} numberOfLines={1}>{rotulos?.[c] || c}</Text>
           <Text style={estilos.valor} numberOfLines={1} ellipsizeMode="tail">{textoNaTela(registro[c]) || '—'}</Text>
         </View>
       ))}

@@ -15,7 +15,7 @@ function confirmar(titulo: string, mensagem: string, acao: string, aoConfirmar: 
   Alert.alert(titulo, mensagem, [{ text: 'Cancelar', style: 'cancel' }, { text: acao, onPress: aoConfirmar }]);
 }
 
-type Linha = { tipo: 'modelo'; id: string; nome: string; ids: string[]; colunas: string[] } | { tipo: 'item'; id: string; item: ItemListaResumo; colunas: string[] };
+type Linha = { tipo: 'modelo'; id: string; nome: string; ids: string[]; colunas: string[] } | { tipo: 'item'; id: string; item: ItemListaResumo; colunas: string[]; rotulos?: Record<string, string> };
 
 export function TelaLista({ api, usuario }: { api: Api; usuario: UsuarioLogado }) {
   const pode = (c: UsuarioLogado['permissoes'][number]) => usuario.superAdmin || usuario.permissoes.includes(c);
@@ -54,8 +54,9 @@ export function TelaLista({ api, usuario }: { api: Api; usuario: UsuarioLogado }
   const linhas = useMemo<Linha[]>(
     () =>
       grupos.flatMap((g) => {
-        const colunas = colunasVisiveis(lista?.modelos.find((m) => m.id === g.modeloId)?.colunas ?? [], g.itens.map((i) => i.registro));
-        return [{ tipo: 'modelo' as const, id: `m-${g.modeloId}`, nome: g.nome, ids: g.itens.map((i) => i.id), colunas }, ...g.itens.map((item) => ({ tipo: 'item' as const, id: item.id, item, colunas }))];
+        const doModelo = lista?.modelos.find((m) => m.id === g.modeloId);
+        const colunas = colunasVisiveis(doModelo?.colunas ?? [], g.itens.map((i) => i.registro));
+        return [{ tipo: 'modelo' as const, id: `m-${g.modeloId}`, nome: g.nome, ids: g.itens.map((i) => i.id), colunas }, ...g.itens.map((item) => ({ tipo: 'item' as const, id: item.id, item, colunas, rotulos: doModelo?.rotulos }))];
       }),
     [grupos, lista],
   );
@@ -162,7 +163,7 @@ export function TelaLista({ api, usuario }: { api: Api; usuario: UsuarioLogado }
       >
         {podeAprovar && <View style={[estilos.caixa, marcado && estilos.caixaMarcada]}>{marcado && <Text style={estilos.visto}>✓</Text>}</View>}
         <View style={{ flex: 1 }}>
-          <CamposDoProduto colunas={l.colunas} registro={i.registro} />
+          <CamposDoProduto colunas={l.colunas} rotulos={l.rotulos} registro={i.registro} />
           {!i.impressoraId && <Text style={estilos.problema}>Modelo sem impressora</Text>}
           {emPdf && <Text style={estilos.problema}>Sai em PDF: imprima pelo computador</Text>}
         </View>
