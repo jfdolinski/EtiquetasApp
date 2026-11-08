@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { cenasDosItens, corDoTextoSobre, familiaDoFormato, gradeDaCena, gradeParaItens, horaDosDados, type GradeDaCena, type ItemConteudoTela, type NivelEfetivo, type ProgramaTela } from '@etiquetas/shared';
 
 /**
@@ -19,17 +19,41 @@ function entrada(nivel: NivelEfetivo, indice: number): CSSProperties {
 
 const linhas = (n: number): CSSProperties => ({ display: '-webkit-box', WebkitLineClamp: n, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' });
 
-function Preco({ item, tamanho, cor, nivel, indice }: { item: ItemConteudoTela; tamanho: number; cor: string; nivel: NivelEfetivo; indice: number }) {
+/**
+ * Texto em uma linha que diminui até caber. Mede de verdade, porque cada TV tem a sua fonte de sistema,
+ * e algumas são bem mais largas. Quem usa define o resto em `em`, que acompanha o tamanho.
+ */
+function TextoQueCabe({ tamanho, maxLargura, style, testId, children }: { tamanho: number; maxLargura: number; style?: CSSProperties; testId?: string; children: ReactNode }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.fontSize = `${tamanho}px`;
+    const largura = el.offsetWidth;
+    if (largura > maxLargura) el.style.fontSize = `${Math.floor((tamanho * maxLargura * 100) / largura) / 100}px`;
+  }, [tamanho, maxLargura, children]);
   return (
-    <span data-testid="preco-tela" style={{ display: 'inline-block', background: cor, color: corDoTextoSobre(cor), fontSize: tamanho, fontWeight: 800, lineHeight: 1.15, padding: `${tamanho * 0.08}px ${tamanho * 0.28}px`, borderRadius: tamanho * 0.16, whiteSpace: 'nowrap', ...(nivel === 'COMPLETO' ? { animation: `tvPulso 2.4s ease-in-out ${0.7 + indice * 0.09}s infinite` } : {}) }}>
-      {item.preco}
+    <span ref={ref} data-testid={testId} style={{ display: 'inline-block', whiteSpace: 'nowrap', ...style, fontSize: tamanho }}>
+      {children}
     </span>
   );
 }
 
-function PrecoDe({ item, tamanho }: { item: ItemConteudoTela; tamanho: number }) {
+function Preco({ item, tamanho, maxLargura, cor, nivel, indice }: { item: ItemConteudoTela; tamanho: number; maxLargura: number; cor: string; nivel: NivelEfetivo; indice: number }) {
+  return (
+    <TextoQueCabe tamanho={tamanho} maxLargura={maxLargura} testId="preco-tela" style={{ background: cor, color: corDoTextoSobre(cor), fontWeight: 800, lineHeight: 1.15, padding: '.08em .28em', borderRadius: '.16em', ...(nivel === 'COMPLETO' ? { animation: `tvPulso 2.4s ease-in-out ${0.7 + indice * 0.09}s infinite` } : {}) }}>
+      {item.preco}
+    </TextoQueCabe>
+  );
+}
+
+function PrecoDe({ item, tamanho, maxLargura }: { item: ItemConteudoTela; tamanho: number; maxLargura: number }) {
   if (!item.precoDe) return null;
-  return <span style={{ fontSize: tamanho, opacity: 0.75, textDecoration: 'line-through', whiteSpace: 'nowrap' }}>de {item.precoDe}</span>;
+  return (
+    <TextoQueCabe tamanho={tamanho} maxLargura={maxLargura} style={{ opacity: 0.75, textDecoration: 'line-through' }}>
+      de {item.precoDe}
+    </TextoQueCabe>
+  );
 }
 
 interface Celula {
@@ -44,15 +68,21 @@ interface Celula {
 function CartaoGrade({ item, indice, largura, altura, corDestaque, nivel }: Celula) {
   const nome = Math.min(altura * 0.115, largura * 0.075);
   const preco = Math.min(altura * 0.2, largura * 0.125);
+  const util = (largura - 2 * Math.min(largura, altura) * 0.07) * 0.95;
+  // O nome usa as linhas que sobram: em cartão alto (TV na vertical) cabe bem mais que em um largo.
+  const blocoPreco = preco * 1.31 + nome * 1.4;
+  const blocoDetalhe = item.detalhe ? nome * 1.1 : 0;
+  const sobra = altura - 2 * Math.min(largura, altura) * 0.07 - blocoPreco - blocoDetalhe;
+  const linhasDoNome = Math.max(1, Math.min(6, Math.floor(sobra / (nome * 1.15))));
   return (
     <div data-testid="celula-tela" style={{ width: largura, height: altura, boxSizing: 'border-box', padding: Math.min(largura, altura) * 0.07, borderRadius: Math.min(largura, altura) * 0.05, background: 'rgba(127,127,127,.16)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', textAlign: 'center', overflow: 'hidden', ...entrada(nivel, indice) }}>
       <div data-testid="texto-celula" style={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden' }}>
-        <div style={{ ...linhas(item.detalhe ? 2 : 3), fontSize: nome, fontWeight: 600, lineHeight: 1.15 }}>{item.nome}</div>
+        <div style={{ ...linhas(linhasDoNome), fontSize: nome, fontWeight: 600, lineHeight: 1.15 }}>{item.nome}</div>
         {item.detalhe && <div style={{ ...linhas(1), fontSize: nome * 0.72, opacity: 0.75, marginTop: nome * 0.25 }}>{item.detalhe}</div>}
       </div>
       <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: nome * 0.2, marginTop: nome * 0.2 }}>
-        <PrecoDe item={item} tamanho={nome * 0.8} />
-        <Preco item={item} tamanho={preco} cor={corDestaque} nivel={nivel} indice={indice} />
+        <PrecoDe item={item} tamanho={nome * 0.8} maxLargura={util} />
+        <Preco item={item} tamanho={preco} maxLargura={util} cor={corDestaque} nivel={nivel} indice={indice} />
       </div>
     </div>
   );
@@ -67,7 +97,7 @@ function CartaoDestaque({ item, indice, largura, altura, corDestaque, nivel, fai
     return (
       <div data-testid="celula-tela" style={{ width: largura, height: altura, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: altura * 0.06, overflow: 'hidden', ...animacao }}>
         <div style={{ maxWidth: largura, fontSize: nome, fontWeight: 600, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.nome}</div>
-        <Preco item={item} tamanho={preco} cor={corDestaque} nivel="LEVE" indice={indice} />
+        <Preco item={item} tamanho={preco} maxLargura={largura} cor={corDestaque} nivel="LEVE" indice={indice} />
       </div>
     );
   }
@@ -78,8 +108,8 @@ function CartaoDestaque({ item, indice, largura, altura, corDestaque, nivel, fai
       <div data-testid="celula-tela" style={{ width: largura, height: altura, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: largura * 0.02, overflow: 'hidden', ...animacao }}>
         <div style={{ ...linhas(2), fontSize: nome, fontWeight: 700, lineHeight: 1.1, textAlign: 'left', minWidth: 0 }}>{item.nome}</div>
         <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: nome * 0.1 }}>
-          <PrecoDe item={item} tamanho={nome * 0.6} />
-          <Preco item={item} tamanho={preco} cor={corDestaque} nivel={nivel} indice={indice} />
+          <PrecoDe item={item} tamanho={nome * 0.6} maxLargura={largura * 0.5} />
+          <Preco item={item} tamanho={preco} maxLargura={largura * 0.5} cor={corDestaque} nivel={nivel} indice={indice} />
         </div>
       </div>
     );
@@ -90,8 +120,8 @@ function CartaoDestaque({ item, indice, largura, altura, corDestaque, nivel, fai
     <div data-testid="celula-tela" style={{ width: largura, height: altura, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: altura * 0.05, textAlign: 'center', overflow: 'hidden', ...animacao }}>
       <div style={{ ...linhas(3), fontSize: nome, fontWeight: 700, lineHeight: 1.12, maxWidth: largura * 0.92 }}>{item.nome}</div>
       {item.detalhe && <div style={{ ...linhas(1), fontSize: nome * 0.55, opacity: 0.75 }}>{item.detalhe}</div>}
-      <PrecoDe item={item} tamanho={nome * 0.7} />
-      <Preco item={item} tamanho={preco} cor={corDestaque} nivel={nivel} indice={indice} />
+      <PrecoDe item={item} tamanho={nome * 0.7} maxLargura={largura * 0.92} />
+      <Preco item={item} tamanho={preco} maxLargura={largura * 0.92} cor={corDestaque} nivel={nivel} indice={indice} />
     </div>
   );
 }
@@ -106,8 +136,8 @@ function LinhaLista({ item, indice, largura, altura, corDestaque, nivel }: Celul
       </div>
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: fonte * 0.5 }}>
         {/* Em linha estreita o preço anterior espreme o nome, que é o que identifica o produto. */}
-        {largura >= 1200 && <PrecoDe item={item} tamanho={fonte * 0.68} />}
-        <Preco item={item} tamanho={fonte * 0.92} cor={corDestaque} nivel="LEVE" indice={indice} />
+        {largura >= 1200 && <PrecoDe item={item} tamanho={fonte * 0.68} maxLargura={largura * 0.2} />}
+        <Preco item={item} tamanho={fonte * 0.92} maxLargura={largura * 0.42} cor={corDestaque} nivel="LEVE" indice={indice} />
       </div>
     </div>
   );
@@ -143,8 +173,6 @@ function Cena({ programa, itens, grade: gradeCheia, largura, altura, margemPct, 
   const celL = (uteisL - espaco * (grade.colunas - 1)) / grade.colunas;
   const celA = (corpoA - espaco * (grade.linhas - 1)) / grade.linhas;
   const texto = corDoTextoSobre(config.corFundo);
-  // Em negrito, cada letra ocupa cerca de 0,62 da altura: título longo em tela estreita diminui em vez de ser cortado.
-  const fonteTitulo = Math.min(altTitulo * 0.68, uteisL / (Math.max(1, config.titulo.trim().length) * 0.62));
 
   return (
     <div
@@ -162,8 +190,8 @@ function Cena({ programa, itens, grade: gradeCheia, largura, altura, margemPct, 
       }}
     >
       {temTitulo && (
-        <div data-testid="titulo-tela" style={{ height: altTitulo, lineHeight: `${altTitulo}px`, textAlign: 'center', fontSize: fonteTitulo, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', ...(nivel === 'COMPLETO' ? { animation: 'tvSobe .5s ease-out both' } : {}) }}>
-          {config.titulo}
+        <div data-testid="titulo-tela" style={{ height: altTitulo, lineHeight: `${altTitulo}px`, textAlign: 'center', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', ...(nivel === 'COMPLETO' ? { animation: 'tvSobe .5s ease-out both' } : {}) }}>
+          <TextoQueCabe tamanho={altTitulo * 0.68} maxLargura={uteisL}>{config.titulo}</TextoQueCabe>
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${grade.colunas}, ${celL}px)`, gridAutoRows: `${celA}px`, gap: espaco, justifyContent: 'center' }}>

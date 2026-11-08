@@ -120,16 +120,28 @@ test('a TV exibe o conteúdo e tira do ar quando os dados vencem', async ({ page
   expect(erros.filter((t) => !/net::ERR_FAILED|Failed to load resource/.test(t))).toEqual([]);
 });
 
-test('nome e preço cabem em todos os modelos e formatos', async ({ page }) => {
+// Cada TV tem a sua fonte de sistema, e algumas são bem mais largas: o desenho precisa aguentar as duas.
+for (const [rotuloFonte, fonte] of [['do sistema', ''], ['larga', 'Verdana, "DejaVu Sans"']] as const)
+test(`nome e preço cabem em todos os modelos e formatos, com fonte ${rotuloFonte}`, async ({ page }) => {
   test.setTimeout(180_000);
-  const tela = await telaVinculada(e, 'TV dos formatos');
+  const tela = await telaVinculada(e, `TV dos formatos ${rotuloFonte}`);
   const consultaId = await criarConsulta(e);
-  const c = await pedir('POST', '/telas/conteudos', { token: e.adminToken, corpo: corpoConteudo('Formatos', consultaId) });
+  const c = await pedir('POST', '/telas/conteudos', { token: e.adminToken, corpo: corpoConteudo(`Formatos ${rotuloFonte}`, consultaId) });
   await pedir('POST', `/telas/conteudos/${c.j.id}/publicar`, { token: e.adminToken, corpo: { telaIds: [tela.id] } });
   // O pior caso: nome enorme e preço alto, em todos os produtos.
   const itens = Array.from({ length: 12 }, (_, i) => ({ nome: `Produto ${i + 1} com um nome extremamente comprido que o ERP cortaria em algum lugar 5kg embalagem econômica`, preco: 'R$ 12.349,90', precoDe: 'R$ 15.999,90', detalhe: 'Unidade' }));
   await sql(`UPDATE conteudos_tela SET itens = $2, quantidade_itens = $3, dados_em = (now() at time zone 'utc'), erro = NULL WHERE id = $1`, [c.j.id, JSON.stringify(itens), itens.length]);
   await page.addInitScript((t) => localStorage.setItem('etiquetas.tv.token', t), tela.token);
+  if (fonte) {
+    await page.addInitScript((f) => {
+      const colocar = () => {
+        const s = document.createElement('style');
+        s.textContent = `* { font-family: ${f} !important; }`;
+        document.documentElement.appendChild(s);
+      };
+      document.addEventListener('DOMContentLoaded', colocar);
+    }, fonte);
+  }
 
   const problemas: string[] = [];
   for (const modelo of ['GRADE_OFERTAS', 'DESTAQUE', 'LISTA_PRECOS']) {
@@ -165,7 +177,7 @@ test('nome e preço cabem em todos os modelos e formatos', async ({ page }) => {
       });
       if (medidas.celulas === 0) problemas.push(`${modelo} ${largura}x${altura}: sem células`);
       for (const m of new Set(medidas.erros)) problemas.push(`${modelo} ${largura}x${altura}: ${m}`);
-      await page.screenshot({ path: `test-results/formato-${modelo}-${largura}x${altura}.png` });
+      await page.screenshot({ path: `test-results/formato-${fonte ? 'larga-' : ''}${modelo}-${largura}x${altura}.png` });
     }
   }
   expect(problemas).toEqual([]);
