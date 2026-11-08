@@ -93,6 +93,8 @@ export class ManutencaoService implements OnApplicationBootstrap, OnModuleDestro
       await this.prisma.sessaoUsuario.deleteMany({ where: { expiraEm: { lt: antes(RETENCAO_VENCIDOS_DIAS) } } });
       await this.prisma.redefinicaoSenha.deleteMany({ where: { expiraEm: { lt: antes(RETENCAO_VENCIDOS_DIAS) } } });
       await this.prisma.codigoVinculoApp.deleteMany({ where: { expiraEm: { lt: antes(RETENCAO_VENCIDOS_DIAS) } } });
+      await this.prisma.pedidoVinculoTela.deleteMany({ where: { expiraEm: { lt: antes(RETENCAO_VENCIDOS_DIAS) } } });
+      await this.prisma.quedaTela.deleteMany({ where: { fim: { lt: antes(RETENCAO_LISTAS_DIAS) } } });
       this.log.log(`Faxina: ${r.conteudos} conteúdo(s), ${r.auditoria} registro(s) de auditoria, ${r.listas} lista(s).`);
     } catch (e) {
       r.erro = (e as Error).message;

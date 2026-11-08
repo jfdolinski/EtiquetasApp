@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { adicionarProduto, colunasVisiveis, lerLinhasPorProduto, proximasLinhasPorProduto, textoNaTela, contaExibicao, corpoDaBusca, linkDeBannerValido, impressoraDoModelo, parametrosDaBusca, registrosDoCodigo, avisosNovos, chavesDosAvisos, codigoValido, lerQrDeVinculo, pendentesPorModelo, quantidadeValida, registroParaDigitar, servidorValido, tempoDesde, versaoMaisNova } from './regras.ts';
+import { codigoDaTela, codigoDaTelaParaLer, adicionarProduto, colunasVisiveis, lerLinhasPorProduto, proximasLinhasPorProduto, textoNaTela, contaExibicao, corpoDaBusca, linkDeBannerValido, impressoraDoModelo, parametrosDaBusca, registrosDoCodigo, avisosNovos, chavesDosAvisos, codigoValido, lerQrDeVinculo, pendentesPorModelo, quantidadeValida, registroParaDigitar, servidorValido, tempoDesde, versaoMaisNova } from './regras.ts';
 
 test('QR de vínculo: lê o formato certo', () => {
   assert.deepEqual(lerQrDeVinculo('etiquetas://vincular?servidor=https%3A%2F%2Fapp.exemplo.com&codigo=ABCDEFGH23'), { servidor: 'https://app.exemplo.com', codigo: 'ABCDEFGH23' });
@@ -156,6 +156,14 @@ test('o que parece data aparece como DD/MM/AAAA, sem converter fuso; código fic
   for (const v of ['7891000100103', '20261103', '2026-13-03', '31/02/2026', '12-10-25', '1.234,56', '4.99', '03/11/2026 promoção', '0001-01-01']) assert.equal(textoNaTela(v), v);
   assert.equal(textoNaTela(20261103), '20261103');
   assert.equal(textoNaTela(null), '');
+});
+
+test('código da tela: lê o link do QR e o digitado, e recusa outra coisa', () => {
+  assert.equal(codigoDaTela('https://sistema.exemplo/telas/vincular#codigo=K7M29QXT'), 'K7M29QXT');
+  assert.equal(codigoDaTela('k7m2-9qxt'), 'K7M29QXT');
+  assert.equal(codigoDaTela('7891000100103'), null);
+  assert.equal(codigoDaTela('https://sistema.exemplo/'), null);
+  assert.equal(codigoDaTelaParaLer('K7M29QXT'), 'K7M2-9QXT');
 });
 
 test('linhas por produto: só de 1 a 30; o resto vale como todas', () => {

@@ -16,6 +16,8 @@ export const PERMISSOES = [
     grupo: 'Agentes e bancos',
     descricao: 'Cadastrar agentes, gerar códigos de ativação e editar conexões de banco',
   },
+  { codigo: 'tela.ver', grupo: 'Telas', descricao: 'Ver as telas e se estão online' },
+  { codigo: 'tela.editar', grupo: 'Telas', descricao: 'Vincular e configurar telas, perfis de resolução e parâmetros' },
   { codigo: 'sql.ver', grupo: 'Consultas SQL', descricao: 'Ver consultas SQL' },
   { codigo: 'sql.editar', grupo: 'Consultas SQL', descricao: 'Editar e testar consultas SQL' },
   { codigo: 'etiqueta.modelo.ver', grupo: 'Etiquetas', descricao: 'Ver modelos de etiqueta' },

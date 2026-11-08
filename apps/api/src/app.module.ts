@@ -24,6 +24,7 @@ import { PostsModule } from './posts/posts.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ReferenciasModule } from './referencias/referencias.module';
 import { SistemaModule } from './sistema/sistema.module';
+import { TelasModule } from './telas/telas.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 
 @Module({
@@ -51,6 +52,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     SistemaModule,
     BannersModule,
     PostsModule,
+    TelasModule,
   ],
   controllers: [HealthController],
   providers: [

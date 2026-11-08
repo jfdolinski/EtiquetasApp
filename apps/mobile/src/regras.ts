@@ -136,6 +136,15 @@ export function textoNaTela(v: unknown): string {
   return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${a}`;
 }
 
+/** Aceita o link do QR da tela ou o código digitado, com ou sem o traço. Mesma regra do site (shared/telas.ts). */
+export function codigoDaTela(texto: string): string | null {
+  const m = /[#?&]codigo=([A-Za-z0-9-]+)/.exec(texto);
+  const bruto = (m ? m[1] : texto).replace(/[\s-]/g, '').toUpperCase();
+  return /^[A-Z0-9]{8}$/.test(bruto) ? bruto : null;
+}
+
+export const codigoDaTelaParaLer = (codigo: string) => `${codigo.slice(0, 4)}-${codigo.slice(4)}`;
+
 export const LINHAS_POR_PRODUTO_MAXIMO = 30;
 
 /** O que ficou gravado no celular: número de 1 a 30; qualquer outra coisa vale como "todas" (null). */

@@ -34,6 +34,15 @@ export const EVENTOS_NOTIFICACAO = [
     repetirPadrao: 120,
   },
   {
+    codigo: 'tela_offline',
+    titulo: 'Tela fora do ar',
+    descricao: 'Uma tela vinculada está sem aviso há mais tempo que o limite, dentro do horário dela.',
+    unidade: 'minutos',
+    limitePadrao: 15,
+    nivel: 'erro',
+    repetirPadrao: 120,
+  },
+  {
     codigo: 'impressao_erro',
     titulo: 'Impressão com erro',
     descricao: 'Um trabalho de impressão das últimas 24 horas terminou com erro e não foi reenviado.',

@@ -15,10 +15,11 @@ import { TelaAvisos } from './TelaAvisos';
 import { MEMORIA_AVULSA_VAZIA, TelaAvulsa, type MemoriaAvulsa } from './TelaAvulsa';
 import { TelaInicio } from './TelaInicio';
 import { TelaLista } from './TelaLista';
+import { TelaTelas } from './TelaTelas';
 import { TelaVincular } from './TelaVincular';
 import { Alerta, cores } from './ui';
 
-type Aba = 'inicio' | 'lista' | 'avulsa' | 'avisos';
+type Aba = 'inicio' | 'lista' | 'avulsa' | 'telas' | 'avisos';
 const INTERVALO_AVISOS_MS = 60_000;
 
 export function App() {
@@ -72,6 +73,7 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
   const usuario = sessao.usuario;
   const podeVerAvisos = usuario.superAdmin || usuario.permissoes.includes('notificacao.ver');
   const podeImprimir = usuario.superAdmin || usuario.permissoes.includes('imprimir');
+  const podeVerTelas = usuario.superAdmin || usuario.permissoes.includes('tela.ver');
 
   const api = useMemo(() => clienteDa(sessao, () => encerrar('Este celular foi desvinculado. Para usar de novo, leia outro QR code.')), [sessao, encerrar]);
 
@@ -181,6 +183,7 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
         {aba === 'inicio' && <TelaInicio api={api} usuario={usuario} irParaLista={() => setAba('lista')} />}
         {aba === 'lista' && <TelaLista api={api} usuario={usuario} />}
         {aba === 'avulsa' && podeImprimir && <TelaAvulsa api={api} sessao={sessao} memoria={memoriaAvulsa} setMemoria={setMemoriaAvulsa} />}
+        {aba === 'telas' && podeVerTelas && <TelaTelas api={api} usuario={usuario} />}
         {aba === 'avisos' && (
           <TelaAvisos
             linhasPorProduto={linhasPorProduto}
@@ -206,6 +209,7 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
         <BotaoAba rotulo="Início" ativa={aba === 'inicio'} aoTocar={() => setAba('inicio')} />
         <BotaoAba rotulo="Lista do dia" ativa={aba === 'lista'} aoTocar={() => setAba('lista')} />
         {podeImprimir && <BotaoAba rotulo="Etiqueta avulsa" ativa={aba === 'avulsa'} aoTocar={() => setAba('avulsa')} />}
+        {podeVerTelas && <BotaoAba rotulo="Telas" ativa={aba === 'telas'} aoTocar={() => setAba('telas')} />}
         <BotaoAba rotulo="Avisos" contagem={naoLidas} ativa={aba === 'avisos'} aoTocar={() => setAba('avisos')} />
       </View>
     </View>

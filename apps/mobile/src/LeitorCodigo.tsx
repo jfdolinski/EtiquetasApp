@@ -4,7 +4,7 @@ import { CameraView } from 'expo-camera';
 import { Botao, cores } from './ui';
 
 /** Câmera em tela cheia para ler o código de barras do produto. */
-export function LeitorCodigo({ aoLer, aoCancelar }: { aoLer: (codigo: string) => void; aoCancelar: () => void }) {
+export function LeitorCodigo({ aoLer, aoCancelar, texto = 'Aponte para o código de barras do produto.' }: { aoLer: (codigo: string) => void; aoCancelar: () => void; texto?: string }) {
   const [lanterna, setLanterna] = useState(false);
   // A câmera dispara várias vezes para o mesmo código: só a primeira leitura vale.
   const lido = useRef(false);
@@ -23,7 +23,7 @@ export function LeitorCodigo({ aoLer, aoCancelar }: { aoLer: (codigo: string) =>
         }}
       />
       <View style={estilos.rodape}>
-        <Text style={estilos.texto}>Aponte para o código de barras do produto.</Text>
+        <Text style={estilos.texto}>{texto}</Text>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <View style={{ flex: 1 }}><Botao titulo={lanterna ? 'Apagar luz' : 'Acender luz'} variante="secundario" onPress={() => setLanterna(!lanterna)} /></View>
           <View style={{ flex: 1 }}><Botao titulo="Cancelar" variante="secundario" onPress={aoCancelar} /></View>

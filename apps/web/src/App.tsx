@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import { Navigate, Route, Routes } from 'react-router';
+import { Navigate, Route, Routes, useLocation } from 'react-router';
 import type { CodigoPermissao } from '@etiquetas/shared';
 import { useAuth } from './auth';
 import { Layout } from './components/Layout';
@@ -33,9 +33,13 @@ import { Referencias } from './pages/Referencias';
 import { Saude } from './pages/Saude';
 import { Usuarios } from './pages/Usuarios';
 
+import { Telas } from './pages/telas/Telas';
+import { VincularTela } from './pages/telas/VincularTela';
+
 // Konva e bwip-js são pesados: o editor só é baixado quando aberto.
 const EditorModelo = lazy(() => import('./pages/modelos/EditorModelo').then((m) => ({ default: m.EditorModelo })));
 const EditorPost = lazy(() => import('./pages/posts/EditorPost').then((m) => ({ default: m.EditorPost })));
+const PlayerTv = lazy(() => import('./pages/telas/PlayerTv').then((m) => ({ default: m.PlayerTv })));
 
 function Protegida({ children, permissao, superAdmin }: { children: ReactNode; permissao?: CodigoPermissao; superAdmin?: boolean }) {
   const { usuario, pode } = useAuth();
@@ -46,6 +50,16 @@ function Protegida({ children, permissao, superAdmin }: { children: ReactNode; p
 
 export function App() {
   const { usuario, carregando } = useAuth();
+  const { pathname } = useLocation();
+
+  // A TV não faz login: o link é o mesmo para todas as empresas, e quem define a tela é quem lê o QR.
+  if (pathname === '/tv') {
+    return (
+      <Suspense fallback={<div className="h-screen w-screen bg-slate-950" />}>
+        <PlayerTv />
+      </Suspense>
+    );
+  }
 
   if (carregando) {
     return <div className="flex h-screen items-center justify-center text-slate-500">Carregando…</div>;
@@ -84,6 +98,8 @@ export function App() {
         <Route path="posts" element={<Protegida permissao="post.ver"><Posts /></Protegida>} />
         <Route path="posts/novo" element={<Protegida permissao="post.editar"><Suspense fallback={<div className="text-sm text-slate-500">Carregando editor…</div>}><EditorPost /></Suspense></Protegida>} />
         <Route path="posts/:id" element={<Protegida permissao="post.ver"><Suspense fallback={<div className="text-sm text-slate-500">Carregando editor…</div>}><EditorPost /></Suspense></Protegida>} />
+        <Route path="telas" element={<Protegida permissao="tela.ver"><Telas /></Protegida>} />
+        <Route path="telas/vincular" element={<Protegida permissao="tela.editar"><VincularTela /></Protegida>} />
         <Route path="impressoras" element={<Protegida permissao="impressora.ver"><Impressoras /></Protegida>} />
         <Route path="hoje" element={<Protegida permissao="imprimir"><Hoje /></Protegida>} />
         <Route path="avulsa" element={<Protegida permissao="imprimir"><Avulsa /></Protegida>} />

@@ -7,6 +7,7 @@ import {
   EVENTOS_NOTIFICACAO,
   JANELA_PADRAO,
   regrasComPadrao,
+  dentroDoHorarioDaTela,
   textoDuracao,
   type ConfiguracaoNotificacoes,
   type EventoNotificacao,
@@ -26,6 +27,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { config } from '../config';
 import { agoraNoFuso } from '../consultas/consultas.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { horaLocal } from '../telas/telas.module';
 import type { SalvarNotificacoesDto } from './dto';
 
 const INTERVALO_AVALIACAO_MS = 60_000;
@@ -266,6 +268,17 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
             chave: chaveDoAgente(a.id),
             titulo: 'Agente fora do ar',
             mensagem: `O agente “${a.nome}”${a.hostname ? ` (${a.hostname})` : ''} está sem conexão há ${textoDuracao(agora.getTime() - a.ultimoContatoEm!.getTime())}.`,
+          }));
+      }
+      case 'tela_offline': {
+        const telas = await this.prisma.tela.findMany({ where: { empresaId, tokenHash: { not: null }, ultimoContatoEm: { lte: atras(regra.limite * 60_000) } }, select: { id: true, nome: true, local: true, ultimoContatoEm: true, horarioInicio: true, horarioFim: true } });
+        const hora = horaLocal(agora, config().fusoHorario);
+        return telas
+          .filter((t) => dentroDoHorarioDaTela(t.horarioInicio, t.horarioFim, hora))
+          .map((t) => ({
+            chave: `tela:${t.id}`,
+            titulo: 'Tela fora do ar',
+            mensagem: `A tela “${t.nome}”${t.local ? ` (${t.local})` : ''} está sem aviso há ${textoDuracao(agora.getTime() - t.ultimoContatoEm!.getTime())}.`,
           }));
       }
       case 'impressao_erro': {

@@ -186,6 +186,28 @@ test('o nome dado à coluna pelo super-admin aparece no aplicativo', async ({ pa
   await expect(page.getByText('preco', { exact: true })).toHaveCount(0);
 });
 
+test('Telas: digita o código, define qual tela é, e ela aparece na lista', async ({ page }) => {
+  const outra = await criarEmpresa(await superToken());
+  const p = await pedir('POST', '/tv/pedidos', { corpo: { largura: 960, altura: 320 } });
+  await vincular(page, outra);
+  await page.getByRole('tab', { name: 'Telas' }).click();
+  await expect(page.getByText('Nenhuma tela vinculada.')).toBeVisible();
+  await page.getByLabel('Código da tela').fill('não é código');
+  await page.getByRole('button', { name: 'Continuar' }).click();
+  await expect(page.getByText('Este não é o código de uma tela.', { exact: false })).toBeVisible();
+
+  await page.getByLabel('Código da tela').fill(p.j.codigo);
+  await page.getByRole('button', { name: 'Continuar' }).click();
+  await expect(page.getByText('informa 960×320', { exact: false })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Vincular tela' })).toBeDisabled();
+  await page.getByLabel('Nome da tela').fill('Painel da fachada');
+  await page.getByRole('button', { name: 'Vincular tela' }).click();
+  await expect(page.getByText('Painel da fachada', { exact: true })).toBeVisible();
+  await expect(page.getByText('Tela 960×320 (960×320)', { exact: false })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  await page.screenshot({ path: 'test-results/app-telas.png' });
+});
+
 test('banner aparece no aplicativo, conta exibição e clique, e some quando sai do ar', async ({ page, context }) => {
   const erros = vigiarErros(page);
   const token = await superToken();
