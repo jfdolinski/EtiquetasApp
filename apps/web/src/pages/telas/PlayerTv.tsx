@@ -4,18 +4,80 @@ import {
   INTERVALO_AVISO_TELA_S,
   INTERVALO_PEDIDO_TELA_S,
   linkDoVinculoDaTela,
+  nivelEfetivo,
+  programasValidos,
   VERSAO_PLAYER_TELA,
   type PedidoTelaCriado,
+  type ProgramacaoTela,
+  type ProgramaTela,
   type RespostaAvisoTela,
   type SituacaoPedidoTela,
 } from '@etiquetas/shared';
 import { CodigoQr } from '../../components/CodigoQr';
+import { ExibicaoTela } from './ExibicaoTela';
 
 const CHAVE_TOKEN = 'etiquetas.tv.token';
 /** Abaixo disso, um QR não é lido: o painel de LED mostra só o código. */
 const MENOR_LADO_PARA_QR = 220;
 const IDENTIFICAR_MS = 30_000;
 const NOVA_TENTATIVA_MS = 10_000;
+const CHAVE_PROGRAMACAO = 'etiquetas.tv.programacao';
+/** Confere se algum preço venceu, mesmo sem falar com o servidor. */
+const CONFERIR_VALIDADE_MS = 15_000;
+
+interface Guardado {
+  programacao: ProgramacaoTela;
+  perfil: RespostaAvisoTela['perfil'];
+  /** Diferença entre o relógio do servidor e o desta TV. */
+  diferencaMs: number;
+}
+
+/** A TV religada sem internet volta com o que tinha, sempre limitado pelo `validoAte`. */
+function lerGuardado(): Guardado | null {
+  try {
+    const t = localStorage.getItem(CHAVE_PROGRAMACAO);
+    return t ? (JSON.parse(t) as Guardado) : null;
+  } catch {
+    return null;
+  }
+}
+function gravarGuardado(g: Guardado | null) {
+  try {
+    if (g) localStorage.setItem(CHAVE_PROGRAMACAO, JSON.stringify(g));
+    else localStorage.removeItem(CHAVE_PROGRAMACAO);
+  } catch {
+    // Sem armazenamento, só não sobrevive a religar a TV sem internet.
+  }
+}
+
+/** Quadros por segundo nos primeiros instantes: é o que decide a animação no modo automático. */
+function useQuadrosPorSegundo(): number | null {
+  const [quadros, setQuadros] = useState<number | null>(null);
+  useEffect(() => {
+    let id = 0;
+    let n = 0;
+    let inicio = 0;
+    const passo = (t: number) => {
+      if (!inicio) inicio = t;
+      n++;
+      if (t - inicio >= 1500) return setQuadros((n / (t - inicio)) * 1000);
+      id = requestAnimationFrame(passo);
+    };
+    id = requestAnimationFrame(passo);
+    return () => cancelAnimationFrame(id);
+  }, []);
+  return quadros;
+}
+
+function useTamanhoDaJanela() {
+  const [tamanho, setTamanho] = useState({ largura: window.innerWidth, altura: window.innerHeight });
+  useEffect(() => {
+    const medir = () => setTamanho({ largura: window.innerWidth, altura: window.innerHeight });
+    window.addEventListener('resize', medir);
+    return () => window.removeEventListener('resize', medir);
+  }, []);
+  return tamanho;
+}
 
 // A TV pode bloquear o armazenamento: sem ele, a tela só pede o vínculo de novo ao religar.
 function lerToken(): string | null {
@@ -75,11 +137,12 @@ export function PlayerTv() {
 
   const vincular = useCallback((t: string | null) => {
     gravarToken(t);
+    gravarGuardado(null);
     setToken(t);
   }, []);
 
   return (
-    <div className="flex h-screen w-screen flex-col items-center justify-center overflow-hidden bg-slate-950 p-[2vmin] text-center text-white">
+    <div className="flex h-screen w-screen cursor-none flex-col items-center justify-center overflow-hidden bg-slate-950 p-[2vmin] text-center text-white">
       {token ? <TelaVinculada token={token} aoPerder={() => vincular(null)} /> : <PedidoDeVinculo aoVincular={vincular} />}
     </div>
   );
@@ -163,19 +226,46 @@ function TelaVinculada({ token, aoPerder }: { token: string; aoPerder: () => voi
   const [bloqueada, setBloqueada] = useState<string | null>(null);
   const [identificando, setIdentificando] = useState(false);
   const fimIdentificacao = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [guardado, setGuardado] = useState(lerGuardado);
+  const [programas, setProgramas] = useState<ProgramaTela[]>([]);
+  const versao = useRef(guardado?.programacao.versao ?? null);
+  const quadros = useQuadrosPorSegundo();
+  const tamanho = useTamanhoDaJanela();
+
+  // Preço vencido sai da tela pelo relógio do servidor, com ou sem internet.
+  useEffect(() => {
+    const conferir = () => setProgramas(guardado ? programasValidos(guardado.programacao.programas, new Date(Date.now() + guardado.diferencaMs)) : []);
+    conferir();
+    const relogio = setInterval(conferir, CONFERIR_VALIDADE_MS);
+    return () => clearInterval(relogio);
+  }, [guardado]);
 
   useEffect(() => {
     let ativo = true;
+    async function buscarProgramacao(perfil: RespostaAvisoTela['perfil']) {
+      const r = await enviar<ProgramacaoTela>('programacao', {}, token);
+      if (!ativo || r.status >= 400 || !r.dados) return;
+      const novo = { programacao: r.dados, perfil, diferencaMs: new Date(r.dados.agora).getTime() - Date.now() };
+      versao.current = r.dados.versao;
+      gravarGuardado(novo);
+      setGuardado(novo);
+    }
     async function avisar() {
       try {
         const r = await enviar<RespostaAvisoTela & { message?: string }>('aviso', { ...medidas(), versao: VERSAO_PLAYER_TELA, segundoPlano: document.visibilityState !== 'visible' }, token);
         if (!ativo) return;
         // Desvinculada: volta ao QR. Sem internet ou servidor fora, continua como está.
         if (r.status === 401) return aoPerder();
-        if (r.status === 403) return setBloqueada(r.dados?.message ?? 'Esta tela está indisponível.');
+        if (r.status === 403) {
+          versao.current = null;
+          gravarGuardado(null);
+          setGuardado(null);
+          return setBloqueada(r.dados?.message ?? 'Esta tela está indisponível.');
+        }
         if (r.status >= 400 || !r.dados) return;
         setBloqueada(null);
         setDados(r.dados);
+        if (r.dados.versaoProgramacao !== versao.current) await buscarProgramacao(r.dados.perfil);
         if (r.dados.comando === 'RECARREGAR') window.location.reload();
         if (r.dados.comando === 'IDENTIFICAR') {
           setIdentificando(true);
@@ -196,6 +286,14 @@ function TelaVinculada({ token, aoPerder }: { token: string; aoPerder: () => voi
   }, [token, aoPerder]);
 
   if (bloqueada) return <p className="max-w-[80vw] text-[4vmin] text-slate-300">{bloqueada}</p>;
+  if (!identificando && programas.length > 0 && guardado) {
+    const perfil = dados?.perfil ?? guardado.perfil;
+    return (
+      <div className="fixed inset-0">
+        <ExibicaoTela programas={programas} largura={tamanho.largura} altura={tamanho.altura} margemPct={perfil.margemPct} nivel={nivelEfetivo(perfil.nivelAnimacao, quadros, perfil.tipo)} fuso={guardado.programacao.fuso} />
+      </div>
+    );
+  }
   if (!dados) return <p className="text-[4vmin] text-slate-300">Conectando…</p>;
 
   if (identificando) {

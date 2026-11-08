@@ -44,6 +44,7 @@ model Empresa {
   consultas          ConsultaSql[]
   perfisTela PerfilTela[]
   telas Tela[]
+  conteudosTela ConteudoTela[]
   produtosBanidos    ProdutoBanido[]
   modelos            ModeloEtiqueta[]
   impressoras        Impressora[]
@@ -103,6 +104,7 @@ model Usuario {
   dispositivos DispositivoMovel[]
   vinculosApp  CodigoVinculoApp[]
   redefinicoes RedefinicaoSenha[]
+  conteudosTela ConteudoTela[]
 
   @@index([empresaId])
   @@map("usuarios")
@@ -446,6 +448,7 @@ model ConsultaSql {
   conexao  ConexaoBanco      @relation(fields: [conexaoId], references: [id], onDelete: Restrict)
   template TemplateConsulta? @relation(fields: [templateConsultaId], references: [id], onDelete: SetNull)
   modelos  ModeloEtiqueta[]
+  conteudosTela ConteudoTela[]
 
   @@unique([empresaId, nome])
   @@index([conexaoId])
@@ -980,6 +983,7 @@ model Tela {
   perfil  PerfilTela   @relation(fields: [perfilId], references: [id], onDelete: Restrict)
   quedas  QuedaTela[]
   pedidos PedidoVinculoTela[]
+  conteudos TelaConteudo[]
 
   @@index([empresaId])
   @@map("telas")
@@ -1018,4 +1022,57 @@ model QuedaTela {
   @@index([telaId, inicio])
   @@index([fim])
   @@map("quedas_tela")
+}
+
+/// O que passa nas telas: uma consulta, um modelo animado e a cópia dos dados que a TV lê.
+model ConteudoTela {
+  id                   String    @id @default(uuid()) @db.Uuid
+  empresaId            String    @map("empresa_id") @db.Uuid
+  /// Consulta excluída: os dados vencem e o conteúdo sai do ar sozinho.
+  consultaId           String?   @map("consulta_id") @db.Uuid
+  nome                 String
+  modelo               String
+  /// ConfigConteudoTela de packages/shared.
+  config               Json
+  intervaloMinutos     Int       @map("intervalo_minutos")
+  validadeMinutos      Int       @map("validade_minutos")
+  publicado            Boolean   @default(false)
+  /// HH:MM no fuso do sistema.
+  horarioInicio        String?   @map("horario_inicio")
+  horarioFim           String?   @map("horario_fim")
+  /// AAAA-MM-DD no fuso do sistema.
+  dataInicio           String?   @map("data_inicio")
+  dataFim              String?   @map("data_fim")
+  /// ItemConteudoTela[]: a cópia dos dados.
+  itens                Json      @default("[]")
+  quantidadeItens      Int       @default(0) @map("quantidade_itens")
+  dadosEm              DateTime? @map("dados_em")
+  erro                 String?
+  proximaAtualizacaoEm DateTime? @map("proxima_atualizacao_em")
+  /// Último a salvar: a consulta pode usar {usuario.*}.
+  responsavelId        String?   @map("responsavel_id") @db.Uuid
+  criadoEm             DateTime  @default(now()) @map("criado_em")
+  atualizadoEm         DateTime  @updatedAt @map("atualizado_em")
+
+  empresa     Empresa      @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  consulta    ConsultaSql? @relation(fields: [consultaId], references: [id], onDelete: SetNull)
+  responsavel Usuario?     @relation(fields: [responsavelId], references: [id], onDelete: SetNull)
+  telas       TelaConteudo[]
+
+  @@unique([empresaId, nome])
+  @@index([publicado, proximaAtualizacaoEm])
+  @@map("conteudos_tela")
+}
+
+model TelaConteudo {
+  telaId     String @map("tela_id") @db.Uuid
+  conteudoId String @map("conteudo_id") @db.Uuid
+  empresaId  String @map("empresa_id") @db.Uuid
+
+  tela     Tela         @relation(fields: [telaId], references: [id], onDelete: Cascade)
+  conteudo ConteudoTela @relation(fields: [conteudoId], references: [id], onDelete: Cascade)
+
+  @@id([telaId, conteudoId])
+  @@index([conteudoId])
+  @@map("telas_conteudo")
 }

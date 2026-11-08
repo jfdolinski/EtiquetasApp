@@ -19,3 +19,4 @@ export * from './painel';
 export * from './referencias';
 export * from './posts';
 export * from './telas';
+export * from './telas-conteudo';

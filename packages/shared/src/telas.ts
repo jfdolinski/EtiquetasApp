@@ -114,7 +114,7 @@ export const LIMITES_PARAMETROS_TELAS: Partial<Record<ChaveParametroTela, readon
 export const PARAMETROS_DA_EMPRESA: readonly ChaveParametroTela[] = ['aprovacaoObrigatoria', 'criadorPodeAprovar'];
 
 export const ROTULO_PARAMETRO_TELA: Record<ChaveParametroTela, { titulo: string; ajuda: string; unidade?: string; emVigor: boolean }> = {
-  aprovacaoObrigatoria: { titulo: 'Aprovação obrigatória', ajuda: 'O conteúdo só vai ao ar depois de aprovado.', emVigor: false },
+  aprovacaoObrigatoria: { titulo: 'Aprovação obrigatória', ajuda: 'O conteúdo só vai ao ar depois de aprovado. Enquanto a tela de aprovação não chega, ligar isto impede publicar.', emVigor: true },
   criadorPodeAprovar: { titulo: 'Quem criou pode aprovar', ajuda: 'Desligado, a aprovação precisa de uma segunda pessoa.', emVigor: false },
   administradorGeralAprova: { titulo: 'Administrador geral aprova', ajuda: 'O administrador geral também pode aprovar o conteúdo da empresa.', emVigor: false },
   videoTamanhoMaximoMb: { titulo: 'Tamanho máximo de vídeo', ajuda: 'Maior arquivo de vídeo aceito.', unidade: 'MB', emVigor: false },
@@ -300,6 +300,8 @@ export interface RespostaAvisoTela {
   tela: { nome: string; local: string | null };
   perfil: { largura: number; altura: number; tipo: TipoEquipamento; margemPct: number; nivelAnimacao: NivelAnimacao };
   comando: ComandoTela | null;
+  /** Mudou: a tela busca a programação de novo. */
+  versaoProgramacao: string;
   /** Hora do servidor: o relógio da TV pode estar errado. */
   agora: string;
 }
@@ -315,4 +317,4 @@ export interface ParametrosTelasResposta {
 
 export const INTERVALO_AVISO_TELA_S = 30;
 export const INTERVALO_PEDIDO_TELA_S = 3;
-export const VERSAO_PLAYER_TELA = '1';
+export const VERSAO_PLAYER_TELA = '2';

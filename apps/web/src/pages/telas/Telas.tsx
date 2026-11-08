@@ -27,6 +27,7 @@ import { api } from '../../api';
 import { useAuth } from '../../auth';
 import { ExigeEmpresa } from '../../components/ExigeEmpresa';
 import { Alerta, Botao, Cabecalho, Campo, Modal, Selecao, Selo, Tabela, formatarData } from '../../components/ui';
+import { ConteudosTela } from './ConteudosTela';
 
 const COR_SITUACAO: Record<SituacaoTela, 'verde' | 'amarelo' | 'vermelho' | 'cinza'> = {
   ONLINE: 'verde',
@@ -36,7 +37,7 @@ const COR_SITUACAO: Record<SituacaoTela, 'verde' | 'amarelo' | 'vermelho' | 'cin
   AGUARDANDO_VINCULO: 'cinza',
 };
 
-type Aba = 'equipamentos' | 'perfis' | 'parametros';
+type Aba = 'equipamentos' | 'conteudo' | 'perfis' | 'parametros';
 
 export function Telas() {
   return (
@@ -51,6 +52,7 @@ function Conteudo() {
   const [aba, setAba] = useState<Aba>('equipamentos');
   const abas: [Aba, string][] = [
     ['equipamentos', 'Equipamentos'],
+    ['conteudo', 'Conteúdo'],
     ['perfis', 'Perfis de resolução'],
     ['parametros', 'Parâmetros'],
   ];
@@ -69,6 +71,7 @@ function Conteudo() {
         ))}
       </div>
       {aba === 'equipamentos' && <Equipamentos />}
+      {aba === 'conteudo' && <ConteudosTela />}
       {aba === 'perfis' && <Perfis />}
       {aba === 'parametros' && <Parametros />}
     </>

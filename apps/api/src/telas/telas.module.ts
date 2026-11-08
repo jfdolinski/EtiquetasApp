@@ -41,7 +41,11 @@ import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { MensagensCobrancaService } from '../cobranca/mensagens-cobranca.service';
 import { config } from '../config';
+import { BanidosModule } from '../banidos/banidos.module';
+import { ConsultasModule } from '../consultas/consultas.module';
 import { PrismaService } from '../prisma/prisma.service';
+import { ConteudosTelaController, ConteudosTelaService } from './conteudos';
+import { horaLocal } from './hora';
 
 const VALIDADE_PEDIDO_MS = 10 * 60_000;
 const ALFABETO_CODIGO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -55,9 +59,7 @@ export function gerarCodigoTela(): string {
   return [...randomBytes(TAMANHO_CODIGO)].map((b) => ALFABETO_CODIGO[b % ALFABETO_CODIGO.length]).join('');
 }
 
-export function horaLocal(agora: Date, fuso: string): string {
-  return new Intl.DateTimeFormat('en-GB', { timeZone: fuso, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(agora);
-}
+export { horaLocal };
 
 class ResolucaoDto {
   @IsInt()
@@ -317,6 +319,7 @@ export class TelasService {
     private readonly auditoria: AuditoriaService,
     private readonly parametros: ParametrosTelasService,
     private readonly cobranca: MensagensCobrancaService,
+    private readonly conteudos: ConteudosTelaService,
   ) {}
 
   // Perfis ---------------------------------------------------------------------------------
@@ -482,8 +485,8 @@ export class TelasService {
 
   // Aviso do player ------------------------------------------------------------------------
 
-  /** Grava o contato; o histórico só guarda as quedas, não cada aviso. */
-  async receberAviso(token: string | undefined, dto: AvisoTelaDto): Promise<RespostaAvisoTela> {
+  /** O token da TV não serve para mais nada, e empresa bloqueada não tem nada no ar. */
+  private async telaDoToken(token: string | undefined) {
     if (!token?.startsWith('tv_')) throw new UnauthorizedException('Tela não vinculada.');
     const tela = await this.prisma.tela.findUnique({
       where: { tokenHash: hashDoToken(token) },
@@ -491,6 +494,17 @@ export class TelasService {
     });
     if (!tela) throw new UnauthorizedException('Tela não vinculada.');
     if (empresaBloqueada(tela.empresa)) throw new ForbiddenException(await this.cobranca.mensagemBloqueio(tela.empresaId));
+    return tela;
+  }
+
+  async programacao(token: string | undefined) {
+    const tela = await this.telaDoToken(token);
+    return this.conteudos.programacaoDaTela(tela.empresaId, tela.id);
+  }
+
+  /** Grava o contato; o histórico só guarda as quedas, não cada aviso. */
+  async receberAviso(token: string | undefined, dto: AvisoTelaDto): Promise<RespostaAvisoTela> {
+    const tela = await this.telaDoToken(token);
 
     const agora = new Date();
     const p = await this.parametros.vigentes(tela.empresaId);
@@ -508,6 +522,7 @@ export class TelasService {
       tela: { nome: tela.nome, local: tela.local },
       perfil: { largura: tela.perfil.largura, altura: tela.perfil.altura, tipo: tela.perfil.tipo as TipoEquipamento, margemPct: tela.perfil.margemPct, nivelAnimacao: tela.perfil.nivelAnimacao as NivelAnimacao },
       comando: tela.comando as ComandoTela | null,
+      versaoProgramacao: await this.conteudos.versaoDaProgramacao(tela.empresaId, tela.id, agora),
       agora: agora.toISOString(),
     };
   }
@@ -537,6 +552,13 @@ export class TvController {
   @HttpCode(200)
   aviso(@Headers('authorization') autorizacao: string | undefined, @Body() dto: AvisoTelaDto) {
     return this.telas.receberAviso(autorizacao?.replace(/^Bearer /, ''), dto);
+  }
+
+  @Post('programacao')
+  @Publico()
+  @HttpCode(200)
+  programacao(@Headers('authorization') autorizacao: string | undefined) {
+    return this.telas.programacao(autorizacao?.replace(/^Bearer /, ''));
   }
 }
 
@@ -649,5 +671,6 @@ export class TelasController {
   }
 }
 
-@Module({ controllers: [TvController, TelasController], providers: [TelasService, ParametrosTelasService] })
+// O controlador de conteúdos vem antes: `telas/conteudos` não pode cair nas rotas de `telas/:id`.
+@Module({ imports: [ConsultasModule, BanidosModule], controllers: [TvController, ConteudosTelaController, TelasController], providers: [TelasService, ParametrosTelasService, ConteudosTelaService] })
 export class TelasModule {}

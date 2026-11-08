@@ -43,7 +43,7 @@ const SELECAO = {
 type Agendamento = Prisma.AgendamentoModeloGetPayload<{ select: typeof SELECAO }>;
 
 /** Consulta com `{param.*}` é de busca (alguém digita o valor): não roda sozinha. */
-function pedeParametros(consulta: { sql: string; conexao: { tipo: TipoConexao } } | null): boolean {
+export function pedeParametros(consulta: { sql: string; conexao: { tipo: TipoConexao } } | null): boolean {
   if (!consulta || !ehConexaoSql(consulta.conexao.tipo)) return false; // planilha sem busca traz todas as linhas
   try {
     return extrairPlaceholders(consulta.sql, consulta.conexao.tipo).some(ehParametro);
