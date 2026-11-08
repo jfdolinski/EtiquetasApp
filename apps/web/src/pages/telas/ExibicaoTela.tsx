@@ -154,7 +154,7 @@ interface PropsCena {
   fuso?: string;
 }
 
-function Cena({ programa, itens, grade: gradeCheia, largura, altura, margemPct, nivel, fuso }: PropsCena) {
+function CenaProdutos({ programa, itens, grade: gradeCheia, largura, altura, margemPct, nivel, fuso }: PropsCena) {
   const { config, modelo } = programa;
   const grade = gradeParaItens(modelo, gradeCheia, itens.length);
   const pequena = Math.min(largura, altura) < 200;
@@ -213,6 +213,8 @@ function Cena({ programa, itens, grade: gradeCheia, largura, altura, margemPct, 
   );
 }
 
+type Cena = { tipo: 'produtos'; programa: ProgramaTela; itens: ItemConteudoTela[]; grade: GradeDaCena; segundos: number } | { tipo: 'imagem'; programa: ProgramaTela; url: string; segundos: number };
+
 interface PropsExibicao {
   programas: ProgramaTela[];
   largura: number;
@@ -222,19 +224,42 @@ interface PropsExibicao {
   fuso?: string;
 }
 
+function CenaImagem({ programa, url, largura, altura, margemPct, nivel, aoFalhar }: { programa: ProgramaTela; url: string; largura: number; altura: number; margemPct: number; nivel: NivelEfetivo; aoFalhar: () => void }) {
+  const cobrir = programa.config.ajuste === 'COBRIR';
+  // Cobrindo, a imagem vai até a borda de propósito: quem escolheu aceitou cortar.
+  const margemX = cobrir ? 0 : (largura * margemPct) / 100;
+  const margemY = cobrir ? 0 : (altura * margemPct) / 100;
+  const animacao: CSSProperties = nivel === 'ESTATICO' ? {} : { animation: nivel === 'COMPLETO' ? 'tvZoom .6s ease-out both' : 'tvSurge .35s ease-out both' };
+  return (
+    <div data-testid="cena-imagem" style={{ position: 'absolute', inset: 0, background: programa.config.corFundo, overflow: 'hidden' }}>
+      <img src={url} alt="" onError={aoFalhar} style={{ position: 'absolute', left: margemX, top: margemY, width: largura - 2 * margemX, height: altura - 2 * margemY, objectFit: cobrir ? 'cover' : 'contain', ...animacao }} />
+    </div>
+  );
+}
+
 /** Passa pelos programas, cena a cena. Programação nova entra sem interromper: vale a partir da próxima cena. */
 export function ExibicaoTela({ programas, largura, altura, margemPct, nivel, fuso }: PropsExibicao) {
+  // Imagem que não abre sai do ciclo em vez de deixar a tela vazia. Programação nova tenta de novo.
+  const [falhas, setFalhas] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => setFalhas(new Set()), [programas]);
   const cenas = useMemo(
     () =>
-      programas.flatMap((programa) => {
+      programas.flatMap((programa): Cena[] => {
+        if (programa.modelo === 'IMAGENS') return (programa.imagens ?? []).filter((i) => !falhas.has(i.url)).map((i) => ({ tipo: 'imagem', programa, url: i.url, segundos: i.segundos }));
         const grade = gradeDaCena(programa.modelo, largura, altura);
-        return cenasDosItens(programa.itens, grade).map((itens) => ({ programa, itens, grade }));
+        return cenasDosItens(programa.itens, grade).map((itens) => ({ tipo: 'produtos', programa, itens, grade, segundos: programa.config.segundosPorCena }));
       }),
-    [programas, largura, altura],
+    [programas, largura, altura, falhas],
   );
   const [passo, setPasso] = useState(0);
   const atual = cenas.length ? cenas[passo % cenas.length] : null;
-  const segundos = atual?.programa.config.segundosPorCena ?? 8;
+  const segundos = atual?.segundos ?? 8;
+  const proxima = cenas.length > 1 ? cenas[(passo + 1) % cenas.length] : null;
+
+  // Baixa a próxima imagem antes da hora, para a troca não mostrar a tela vazia.
+  useEffect(() => {
+    if (proxima?.tipo === 'imagem') new Image().src = proxima.url;
+  }, [proxima]);
 
   useEffect(() => {
     const relogio = setTimeout(() => setPasso((p) => p + 1), segundos * 1000);
@@ -245,7 +270,11 @@ export function ExibicaoTela({ programas, largura, altura, margemPct, nivel, fus
   return (
     <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: atual.programa.config.corFundo }}>
       <style>{ANIMACOES}</style>
-      <Cena key={passo} {...atual} largura={largura} altura={altura} margemPct={margemPct} nivel={nivel} fuso={fuso} />
+      {atual.tipo === 'imagem' ? (
+        <CenaImagem key={passo} programa={atual.programa} url={atual.url} largura={largura} altura={altura} margemPct={margemPct} nivel={nivel} aoFalhar={() => setFalhas((f) => new Set(f).add(atual.url))} />
+      ) : (
+        <CenaProdutos key={passo} programa={atual.programa} itens={atual.itens} grade={atual.grade} largura={largura} altura={altura} margemPct={margemPct} nivel={nivel} fuso={fuso} />
+      )}
     </div>
   );
 }

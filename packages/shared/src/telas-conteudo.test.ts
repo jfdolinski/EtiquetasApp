@@ -8,6 +8,8 @@ import {
   dadosValidosAte,
   gradeDaCena,
   gradeParaItens,
+  imagemCombinaComTela,
+  problemaNasImagensDoConteudo,
   itensDoConteudo,
   MAX_ITENS_CONTEUDO,
   nivelEfetivo,
@@ -188,5 +190,44 @@ describe('vigência e validade', () => {
     expect(programasValidos([p], new Date('2026-11-08T12:59:00Z'))).toHaveLength(1);
     expect(programasValidos([p], new Date('2026-11-08T13:00:00Z'))).toHaveLength(0);
     expect(programasValidos([{ ...p, itens: [] }], new Date('2026-11-08T12:00:00Z'))).toHaveLength(0);
+  });
+});
+
+describe('imagens', () => {
+  const uma = { imagemId: 'a', segundos: 8 };
+
+  it('exige imagem, tempo válido e cor', () => {
+    expect(problemaNasImagensDoConteudo({ imagens: [uma], corFundo: '#000000' })).toBeNull();
+    expect(problemaNasImagensDoConteudo({ imagens: [], corFundo: '#000000' })).toMatch(/ao menos uma/);
+    expect(problemaNasImagensDoConteudo({ corFundo: '#000000' })).toMatch(/ao menos uma/);
+    expect(problemaNasImagensDoConteudo({ imagens: [{ ...uma, segundos: 1 }], corFundo: '#000000' })).toMatch(/entre 3 e 120/);
+    expect(problemaNasImagensDoConteudo({ imagens: Array.from({ length: 31 }, () => uma), corFundo: '#000000' })).toMatch(/até 30/);
+    expect(problemaNasImagensDoConteudo({ imagens: [uma], corFundo: 'red' })).toMatch(/Cor/);
+    expect(problemaNasImagensDoConteudo({ imagens: [uma], corFundo: '#000000', ajuste: 'x' as never })).toMatch(/Ajuste/);
+    expect(problemaNasImagensDoConteudo({ imagens: [{ imagemId: 1 as never, segundos: 8 }], corFundo: '#000000' })).toMatch(/inválida/);
+  });
+
+  it('validade zero nunca vence: imagem não tem preço que fique velho', () => {
+    expect(dadosValidosAte('2026-11-08T12:00:00Z', 0).getFullYear()).toBe(9999);
+    const base = { ...semVigencia, publicado: true, quantidadeItens: 1, dadosEm: '2020-01-01T00:00:00Z', validadeMinutos: 0 };
+    expect(situacaoDoConteudo(base, new Date('2026-11-08T12:00:00Z'), '2026-11-08', '09:00')).toBe('NO_AR');
+  });
+
+  it('programa só de imagens continua valendo, sem itens', () => {
+    const p = { id: '1', itens: [], imagens: [{ url: '/x', segundos: 5 }], validoAte: dadosValidosAte('2026-11-08T12:00:00Z', 0).toISOString() } as unknown as ProgramaTela;
+    expect(programasValidos([p], new Date('2026-11-08T13:00:00Z'))).toHaveLength(1);
+    expect(programasValidos([{ ...p, imagens: [] }], new Date('2026-11-08T13:00:00Z'))).toHaveLength(0);
+  });
+
+  it('avisa do formato diferente, sem incomodar por pouca diferença', () => {
+    const tela = { largura: 1920, altura: 1080 };
+    expect(imagemCombinaComTela({ largura: 3840, altura: 2160 }, tela)).toBe(true);
+    expect(imagemCombinaComTela({ largura: 1366, altura: 768 }, tela)).toBe(true);
+    expect(imagemCombinaComTela({ largura: 1080, altura: 1920 }, tela)).toBe(false);
+    expect(imagemCombinaComTela({ largura: null, altura: null }, tela)).toBe(true);
+  });
+
+  it('cada imagem é uma cena', () => {
+    expect(gradeDaCena('IMAGENS', 1920, 1080)).toEqual({ colunas: 1, linhas: 1 });
   });
 });

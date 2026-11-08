@@ -45,6 +45,7 @@ model Empresa {
   perfisTela PerfilTela[]
   telas Tela[]
   conteudosTela ConteudoTela[]
+  imagensTela ImagemTela[]
   produtosBanidos    ProdutoBanido[]
   modelos            ModeloEtiqueta[]
   impressoras        Impressora[]
@@ -1075,4 +1076,22 @@ model TelaConteudo {
   @@id([telaId, conteudoId])
   @@index([conteudoId])
   @@map("telas_conteudo")
+}
+
+/// Imagem enviada pela empresa para as telas. Os bytes não mudam: excluir e enviar de novo gera outro id.
+model ImagemTela {
+  id        String   @id @default(uuid()) @db.Uuid
+  empresaId String   @map("empresa_id") @db.Uuid
+  nome      String
+  mime      String
+  largura   Int?
+  altura    Int?
+  bytes     Int
+  conteudo  Bytes
+  criadoEm  DateTime @default(now()) @map("criado_em")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@index([empresaId, criadoEm])
+  @@map("imagens_tela")
 }

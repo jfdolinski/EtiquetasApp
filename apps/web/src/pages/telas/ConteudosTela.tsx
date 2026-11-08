@@ -1,22 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  AJUSTES_IMAGEM_TELA,
+  caminhoImagemTela,
   colunasSugeridas,
   CONFIG_CONTEUDO_PADRAO,
   dadosValidosAte,
+  imagemCombinaComTela,
   INTERVALO_PADRAO_MINUTOS,
   LIMITES_CONTEUDO_TELA,
   MODELOS_CONTEUDO_TELA,
+  modeloUsaConsulta,
   MODELOS_RESOLUCAO,
   nivelEfetivo,
   problemaNaConfigConteudo,
+  problemaNasImagensDoConteudo,
   problemaNaVigencia,
   problemaNosPrazosConteudo,
+  ROTULO_AJUSTE_IMAGEM,
   ROTULO_MODELO_CONTEUDO,
   ROTULO_SITUACAO_CONTEUDO,
   VALIDADE_PADRAO_MINUTOS,
   type ConfigConteudoTela,
+  type AjusteImagemTela,
   type ConsultaParaConteudo,
+  type ImagemTelaResumo,
   type ConteudoTelaResumo,
   type ItemConteudoTela,
   type ModeloConteudoTela,
@@ -32,6 +40,7 @@ import { api } from '../../api';
 import { useAuth } from '../../auth';
 import { Alerta, Botao, Campo, Selecao, Selo, Tabela, formatarData } from '../../components/ui';
 import { ExibicaoTela } from './ExibicaoTela';
+import { ImagensDoConteudo, useImagensTela } from './ImagensTela';
 
 const COR_SITUACAO: Record<SituacaoConteudoTela, 'verde' | 'amarelo' | 'vermelho' | 'cinza'> = {
   RASCUNHO: 'cinza',
@@ -83,14 +92,16 @@ export function ConteudosTela() {
           <tr key={c.id}>
             <td className="px-4 py-2.5">
               <div className="font-medium text-slate-900">{c.nome}</div>
-              <div className="text-xs text-slate-500">{ROTULO_MODELO_CONTEUDO[c.modelo].titulo}{c.consultaNome ? ` · ${c.consultaNome}` : ' · consulta excluída'}</div>
+              <div className="text-xs text-slate-500">{ROTULO_MODELO_CONTEUDO[c.modelo].titulo}{modeloUsaConsulta(c.modelo) ? (c.consultaNome ? ` · ${c.consultaNome}` : ' · consulta excluída') : ''}</div>
             </td>
             <td className="px-4 py-2.5">
               <Selo cor={COR_SITUACAO[c.situacao]}>{ROTULO_SITUACAO_CONTEUDO[c.situacao]}</Selo>
               {c.erro && c.publicado && <div className="mt-1 max-w-xs text-xs text-red-700">{c.erro}</div>}
             </td>
             <td className="px-4 py-2.5 text-slate-600">
-              {c.dadosEm ? (
+              {!modeloUsaConsulta(c.modelo) ? (
+                <div>{(c.config.imagens ?? []).length} imagem(ns)</div>
+              ) : c.dadosEm ? (
                 <>
                   <div>{c.quantidadeItens} produto(s)</div>
                   <div className="text-xs text-slate-500">Lidos em {formatarData(c.dadosEm)}</div>
@@ -104,7 +115,7 @@ export function ConteudosTela() {
             <td className="whitespace-nowrap px-4 py-2.5 text-right">
               {podeEditar && (
                 <span className="inline-flex gap-3 text-sm">
-                  {c.publicado && (
+                  {c.publicado && modeloUsaConsulta(c.modelo) && (
                     <button type="button" className="text-blue-700 hover:underline" disabled={acao.isPending} onClick={() => acao.mutate({ id: c.id, caminho: '/atualizar' })}>Atualizar dados</button>
                   )}
                   <button type="button" className="text-blue-700 hover:underline" onClick={() => setEditando(c)}>Editar</button>
@@ -118,7 +129,7 @@ export function ConteudosTela() {
           </tr>
         ))}
       </Tabela>
-      <p className="mt-3 text-xs text-slate-500">A TV mostra uma cópia dos dados. Se ela passar da validade, por exemplo com o agente desligado, o conteúdo sai do ar sozinho, para nenhuma tela mostrar preço antigo.</p>
+      <p className="mt-3 text-xs text-slate-500">Nos conteúdos de produtos, a TV mostra uma cópia dos dados. Se ela passar da validade, por exemplo com o agente desligado, o conteúdo sai do ar sozinho, para nenhuma tela mostrar preço antigo. Imagens não têm validade: ficam até você tirar do ar.</p>
     </>
   );
 }
@@ -143,8 +154,8 @@ function formularioDe(c: ConteudoTelaResumo | null): Formulario {
     modelo: c?.modelo ?? 'GRADE_OFERTAS',
     consultaId: c?.consultaId ?? '',
     config: c?.config ?? CONFIG_CONTEUDO_PADRAO,
-    intervalo: String(c?.intervaloMinutos ?? INTERVALO_PADRAO_MINUTOS),
-    validade: String(c?.validadeMinutos ?? VALIDADE_PADRAO_MINUTOS),
+    intervalo: String(c?.intervaloMinutos || INTERVALO_PADRAO_MINUTOS),
+    validade: String(c?.validadeMinutos || VALIDADE_PADRAO_MINUTOS),
     horarioInicio: c?.horarioInicio ?? '',
     horarioFim: c?.horarioFim ?? '',
     dataInicio: c?.dataInicio ?? '',
@@ -178,14 +189,17 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
     setF((x) => ({ ...x, consultaId: id, config: { ...x.config, colunaNome: s.colunaNome, colunaPreco: s.colunaPreco, colunaPrecoDe: s.colunaPrecoDe, colunaDetalhe: null } }));
   };
 
+  const comConsulta = modeloUsaConsulta(f.modelo);
   const problema = useMemo(() => {
     if (f.nome.trim().length < 2) return 'Informe o nome do conteúdo.';
+    const vigencia = { horarioInicio: f.horarioInicio || null, horarioFim: f.horarioFim || null, dataInicio: f.dataInicio || null, dataFim: f.dataFim || null };
+    if (!modeloUsaConsulta(f.modelo)) return problemaNasImagensDoConteudo(f.config) ?? problemaNaVigencia(vigencia);
     if (!f.consultaId) return 'Escolha a consulta.';
     if (consulta?.pedeParametro) return 'Esta consulta pede valores digitados, como uma busca: ela não roda sozinha. Use uma consulta de lista.';
     return (
       problemaNaConfigConteudo(f.config) ??
       problemaNosPrazosConteudo(Number(f.intervalo), Number(f.validade)) ??
-      problemaNaVigencia({ horarioInicio: f.horarioInicio || null, horarioFim: f.horarioFim || null, dataInicio: f.dataInicio || null, dataFim: f.dataFim || null })
+      problemaNaVigencia(vigencia)
     );
   }, [f, consulta]);
 
@@ -194,7 +208,7 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
       const corpo = {
         nome: f.nome,
         modelo: f.modelo,
-        consultaId: f.consultaId,
+        consultaId: comConsulta ? f.consultaId : undefined,
         config: f.config,
         intervaloMinutos: Number(f.intervalo),
         validadeMinutos: Number(f.validade),
@@ -233,7 +247,7 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
 
         <fieldset>
           <legend className="mb-1 text-sm font-medium text-slate-700">Modelo</legend>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-2">
             {MODELOS_CONTEUDO_TELA.map((m) => (
               <label key={m} className={`cursor-pointer rounded-md border p-2.5 text-sm ${f.modelo === m ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
                 <input type="radio" name="modelo" className="sr-only" checked={f.modelo === m} onChange={() => setF({ ...f, modelo: m })} />
@@ -244,6 +258,20 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
           </div>
         </fieldset>
 
+        {!comConsulta && (
+          <>
+            <ImagensDoConteudo selecionadas={f.config.imagens ?? []} segundosPadrao={f.config.segundosPorCena} aoMudar={(imagens) => ajustar({ imagens })} />
+            <Selecao rotulo="Como encaixar na tela" value={f.config.ajuste ?? 'CONTER'} onChange={(e) => ajustar({ ajuste: e.target.value as AjusteImagemTela })}>
+              {AJUSTES_IMAGEM_TELA.map((a) => (
+                <option key={a} value={a}>{ROTULO_AJUSTE_IMAGEM[a]}</option>
+              ))}
+            </Selecao>
+            <Campo rotulo="Cor de fundo" type="color" className="h-10 w-full cursor-pointer rounded-md border border-slate-300 bg-white p-1" value={f.config.corFundo} onChange={(e) => ajustar({ corFundo: e.target.value })} />
+          </>
+        )}
+
+        {comConsulta && (
+        <>
         <Selecao rotulo="Consulta" value={f.consultaId} onChange={(e) => aoEscolherConsulta(e.target.value)}>
           <option value="">Escolher…</option>
           {consultas.map((c) => (
@@ -274,6 +302,8 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
           <Campo rotulo="Atualizar os dados a cada (minutos)" type="number" min={1} max={1440} value={f.intervalo} onChange={(e) => setF({ ...f, intervalo: e.target.value })} ajuda="Cada atualização consulta o banco do cliente." />
           <Campo rotulo="Validade dos dados (minutos)" type="number" min={5} max={10080} value={f.validade} onChange={(e) => setF({ ...f, validade: e.target.value })} ajuda="Passou disso sem atualizar, sai do ar." />
         </div>
+        </>
+        )}
 
         <fieldset>
           <legend className="mb-1 text-sm font-medium text-slate-700">Quando passar (vazio: sempre)</legend>
@@ -309,7 +339,7 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
         </div>
       </form>
 
-      <PreVisualizacao f={f} perfis={perfis} previa={previa.data ?? null} carregando={previa.isPending} erro={previa.error as Error | null} aoCarregar={() => previa.mutate(f)} />
+      <PreVisualizacao f={f} comConsulta={comConsulta} perfis={perfis} previa={previa.data ?? null} carregando={previa.isPending} erro={previa.error as Error | null} aoCarregar={() => previa.mutate(f)} />
     </div>
   );
 }
@@ -329,7 +359,7 @@ function SelecaoColuna({ rotulo, valor, colunas, opcional, aoMudar }: { rotulo: 
 const RESOLUCOES_DE_MODELO = MODELOS_RESOLUCAO.map((m) => ({ id: m.nome, nome: m.nome, largura: m.largura, altura: m.altura, tipo: m.tipo as TipoEquipamento, margemPct: 0, nivelAnimacao: 'AUTOMATICO' as NivelAnimacao }));
 
 /** A mesma exibição da TV, reduzida para caber na página. */
-function PreVisualizacao({ f, perfis, previa, carregando, erro, aoCarregar }: { f: Formulario; perfis: PerfilTelaResumo[]; previa: PreviaConteudoResposta | null; carregando: boolean; erro: Error | null; aoCarregar: () => void }) {
+function PreVisualizacao({ f, comConsulta, perfis, previa, carregando, erro, aoCarregar }: { f: Formulario; comConsulta: boolean; perfis: PerfilTelaResumo[]; previa: PreviaConteudoResposta | null; carregando: boolean; erro: Error | null; aoCarregar: () => void }) {
   const opcoes = useMemo(() => [...perfis.map((p) => ({ id: p.id, nome: p.nome, largura: p.largura, altura: p.altura, tipo: p.tipo, margemPct: p.margemPct, nivelAnimacao: p.nivelAnimacao })), ...RESOLUCOES_DE_MODELO], [perfis]);
   const [perfilId, setPerfilId] = useState('');
   const perfil = opcoes.find((o) => o.id === perfilId) ?? opcoes[0];
@@ -349,12 +379,13 @@ function PreVisualizacao({ f, perfis, previa, carregando, erro, aoCarregar }: { 
       id: 'previa',
       nome: f.nome,
       modelo: f.modelo,
-      config: { titulo: f.config.titulo, rodape: f.config.rodape, segundosPorCena: Math.max(LIMITES_CONTEUDO_TELA.segundosPorCena[0], f.config.segundosPorCena || 8), corFundo: f.config.corFundo, corDestaque: f.config.corDestaque },
-      itens: reais ? previa.itens : ITENS_DE_EXEMPLO,
+      config: { titulo: f.config.titulo, rodape: f.config.rodape, segundosPorCena: Math.max(LIMITES_CONTEUDO_TELA.segundosPorCena[0], f.config.segundosPorCena || 8), corFundo: f.config.corFundo, corDestaque: f.config.corDestaque, ajuste: f.config.ajuste },
+      itens: !comConsulta ? [] : reais ? previa.itens : ITENS_DE_EXEMPLO,
+      ...(comConsulta ? {} : { imagens: (f.config.imagens ?? []).map((i) => ({ url: caminhoImagemTela(i.imagemId), segundos: Math.max(LIMITES_CONTEUDO_TELA.segundosPorCena[0], i.segundos || 8) })) }),
       dadosEm: new Date().toISOString(),
       validoAte: new Date(Date.now() + 3_600_000).toISOString(),
     }),
-    [f.nome, f.modelo, f.config, reais, previa],
+    [f.nome, f.modelo, f.config, reais, previa, comConsulta],
   );
   const programas = useMemo(() => [programa], [programa]);
 
@@ -372,7 +403,7 @@ function PreVisualizacao({ f, perfis, previa, carregando, erro, aoCarregar }: { 
               ))}
             </Selecao>
           </div>
-          <Botao variante="secundario" disabled={!f.consultaId || carregando} onClick={aoCarregar}>{carregando ? 'Consultando…' : 'Carregar dados reais'}</Botao>
+          {comConsulta && <Botao variante="secundario" disabled={!f.consultaId || carregando} onClick={aoCarregar}>{carregando ? 'Consultando…' : 'Carregar dados reais'}</Botao>}
         </div>
         <div ref={caixa} className="flex justify-center">
           <div aria-label="Pré-visualização da tela" style={{ position: 'relative', width: perfil.largura * escala, height: perfil.altura * escala, overflow: 'hidden', borderRadius: 4, boxShadow: '0 0 0 1px rgba(0,0,0,.25)' }}>
@@ -381,6 +412,8 @@ function PreVisualizacao({ f, perfis, previa, carregando, erro, aoCarregar }: { 
             </div>
           </div>
         </div>
+        {!comConsulta && <AvisoDeFormato selecionadas={f.config.imagens ?? []} tela={perfil} cobrir={f.config.ajuste === 'COBRIR'} />}
+        {comConsulta && (
         <div className="mt-3 space-y-1 text-xs text-slate-500">
           {!reais && <p className="font-medium text-amber-700">Dados de exemplo. Eles nunca vão para a tela.</p>}
           {reais && <p>{previa.itens.length} produto(s) da consulta, como vão aparecer.</p>}
@@ -390,8 +423,22 @@ function PreVisualizacao({ f, perfis, previa, carregando, erro, aoCarregar }: { 
           {previa && previa.itens.length === 0 && f.config.colunaNome && f.config.colunaPreco && <p className="text-amber-700">Nenhum produto aproveitável com essas colunas.</p>}
           {previa && !(f.config.colunaNome && f.config.colunaPreco) && <p className="text-amber-700">Escolha as colunas do nome e do preço e carregue de novo.</p>}
         </div>
+        )}
         {erro && <div className="mt-3"><Alerta>{erro.message}</Alerta></div>}
       </div>
     </section>
+  );
+}
+
+/** Imagem horizontal em tela vertical sobra ou corta: melhor saber antes de publicar. */
+function AvisoDeFormato({ selecionadas, tela, cobrir }: { selecionadas: { imagemId: string }[]; tela: { largura: number; altura: number }; cobrir: boolean }) {
+  const { data: imagens = [] } = useImagensTela();
+  const diferentes: ImagemTelaResumo[] = selecionadas.flatMap((s) => imagens.filter((i) => i.id === s.imagemId && !imagemCombinaComTela(i, tela)));
+  if (selecionadas.length === 0) return <p className="mt-3 text-xs text-slate-500">Escolha uma imagem para ver como fica.</p>;
+  if (diferentes.length === 0) return <p className="mt-3 text-xs text-slate-500">As imagens têm o mesmo formato desta tela.</p>;
+  return (
+    <p className="mt-3 text-xs text-amber-700">
+      {diferentes.length === 1 ? `“${diferentes[0].nome}” tem` : `${diferentes.length} imagens têm`} formato diferente desta tela: {cobrir ? 'as bordas vão ser cortadas' : 'vai sobrar fundo nas laterais ou em cima e embaixo'}.
+    </p>
   );
 }

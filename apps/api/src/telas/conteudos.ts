@@ -2,16 +2,21 @@ import { createHash } from 'node:crypto';
 import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Injectable, Logger, NotFoundException, OnApplicationBootstrap, OnModuleDestroy, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import {
+  AJUSTES_IMAGEM_TELA,
+  caminhoImagemTela,
   conteudoVigente,
   dadosValidosAte,
   itensDoConteudo,
   LIMITE_LINHAS_CONTEUDO,
   linhasParaRegistros,
+  MAX_IMAGENS_TELA_POR_EMPRESA,
+  modeloUsaConsulta,
   MODELOS_CONTEUDO_TELA,
   parametrosVigentes,
   problemaNaConfigConteudo,
+  problemaNasImagensDoConteudo,
   problemaNaVigencia,
   problemaNosPrazosConteudo,
   registroBanido,
@@ -20,6 +25,9 @@ import {
   type ConfigConteudoTela,
   type ConsultaParaConteudo,
   type ConteudoTelaResumo,
+  type AjusteImagemTela,
+  type ImagemNoConteudo,
+  type ImagemTelaResumo,
   type ItemConteudoTela,
   type ModeloConteudoTela,
   type PreviaConteudoResposta,
@@ -35,6 +43,7 @@ import { BanidosService } from '../banidos/banidos.service';
 import { config } from '../config';
 import { agoraNoFuso, ConsultasService } from '../consultas/consultas.service';
 import { pedeParametros } from '../impressao/agendamentos.service';
+import { tipoDaImagem } from '../posts/catalogo.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { horaLocal } from './hora';
 
@@ -78,6 +87,38 @@ class ConfigConteudoDto implements ConfigConteudoTela {
 
   @IsString()
   corDestaque: string;
+
+  @IsOptional()
+  @IsArray()
+  imagens?: ImagemNoConteudo[];
+
+  @IsOptional()
+  @IsIn(AJUSTES_IMAGEM_TELA, { message: 'Ajuste de imagem desconhecido.' })
+  ajuste?: AjusteImagemTela;
+}
+
+class EnviarImagemTelaDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  nome: string;
+
+  /** Data URL. O limite real é o do parâmetro, conferido nos bytes. */
+  @IsString()
+  @MaxLength(14_500_000, { message: 'A imagem passa do limite.' })
+  dados: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100_000)
+  largura?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100_000)
+  altura?: number;
 }
 
 class SalvarConteudoDto {
@@ -89,8 +130,9 @@ class SalvarConteudoDto {
   @IsIn(MODELOS_CONTEUDO_TELA, { message: 'Modelo desconhecido.' })
   modelo: ModeloConteudoTela;
 
+  @IsOptional()
   @IsUUID('all', { message: 'Escolha a consulta.' })
-  consultaId: string;
+  consultaId?: string;
 
   @ValidateNested()
   @Type(() => ConfigConteudoDto)
@@ -280,6 +322,15 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
   }
 
   private async validar(empresaId: string, dto: SalvarConteudoDto) {
+    if (!modeloUsaConsulta(dto.modelo)) {
+      const problema = problemaNasImagensDoConteudo(dto.config) ?? problemaNaVigencia(vigencia(dto));
+      if (problema) throw new BadRequestException(problema);
+      const ids = [...new Set(dto.config.imagens!.map((i) => i.imagemId))];
+      const achadas = await this.prisma.imagemTela.count({ where: { empresaId, id: { in: ids } } });
+      if (achadas !== ids.length) throw new BadRequestException('Há imagens que não são desta empresa.');
+      return;
+    }
+    if (!dto.consultaId) throw new BadRequestException('Escolha a consulta.');
     const problema = problemaNaConfigConteudo(dto.config) ?? problemaNosPrazosConteudo(dto.intervaloMinutos, dto.validadeMinutos) ?? problemaNaVigencia(vigencia(dto));
     if (problema) throw new BadRequestException(problema);
     const consulta = await this.consultaUtil(empresaId, dto.consultaId);
@@ -293,13 +344,16 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
   }
 
   private dados(dto: SalvarConteudoDto, autorId: string) {
+    const comConsulta = modeloUsaConsulta(dto.modelo);
     return {
       nome: dto.nome.trim(),
       modelo: dto.modelo,
-      consultaId: dto.consultaId,
+      consultaId: comConsulta ? dto.consultaId : null,
       config: { ...dto.config, colunaPrecoDe: dto.config.colunaPrecoDe || null, colunaDetalhe: dto.config.colunaDetalhe || null } as unknown as Prisma.InputJsonValue,
-      intervaloMinutos: dto.intervaloMinutos,
-      validadeMinutos: dto.validadeMinutos,
+      // Imagem não tem o que atualizar nem preço que fique velho.
+      intervaloMinutos: comConsulta ? dto.intervaloMinutos : 0,
+      validadeMinutos: comConsulta ? dto.validadeMinutos : 0,
+      ...(comConsulta ? {} : { proximaAtualizacaoEm: null, itens: [] as Prisma.InputJsonValue }),
       ...vigencia(dto),
       responsavelId: autorId,
     };
@@ -320,6 +374,8 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
     const atual = await this.obter(empresaId, id);
     // No ar, a mudança de colunas ou de consulta não pode esperar o próximo ciclo.
     if (atual.publicado) {
+      // Passou de imagens para produtos: o relógio volta a cuidar dele.
+      if (modeloUsaConsulta(dto.modelo)) await this.prisma.conteudoTela.updateMany({ where: { id, empresaId }, data: { proximaAtualizacaoEm: new Date(Date.now() + dto.intervaloMinutos * 60_000) } });
       await this.atualizarDados(id);
       return this.obter(empresaId, id);
     }
@@ -346,6 +402,59 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
     return { ...itens, colunas, banidos: todos.length - registros.length };
   }
 
+  // Imagens --------------------------------------------------------------------------------
+
+  async listarImagens(empresaId: string): Promise<ImagemTelaResumo[]> {
+    const [imagens, usos] = await Promise.all([
+      this.prisma.imagemTela.findMany({ where: { empresaId }, orderBy: { criadoEm: 'desc' }, select: { id: true, nome: true, largura: true, altura: true, bytes: true, criadoEm: true } }),
+      this.usosDeImagens(empresaId),
+    ]);
+    return imagens.map((i) => ({ ...i, usos: usos.get(i.id) ?? 0, criadoEm: i.criadoEm.toISOString() }));
+  }
+
+  /** Quantos conteúdos usam cada imagem: fica no JSON do conteúdo, sem chave estrangeira. */
+  private async usosDeImagens(empresaId: string): Promise<Map<string, number>> {
+    const conteudos = await this.prisma.conteudoTela.findMany({ where: { empresaId, modelo: 'IMAGENS' }, select: { config: true } });
+    const usos = new Map<string, number>();
+    for (const c of conteudos) {
+      for (const id of new Set(((c.config as unknown as ConfigConteudoTela).imagens ?? []).map((i) => i.imagemId))) usos.set(id, (usos.get(id) ?? 0) + 1);
+    }
+    return usos;
+  }
+
+  async enviarImagem(empresaId: string, dto: EnviarImagemTelaDto, autorId: string): Promise<ImagemTelaResumo> {
+    const [global, daEmpresa] = await Promise.all([
+      this.prisma.parametroTelas.findFirst({ where: { empresaId: null }, select: { valores: true } }),
+      this.prisma.parametroTelas.findFirst({ where: { empresaId }, select: { valores: true } }),
+    ]);
+    const maximoMb = parametrosVigentes(global?.valores, daEmpresa?.valores).imagemTamanhoMaximoMb;
+    const bytes = Buffer.from(dto.dados.slice(dto.dados.indexOf(',') + 1), 'base64');
+    if (bytes.length > maximoMb * 1_000_000) throw new BadRequestException(`A imagem passa de ${maximoMb} MB.`);
+    // Pelos bytes, não pelo que o navegador declarou: SVG pode carregar script.
+    const mime = tipoDaImagem(bytes);
+    if (!mime) throw new BadRequestException('A imagem precisa ser PNG, JPEG, WebP ou GIF.');
+    if ((await this.prisma.imagemTela.count({ where: { empresaId } })) >= MAX_IMAGENS_TELA_POR_EMPRESA) throw new BadRequestException(`A galeria das telas aceita até ${MAX_IMAGENS_TELA_POR_EMPRESA} imagens. Exclua alguma para enviar outra.`);
+    const i = await this.prisma.imagemTela.create({
+      data: { empresaId, nome: dto.nome.trim().slice(0, 200), mime, largura: dto.largura ?? null, altura: dto.altura ?? null, bytes: bytes.length, conteudo: bytes },
+      select: { id: true, nome: true, largura: true, altura: true, bytes: true, criadoEm: true },
+    });
+    await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'tela.imagem_enviar', entidade: 'ImagemTela', entidadeId: i.id, detalhes: { nome: i.nome, bytes: i.bytes } });
+    return { ...i, usos: 0, criadoEm: i.criadoEm.toISOString() };
+  }
+
+  async excluirImagem(empresaId: string, id: string, autorId: string) {
+    if ((await this.usosDeImagens(empresaId)).get(id)) throw new ConflictException('Esta imagem está em um conteúdo. Tire a imagem de lá antes de excluir.');
+    const { count } = await this.prisma.imagemTela.deleteMany({ where: { id, empresaId } });
+    if (count === 0) throw new NotFoundException('Imagem não encontrada.');
+    await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'tela.imagem_excluir', entidade: 'ImagemTela', entidadeId: id });
+  }
+
+  async arquivoDaImagem(id: string) {
+    const i = await this.prisma.imagemTela.findUnique({ where: { id }, select: { mime: true, conteudo: true } });
+    if (!i) throw new NotFoundException('Imagem não encontrada.');
+    return i;
+  }
+
   // Publicação -----------------------------------------------------------------------------
 
   async publicar(empresaId: string, id: string, telaIds: string[], autor: UsuarioRequisicao): Promise<ConteudoTelaResumo> {
@@ -360,14 +469,17 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
     const unicas = [...new Set(telaIds)];
     const achadas = await this.prisma.tela.count({ where: { empresaId, id: { in: unicas } } });
     if (achadas !== unicas.length) throw new BadRequestException('Há telas que não são desta empresa.');
-    const conteudo = await this.prisma.conteudoTela.findFirst({ where: { id, empresaId }, select: { id: true, consultaId: true, intervaloMinutos: true } });
+    const conteudo = await this.prisma.conteudoTela.findFirst({ where: { id, empresaId }, select: { id: true, modelo: true, consultaId: true, intervaloMinutos: true } });
     if (!conteudo) throw new NotFoundException('Conteúdo não encontrado.');
-    if (!conteudo.consultaId) throw new BadRequestException('A consulta deste conteúdo foi excluída. Escolha outra antes de publicar.');
-    await this.consultaUtil(empresaId, conteudo.consultaId);
+    const comConsulta = modeloUsaConsulta(conteudo.modelo as ModeloConteudoTela);
+    if (comConsulta) {
+      if (!conteudo.consultaId) throw new BadRequestException('A consulta deste conteúdo foi excluída. Escolha outra antes de publicar.');
+      await this.consultaUtil(empresaId, conteudo.consultaId);
+    }
     await this.prisma.$transaction(async (tx) => {
       await tx.telaConteudo.deleteMany({ where: { conteudoId: id, empresaId } });
       await tx.telaConteudo.createMany({ data: unicas.map((telaId) => ({ telaId, conteudoId: id, empresaId })) });
-      await tx.conteudoTela.update({ where: { id }, data: { publicado: true, responsavelId: autor.id, proximaAtualizacaoEm: new Date(Date.now() + conteudo.intervaloMinutos * 60_000) } });
+      await tx.conteudoTela.update({ where: { id }, data: { publicado: true, responsavelId: autor.id, proximaAtualizacaoEm: comConsulta ? new Date(Date.now() + conteudo.intervaloMinutos * 60_000) : null } });
       await this.auditoria.registrar({ empresaId, usuarioId: autor.id, acao: 'tela.conteudo_publicar', entidade: 'ConteudoTela', entidadeId: id, detalhes: { telas: unicas.length } }, tx);
     });
     await this.atualizarDados(id);
@@ -417,8 +529,14 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
 
   /** Falhou: guarda o motivo e mantém os dados anteriores, que saem do ar ao vencer. */
   async atualizarDados(id: string): Promise<void> {
-    const c = await this.prisma.conteudoTela.findUnique({ where: { id }, select: { empresaId: true, consultaId: true, config: true, responsavelId: true, responsavel: { select: { ativo: true } } } });
+    const c = await this.prisma.conteudoTela.findUnique({ where: { id }, select: { empresaId: true, modelo: true, consultaId: true, config: true, responsavelId: true, responsavel: { select: { ativo: true } } } });
     if (!c) return;
+    // Imagem não consulta nada: está pronta assim que publica, e a data só serve para a TV buscar de novo.
+    if (!modeloUsaConsulta(c.modelo as ModeloConteudoTela)) {
+      const quantidade = ((c.config as unknown as ConfigConteudoTela).imagens ?? []).length;
+      await this.prisma.conteudoTela.update({ where: { id }, data: { quantidadeItens: quantidade, dadosEm: new Date(), erro: null } });
+      return;
+    }
     try {
       if (!c.consultaId) throw new Error('A consulta deste conteúdo foi excluída. Escolha outra.');
       if (!c.responsavelId || !c.responsavel?.ativo) throw new Error('O usuário responsável foi removido ou desativado: edite e salve o conteúdo.');
@@ -459,8 +577,9 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
           id: c.id,
           nome: c.nome,
           modelo: c.modelo as ModeloConteudoTela,
-          config: { titulo: cfg.titulo, rodape: cfg.rodape, segundosPorCena: cfg.segundosPorCena, corFundo: cfg.corFundo, corDestaque: cfg.corDestaque },
+          config: { titulo: cfg.titulo, rodape: cfg.rodape, segundosPorCena: cfg.segundosPorCena, corFundo: cfg.corFundo, corDestaque: cfg.corDestaque, ajuste: cfg.ajuste },
           itens: c.itens as unknown as ItemConteudoTela[],
+          ...(c.modelo === 'IMAGENS' ? { imagens: (cfg.imagens ?? []).map((i) => ({ url: caminhoImagemTela(i.imagemId), segundos: i.segundos })) } : {}),
           dadosEm: c.dadosEm!.toISOString(),
           validoAte: dadosValidosAte(c.dadosEm!, c.validadeMinutos).toISOString(),
         };
@@ -484,6 +603,25 @@ export class ConteudosTelaController {
   @RequerPermissao('tela.editar')
   consultas(@EmpresaAtual() empresaId: string) {
     return this.conteudos.consultasDisponiveis(empresaId);
+  }
+
+  @Get('imagens')
+  @RequerPermissao('tela.ver')
+  imagens(@EmpresaAtual() empresaId: string) {
+    return this.conteudos.listarImagens(empresaId);
+  }
+
+  @Post('imagens')
+  @RequerPermissao('tela.editar')
+  enviarImagem(@EmpresaAtual() empresaId: string, @Body() dto: EnviarImagemTelaDto, @UsuarioAtual() u: UsuarioRequisicao) {
+    return this.conteudos.enviarImagem(empresaId, dto, u.id);
+  }
+
+  @Delete('imagens/:id')
+  @HttpCode(204)
+  @RequerPermissao('tela.editar')
+  async excluirImagem(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() u: UsuarioRequisicao) {
+    await this.conteudos.excluirImagem(empresaId, id, u.id);
   }
 
   @Post('previa')

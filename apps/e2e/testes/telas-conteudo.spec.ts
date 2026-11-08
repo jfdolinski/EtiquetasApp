@@ -278,3 +278,153 @@ test('consulta de busca é recusada, e aprovação obrigatória impede publicar'
   expect(p.status).toBe(409);
   expect(p.j.message).toMatch(/aprovação/);
 });
+
+// PNG de verdade: 1x1 e 16x9 não fazem diferença para a TV, só para os avisos de formato.
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+const dataUrlPng = `data:image/png;base64,${PNG.toString('base64')}`;
+
+const enviarImagem = (empresa: EmpresaTeste, extra: Record<string, unknown> = {}) => pedir('POST', '/telas/conteudos/imagens', { token: empresa.adminToken, corpo: { nome: 'banner.png', dados: dataUrlPng, largura: 1920, altura: 1080, ...extra } });
+const corpoImagens = (nome: string, ids: string[], extra: Record<string, unknown> = {}) => ({ nome, modelo: 'IMAGENS', config: { ...CONFIG, colunaNome: '', colunaPreco: '', colunaPrecoDe: null, imagens: ids.map((imagemId) => ({ imagemId, segundos: 5 })), ajuste: 'CONTER' }, intervaloMinutos: 15, validadeMinutos: 60, ...extra });
+
+test('envia imagem pelo site, publica e a TV mostra, alternando com as ofertas', async ({ page, context }) => {
+  const empresa = await criarEmpresa(tokenSuper);
+  const tela = await telaVinculada(empresa, 'TV das imagens');
+
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await entrar(page, empresa.adminEmail, empresa.adminSenha);
+  await page.goto('/telas');
+  await page.getByRole('tab', { name: 'Conteúdo' }).click();
+  await page.getByRole('button', { name: 'Novo conteúdo' }).click();
+  await page.getByLabel('Nome do conteúdo').fill('Banner da loja');
+  await page.getByText('Imagens', { exact: true }).click();
+  // Um banner de verdade, no tamanho da TV, desenhado na hora.
+  const banner = Buffer.from(
+    (await page.evaluate(() => {
+      const c = document.createElement('canvas');
+      c.width = 1280;
+      c.height = 720;
+      const g = c.getContext('2d')!;
+      g.fillStyle = '#b91c1c';
+      g.fillRect(0, 0, 1280, 720);
+      g.fillStyle = '#ffffff';
+      g.font = 'bold 110px sans-serif';
+      g.textAlign = 'center';
+      g.fillText('Feirão de sábado', 640, 390);
+      return c.toDataURL('image/png').split(',')[1];
+    })) as string,
+    'base64',
+  );
+  // Sem consulta nem colunas nesse modelo.
+  await expect(page.getByRole('combobox', { name: /^Consulta/ })).toHaveCount(0);
+  await expect(page.getByText('Escolha ao menos uma imagem.').first()).toBeVisible();
+
+  // SVG não entra, e não atrapalha a imagem boa enviada junto.
+  await page.getByLabel('Arquivos de imagem').setInputFiles([
+    { name: 'ataque.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>') },
+    { name: 'banner.png', mimeType: 'image/png', buffer: banner },
+  ]);
+  await expect(page.getByText(/ataque\.svg: A imagem precisa ser PNG/)).toBeVisible();
+  await expect(page.getByRole('listitem').filter({ hasText: 'banner.png' }).first()).toBeVisible();
+  const naPrevia = page.getByLabel('Pré-visualização da tela').locator('img');
+  await expect(naPrevia).toBeVisible();
+  await expect.poll(() => naPrevia.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(1280);
+  // Mesmo formato do perfil: nada de aviso.
+  await expect(page.getByText('As imagens têm o mesmo formato desta tela.')).toBeVisible();
+  // Terminada a entrada, a imagem precisa estar opaca: a animação não pode deixá-la sumida.
+  await expect.poll(() => naPrevia.evaluate((i) => getComputedStyle(i).opacity)).toBe('1');
+  await page.screenshot({ path: 'test-results/tela-editor-imagens.png' });
+
+  await page.getByRole('checkbox', { name: /TV das imagens/ }).check();
+  await page.getByRole('button', { name: 'Publicar' }).click();
+  const linha = page.getByRole('row', { name: /Banner da loja/ });
+  await expect(linha.getByText('No ar')).toBeVisible();
+  await expect(linha.getByText('1 imagem(ns)')).toBeVisible();
+  await expect(linha.getByRole('button', { name: 'Atualizar dados' })).toHaveCount(0);
+
+  // Um conteúdo de ofertas na mesma tela: as duas coisas se alternam.
+  const consultaId = await criarConsulta(empresa);
+  const ofertas = await pedir('POST', '/telas/conteudos', { token: empresa.adminToken, corpo: corpoConteudo('Ofertas', consultaId, { config: { ...CONFIG, segundosPorCena: 3 } }) });
+  await pedir('POST', `/telas/conteudos/${ofertas.j.id}/publicar`, { token: empresa.adminToken, corpo: { telaIds: [tela.id] } });
+  await gravarDados(ofertas.j.id);
+
+  const tv = await context.newPage();
+  await tv.setViewportSize({ width: 1280, height: 720 });
+  await tv.addInitScript((t) => localStorage.setItem('etiquetas.tv.token', t), tela.token);
+  await tv.goto('/tv');
+  const cenaImagem = tv.getByTestId('cena-imagem');
+  await expect(cenaImagem).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => cenaImagem.locator('img').evaluate((i: HTMLImageElement) => i.naturalWidth)).toBeGreaterThan(0);
+  await expect.poll(() => cenaImagem.locator('img').evaluate((i) => getComputedStyle(i).opacity)).toBe('1');
+  await tv.screenshot({ path: 'test-results/tela-tv-imagem.png' });
+  await expect(tv.getByTestId('cena-tela').getByText('Arroz Tipo 1 5kg')).toBeVisible({ timeout: 15_000 });
+  await expect(cenaImagem).toBeVisible({ timeout: 15_000 });
+});
+
+test('imagens: regras da API, sem validade, em uso e isolamento', async () => {
+  const empresa = await criarEmpresa(tokenSuper);
+  const outra = await criarEmpresa(tokenSuper);
+  const tela = await telaVinculada(empresa, 'TV regras');
+
+  // Tipo pelos bytes: declarar PNG não adianta.
+  const falsa = await enviarImagem(empresa, { dados: `data:image/png;base64,${Buffer.from('<svg></svg>').toString('base64')}` });
+  expect(falsa.status).toBe(400);
+  expect(falsa.j.message).toMatch(/PNG, JPEG/);
+
+  // O limite é o parâmetro, definido pelo administrador geral.
+  await pedir('PUT', '/telas/parametros/global', { token: tokenSuper, empresa: empresa.id, corpo: { valores: { imagemTamanhoMaximoMb: 1 } } });
+  const grande = await enviarImagem(empresa, { dados: `data:image/png;base64,${Buffer.concat([PNG, Buffer.alloc(1_100_000)]).toString('base64')}` });
+  await pedir('PUT', '/telas/parametros/global', { token: tokenSuper, empresa: empresa.id, corpo: { valores: { imagemTamanhoMaximoMb: null } } });
+  expect(grande.status).toBe(400);
+  expect(grande.j.message).toMatch(/passa de 1 MB/);
+
+  const img = await enviarImagem(empresa);
+  expect(img.status).toBe(201);
+  const id = img.j.id as string;
+
+  // A TV baixa sem login, com o tipo conferido e cache longo.
+  const arquivo = await fetch(`http://localhost:3000/api/tv/imagens/${id}`);
+  expect(arquivo.status).toBe(200);
+  expect(arquivo.headers.get('content-type')).toContain('image/png');
+  expect(arquivo.headers.get('x-content-type-options')).toBe('nosniff');
+  expect(arquivo.headers.get('cache-control')).toContain('immutable');
+  expect(Buffer.from(await arquivo.arrayBuffer()).equals(PNG)).toBe(true);
+  expect((await fetch('http://localhost:3000/api/tv/imagens/00000000-0000-4000-8000-000000000000')).status).toBe(404);
+
+  // Isolamento: a outra empresa não lista, não usa, não apaga.
+  expect((await pedir('GET', '/telas/conteudos/imagens', { token: outra.adminToken })).j).toEqual([]);
+  expect((await pedir('POST', '/telas/conteudos', { token: outra.adminToken, corpo: corpoImagens('Roubo', [id]) })).status).toBe(400);
+  expect((await pedir('DELETE', `/telas/conteudos/imagens/${id}`, { token: outra.adminToken })).status).toBe(404);
+
+  // Vazio e tempo fora do limite não passam.
+  expect((await pedir('POST', '/telas/conteudos', { token: empresa.adminToken, corpo: corpoImagens('Vazio', []) })).status).toBe(400);
+
+  const c = await pedir('POST', '/telas/conteudos', { token: empresa.adminToken, corpo: corpoImagens('Banners', [id]) });
+  expect(c.status).toBe(201);
+  expect(c.j.consultaId).toBeNull();
+  expect(c.j.validadeMinutos).toBe(0);
+  const pub = await pedir('POST', `/telas/conteudos/${c.j.id}/publicar`, { token: empresa.adminToken, corpo: { telaIds: [tela.id] } });
+  expect(pub.status).toBe(200);
+  expect(pub.j.situacao).toBe('NO_AR');
+  expect(pub.j.erro).toBeNull();
+
+  const prog = () => pedir('POST', '/tv/programacao', { token: tela.token, corpo: {} });
+  const p = (await prog()).j.programas[0];
+  expect(p.imagens).toEqual([{ url: `/api/tv/imagens/${id}`, segundos: 5 }]);
+
+  // Não depende de consulta nem vence: um ano depois continua no ar.
+  await sql(`UPDATE conteudos_tela SET dados_em = (now() at time zone 'utc') - interval '365 days' WHERE id = $1`, [c.j.id]);
+  expect((await prog()).j.programas).toHaveLength(1);
+  const lista = await pedir('GET', '/telas/conteudos', { token: empresa.adminToken });
+  expect(lista.j[0].situacao).toBe('NO_AR');
+  const [{ proxima_atualizacao_em: proxima }] = await sql(`SELECT proxima_atualizacao_em FROM conteudos_tela WHERE id = $1`, [c.j.id]);
+  expect(proxima).toBeNull();
+
+  // Em uso não sai da galeria; depois de tirar, sai.
+  const usada = await pedir('DELETE', `/telas/conteudos/imagens/${id}`, { token: empresa.adminToken });
+  expect(usada.status).toBe(409);
+  expect((await pedir('GET', '/telas/conteudos/imagens', { token: empresa.adminToken })).j[0].usos).toBe(1);
+  await pedir('POST', `/telas/conteudos/${c.j.id}/despublicar`, { token: empresa.adminToken });
+  await pedir('DELETE', `/telas/conteudos/${c.j.id}`, { token: empresa.adminToken });
+  expect((await pedir('DELETE', `/telas/conteudos/imagens/${id}`, { token: empresa.adminToken })).status).toBe(204);
+  expect((await fetch(`http://localhost:3000/api/tv/imagens/${id}`)).status).toBe(404);
+});

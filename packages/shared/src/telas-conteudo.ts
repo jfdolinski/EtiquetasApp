@@ -7,14 +7,31 @@ import type { Registro } from './etiquetas/tipos';
 import { dentroDoHorarioDaTela, familiaDoFormato, horarioValido, type FamiliaFormato, type NivelAnimacao, type TipoEquipamento } from './telas';
 import { formatarPrecoPost } from './posts';
 
-export const MODELOS_CONTEUDO_TELA = ['GRADE_OFERTAS', 'DESTAQUE', 'LISTA_PRECOS'] as const;
+export const MODELOS_CONTEUDO_TELA = ['GRADE_OFERTAS', 'DESTAQUE', 'LISTA_PRECOS', 'IMAGENS'] as const;
 export type ModeloConteudoTela = (typeof MODELOS_CONTEUDO_TELA)[number];
 
 export const ROTULO_MODELO_CONTEUDO: Record<ModeloConteudoTela, { titulo: string; ajuda: string }> = {
   GRADE_OFERTAS: { titulo: 'Grade de ofertas', ajuda: 'Vários produtos por cena, em cartões.' },
   DESTAQUE: { titulo: 'Produto em destaque', ajuda: 'Um produto por vez, com o preço bem grande.' },
   LISTA_PRECOS: { titulo: 'Lista de preços', ajuda: 'Uma tabela de nomes e preços, boa para muitos itens.' },
+  IMAGENS: { titulo: 'Imagens', ajuda: 'Banners e avisos enviados por você, um por cena.' },
 };
+
+/** Só os modelos de produtos dependem de consulta e de cópia dos dados. */
+export const modeloUsaConsulta = (m: ModeloConteudoTela) => m !== 'IMAGENS';
+
+export const AJUSTES_IMAGEM_TELA = ['CONTER', 'COBRIR'] as const;
+export type AjusteImagemTela = (typeof AJUSTES_IMAGEM_TELA)[number];
+
+export const ROTULO_AJUSTE_IMAGEM: Record<AjusteImagemTela, string> = {
+  CONTER: 'Mostrar a imagem inteira (pode sobrar fundo)',
+  COBRIR: 'Preencher a tela (pode cortar as bordas)',
+};
+
+export interface ImagemNoConteudo {
+  imagemId: string;
+  segundos: number;
+}
 
 export interface ConfigConteudoTela {
   /** Aparece no alto da cena; vazio, a cena usa o espaço para os produtos. */
@@ -30,6 +47,9 @@ export interface ConfigConteudoTela {
   segundosPorCena: number;
   corFundo: string;
   corDestaque: string;
+  /** Só no modelo de imagens: o que passa, e em que ordem. */
+  imagens?: ImagemNoConteudo[];
+  ajuste?: AjusteImagemTela;
 }
 
 export const LIMITES_CONTEUDO_TELA = {
@@ -42,6 +62,8 @@ export const LIMITES_CONTEUDO_TELA = {
 
 /** Até aqui cabe na memória de uma TV barata, e ninguém lê mais que isso em cenas. */
 export const MAX_ITENS_CONTEUDO = 200;
+export const MAX_IMAGENS_POR_CONTEUDO = 30;
+export const MAX_IMAGENS_TELA_POR_EMPRESA = 300;
 export const LIMITE_LINHAS_CONTEUDO = 1000;
 
 export const INTERVALO_PADRAO_MINUTOS = 15;
@@ -70,6 +92,21 @@ export function problemaNaConfigConteudo(c: ConfigConteudoTela): string | null {
   const [min, max] = LIMITES_CONTEUDO_TELA.segundosPorCena;
   if (!Number.isInteger(c.segundosPorCena) || c.segundosPorCena < min || c.segundosPorCena > max) return `O tempo de cada cena precisa ficar entre ${min} e ${max} segundos.`;
   if (!COR.test(c.corFundo) || !COR.test(c.corDestaque)) return 'Cor inválida.';
+  return null;
+}
+
+/** Devolve a mensagem de erro, se houver. Que as imagens são da empresa, a API confere. */
+export function problemaNasImagensDoConteudo(c: Pick<ConfigConteudoTela, 'imagens' | 'ajuste' | 'corFundo'>): string | null {
+  const imagens = c.imagens ?? [];
+  if (imagens.length === 0) return 'Escolha ao menos uma imagem.';
+  if (imagens.length > MAX_IMAGENS_POR_CONTEUDO) return `Um conteúdo pode ter até ${MAX_IMAGENS_POR_CONTEUDO} imagens.`;
+  const [min, max] = LIMITES_CONTEUDO_TELA.segundosPorCena;
+  for (const i of imagens) {
+    if (typeof i?.imagemId !== 'string' || !i.imagemId) return 'Imagem inválida.';
+    if (!Number.isInteger(i.segundos) || i.segundos < min || i.segundos > max) return `O tempo de cada imagem precisa ficar entre ${min} e ${max} segundos.`;
+  }
+  if (c.ajuste && !AJUSTES_IMAGEM_TELA.includes(c.ajuste)) return 'Ajuste de imagem desconhecido.';
+  if (!COR.test(c.corFundo)) return 'Cor inválida.';
   return null;
 }
 
@@ -172,7 +209,7 @@ export interface GradeDaCena {
   linhas: number;
 }
 
-const GRADES: Record<ModeloConteudoTela, Record<FamiliaFormato, GradeDaCena>> = {
+const GRADES: Record<Exclude<ModeloConteudoTela, 'IMAGENS'>, Record<FamiliaFormato, GradeDaCena>> = {
   DESTAQUE: {
     HORIZONTAL: { colunas: 1, linhas: 1 },
     QUASE_QUADRADO: { colunas: 1, linhas: 1 },
@@ -195,6 +232,7 @@ const GRADES: Record<ModeloConteudoTela, Record<FamiliaFormato, GradeDaCena>> = 
 };
 
 export function gradeDaCena(modelo: ModeloConteudoTela, largura: number, altura: number): GradeDaCena {
+  if (modelo === 'IMAGENS') return { colunas: 1, linhas: 1 };
   const grade = GRADES[modelo][familiaDoFormato(largura, altura)];
   // Painel pequeno não mostra muita coisa de longe: um item por vez, ou no máximo dois se for bem largo.
   if (Math.min(largura, altura) < 200) return { colunas: largura < 500 ? 1 : Math.min(grade.colunas, 2), linhas: 1 };
@@ -272,8 +310,12 @@ export function conteudoVigente(v: VigenciaConteudo, hoje: string, hora: string)
   return dentroDoHorarioDaTela(v.horarioInicio, v.horarioFim, hora);
 }
 
+/** Validade zero: imagem não tem preço que fique velho. */
+const SEM_VALIDADE = new Date('9999-12-31T00:00:00.000Z');
+
 /** Até quando estes dados podem ficar na tela. */
 export function dadosValidosAte(dadosEm: Date | string, validadeMinutos: number): Date {
+  if (validadeMinutos === 0) return SEM_VALIDADE;
   return new Date(new Date(dadosEm).getTime() + validadeMinutos * 60_000);
 }
 
@@ -315,6 +357,27 @@ export interface ConteudoTelaResumo extends VigenciaConteudo {
   responsavelNome: string | null;
 }
 
+export interface ImagemTelaResumo {
+  id: string;
+  nome: string;
+  largura: number | null;
+  altura: number | null;
+  bytes: number;
+  /** Conteúdos que usam: enquanto houver, não pode excluir. */
+  usos: number;
+  criadoEm: string;
+}
+
+/** Pública de propósito: `<img>` não manda token, a TV não tem login e o endereço leva um id impossível de adivinhar. */
+export const caminhoImagemTela = (id: string) => `/api/tv/imagens/${id}`;
+
+/** A imagem horizontal em tela vertical sobra ou corta: vale avisar quem está montando. */
+export function imagemCombinaComTela(imagem: { largura: number | null; altura: number | null }, tela: { largura: number; altura: number }): boolean {
+  if (!imagem.largura || !imagem.altura) return true;
+  const proporcaoDaTela = tela.largura / tela.altura;
+  return Math.abs(imagem.largura / imagem.altura - proporcaoDaTela) / proporcaoDaTela < 0.05;
+}
+
 export interface ConsultaParaConteudo {
   id: string;
   nome: string;
@@ -334,8 +397,10 @@ export interface ProgramaTela {
   id: string;
   nome: string;
   modelo: ModeloConteudoTela;
-  config: Pick<ConfigConteudoTela, 'titulo' | 'rodape' | 'segundosPorCena' | 'corFundo' | 'corDestaque'>;
+  config: Pick<ConfigConteudoTela, 'titulo' | 'rodape' | 'segundosPorCena' | 'corFundo' | 'corDestaque' | 'ajuste'>;
   itens: ItemConteudoTela[];
+  /** Só no modelo de imagens. */
+  imagens?: { url: string; segundos: number }[];
   dadosEm: string;
   validoAte: string;
 }
@@ -350,7 +415,7 @@ export interface ProgramacaoTela {
 
 /** Programas que ainda podem ficar na tela, conforme o relógio do servidor. */
 export function programasValidos(programas: ProgramaTela[], agora: Date): ProgramaTela[] {
-  return programas.filter((p) => new Date(p.validoAte) > agora && p.itens.length > 0);
+  return programas.filter((p) => new Date(p.validoAte) > agora && (p.itens.length > 0 || (p.imagens?.length ?? 0) > 0));
 }
 
 export const horaDosDados = (dadosEm: string, fuso?: string) => new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', ...(fuso ? { timeZone: fuso } : {}) }).format(new Date(dadosEm));

@@ -71,6 +71,7 @@ export interface ParametrosTelas {
   criadorPodeAprovar: boolean;
   /** O administrador geral pode aprovar o conteúdo da empresa. */
   administradorGeralAprova: boolean;
+  imagemTamanhoMaximoMb: number;
   videoTamanhoMaximoMb: number;
   /** Maior altura de vídeo aceita, em pixels. */
   videoAlturaMaxima: number;
@@ -90,6 +91,7 @@ export const PARAMETROS_TELAS_PADRAO: ParametrosTelas = {
   aprovacaoObrigatoria: false,
   criadorPodeAprovar: true,
   administradorGeralAprova: false,
+  imagemTamanhoMaximoMb: 10,
   videoTamanhoMaximoMb: 200,
   videoAlturaMaxima: 1080,
   anunciosLigados: true,
@@ -103,6 +105,7 @@ export type ChaveParametroTela = keyof ParametrosTelas;
 
 /** Faixas dos parâmetros numéricos. */
 export const LIMITES_PARAMETROS_TELAS: Partial<Record<ChaveParametroTela, readonly [number, number]>> = {
+  imagemTamanhoMaximoMb: [1, 10],
   videoTamanhoMaximoMb: [1, 2048],
   videoAlturaMaxima: [240, 4320],
   fatiaAnunciosPct: [0, 50],
@@ -117,6 +120,7 @@ export const ROTULO_PARAMETRO_TELA: Record<ChaveParametroTela, { titulo: string;
   aprovacaoObrigatoria: { titulo: 'Aprovação obrigatória', ajuda: 'O conteúdo só vai ao ar depois de aprovado. Enquanto a tela de aprovação não chega, ligar isto impede publicar.', emVigor: true },
   criadorPodeAprovar: { titulo: 'Quem criou pode aprovar', ajuda: 'Desligado, a aprovação precisa de uma segunda pessoa.', emVigor: false },
   administradorGeralAprova: { titulo: 'Administrador geral aprova', ajuda: 'O administrador geral também pode aprovar o conteúdo da empresa.', emVigor: false },
+  imagemTamanhoMaximoMb: { titulo: 'Tamanho máximo de imagem', ajuda: 'Maior arquivo de imagem aceito nas telas. Até 10 MB.', unidade: 'MB', emVigor: true },
   videoTamanhoMaximoMb: { titulo: 'Tamanho máximo de vídeo', ajuda: 'Maior arquivo de vídeo aceito.', unidade: 'MB', emVigor: false },
   videoAlturaMaxima: { titulo: 'Altura máxima de vídeo', ajuda: 'Por exemplo, 1080 para Full HD.', unidade: 'pixels', emVigor: false },
   anunciosLigados: { titulo: 'Publicidade nas telas', ajuda: 'Exibe os anúncios vendidos pela plataforma.', emVigor: false },

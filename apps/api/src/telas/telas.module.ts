@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Headers, HttpCode, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Put, UnauthorizedException } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Headers, HttpCode, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Put, Res, UnauthorizedException } from '@nestjs/common';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
+import type { Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
@@ -531,7 +532,25 @@ export class TelasService {
 /** O que o player usa: público na rota, com o token próprio da tela, que não serve para mais nada. */
 @Controller('tv')
 export class TvController {
-  constructor(private readonly telas: TelasService) {}
+  constructor(
+    private readonly telas: TelasService,
+    private readonly conteudos: ConteudosTelaService,
+  ) {}
+
+  /**
+   * Pública: `<img>` não manda token e a TV não tem login. O id é aleatório, o conteúdo é o que já
+   * aparece na vitrine e os bytes nunca mudam, por isso a TV pode guardar a imagem por muito tempo.
+   */
+  @Get('imagens/:id')
+  @Publico()
+  @SkipThrottle()
+  async imagem(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
+    const i = await this.conteudos.arquivoDaImagem(id);
+    res.setHeader('Content-Type', i.mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(Buffer.from(i.conteudo));
+  }
 
   @Post('pedidos')
   @Publico()
