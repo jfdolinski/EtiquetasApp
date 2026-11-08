@@ -228,3 +228,63 @@ test('o link do QR aberto sem login leva ao login e depois ao formulário', asyn
   await page.getByRole('button', { name: 'Entrar' }).click();
   await expect(page.getByLabel('Nome da tela')).toBeVisible();
 });
+
+test.describe('tela cheia', () => {
+  // Janela menor que a tela, como numa TV com a barra do navegador aparecendo.
+  test.use({ viewport: { width: 1280, height: 720 } });
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window.screen, 'width', { get: () => 1920 });
+      Object.defineProperty(window.screen, 'height', { get: () => 1080 });
+    });
+  });
+  const dica = 'Aperte OK no controle para usar a tela inteira';
+  const emTelaCheia = (page: Page) => page.evaluate(() => !!document.fullscreenElement);
+
+  test('qualquer botão do controle pede, e voltar não prende ninguém', async ({ page }) => {
+    await page.setExtraHTTPHeaders({ 'x-forwarded-for': '10.92.2.1' });
+    await page.goto('/tv');
+    await expect(page.getByText(dica)).toBeVisible();
+
+    // Voltar não é pedido de tela cheia.
+    await page.keyboard.press('Escape');
+    expect(await emTelaCheia(page)).toBe(false);
+
+    await page.keyboard.press('Enter');
+    await expect.poll(() => emTelaCheia(page)).toBe(true);
+    await expect(page.getByText(dica)).toHaveCount(0);
+
+    // Saiu: o aviso volta, e o botão entra de novo.
+    await page.evaluate(() => document.exitFullscreen());
+    await expect(page.getByText(dica)).toBeVisible();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => emTelaCheia(page)).toBe(true);
+  });
+
+  test('a TV que recusa não fica com um aviso falso, e a página continua funcionando', async ({ page }) => {
+    await page.addInitScript(() => {
+      Element.prototype.requestFullscreen = () => Promise.reject(new TypeError('recusado'));
+    });
+    await page.setExtraHTTPHeaders({ 'x-forwarded-for': '10.92.2.2' });
+    const erros: string[] = [];
+    page.on('pageerror', (e) => erros.push(e.message));
+    await page.goto('/tv');
+    await expect(page.getByText(dica)).toBeVisible();
+    await page.keyboard.press('Enter');
+    await expect(page.getByText(dica)).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Vincular esta tela' })).toBeVisible();
+    expect(erros).toEqual([]);
+  });
+});
+
+test('aberta em modo quiosque, ocupando a tela toda, não pede nada', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.addInitScript(() => {
+    Object.defineProperty(window.screen, 'width', { get: () => window.innerWidth });
+    Object.defineProperty(window.screen, 'height', { get: () => window.innerHeight });
+  });
+  await page.setExtraHTTPHeaders({ 'x-forwarded-for': '10.92.2.3' });
+  await page.goto('/tv');
+  await expect(page.getByRole('heading', { name: 'Vincular esta tela' })).toBeVisible();
+  await expect(page.getByText('Aperte OK no controle para usar a tela inteira')).toHaveCount(0);
+});

@@ -130,10 +130,68 @@ function useTelaAcesa() {
   }, []);
 }
 
+/** Voltar precisa continuar saindo da tela cheia: Esc, voltar, e os códigos de voltar da LG (461) e da Samsung (10009). */
+const TECLAS_DE_SAIR = new Set(['Escape', 'Backspace', 'GoBack', 'BrowserBack']);
+const CODIGOS_DE_SAIR = new Set([461, 10009]);
+/** O aviso fica por cima do conteúdo: aparece só por um tempo, para não esconder preço. */
+const DICA_TELA_CHEIA_MS = 20_000;
+
+type ElementoComPrefixo = HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void };
+type DocumentoComPrefixo = Document & { webkitFullscreenElement?: Element | null };
+
+/**
+ * O navegador só entra em tela cheia depois de um gesto de alguém, então a página não faz isso sozinha:
+ * qualquer botão do controle pede. Não dura ao recarregar, e algumas TVs simplesmente não deixam.
+ */
+function useTelaCheia(): boolean {
+  const [dica, setDica] = useState(false);
+  useEffect(() => {
+    const raiz = document.documentElement as ElementoComPrefixo;
+    const pedir = raiz.requestFullscreen ?? raiz.webkitRequestFullscreen;
+    if (!pedir) return;
+    const emTelaCheia = () => !!(document.fullscreenElement ?? (document as DocumentoComPrefixo).webkitFullscreenElement);
+    // Aberta em modo quiosque já ocupa tudo: não há o que pedir.
+    const ocupaTudo = () => window.innerWidth >= window.screen.width && window.innerHeight >= window.screen.height;
+    let fimDaDica: ReturnType<typeof setTimeout>;
+    const mostrarDica = () => {
+      clearTimeout(fimDaDica);
+      const precisa = !emTelaCheia() && !ocupaTudo();
+      setDica(precisa);
+      if (precisa) fimDaDica = setTimeout(() => setDica(false), DICA_TELA_CHEIA_MS);
+    };
+    const tentar = () => {
+      if (emTelaCheia()) return;
+      try {
+        // Recusou: tira o aviso, que só prometeria algo que esta TV não faz. O próximo botão tenta de novo.
+        void Promise.resolve(pedir.call(raiz)).catch(() => setDica(false));
+      } catch {
+        setDica(false);
+      }
+    };
+    const aoTeclar = (e: KeyboardEvent) => {
+      if (!TECLAS_DE_SAIR.has(e.key) && !CODIGOS_DE_SAIR.has(e.keyCode)) tentar();
+    };
+    mostrarDica();
+    window.addEventListener('keydown', aoTeclar);
+    window.addEventListener('pointerdown', tentar);
+    document.addEventListener('fullscreenchange', mostrarDica);
+    document.addEventListener('webkitfullscreenchange', mostrarDica);
+    return () => {
+      clearTimeout(fimDaDica);
+      window.removeEventListener('keydown', aoTeclar);
+      window.removeEventListener('pointerdown', tentar);
+      document.removeEventListener('fullscreenchange', mostrarDica);
+      document.removeEventListener('webkitfullscreenchange', mostrarDica);
+    };
+  }, []);
+  return dica;
+}
+
 /** O link único: sem vínculo, mostra o QR; vinculada, avisa o servidor e mostra o conteúdo. */
 export function PlayerTv() {
   const [token, setToken] = useState(lerToken);
   useTelaAcesa();
+  const dicaTelaCheia = useTelaCheia();
 
   const vincular = useCallback((t: string | null) => {
     gravarToken(t);
@@ -144,6 +202,11 @@ export function PlayerTv() {
   return (
     <div className="flex h-screen w-screen cursor-none flex-col items-center justify-center overflow-hidden bg-slate-950 p-[2vmin] text-center text-white">
       {token ? <TelaVinculada token={token} aoPerder={() => vincular(null)} /> : <PedidoDeVinculo aoVincular={vincular} />}
+      {dicaTelaCheia && Math.min(window.innerWidth, window.innerHeight) >= MENOR_LADO_PARA_QR && (
+        <p role="status" className="fixed bottom-[3vmin] left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/80 px-[3vmin] py-[1.2vmin] text-[2.6vmin] text-white">
+          Aperte OK no controle para usar a tela inteira
+        </p>
+      )}
     </div>
   );
 }
