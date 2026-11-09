@@ -13,6 +13,7 @@ import {
   NIVEIS_ANIMACAO,
   PARAMETROS_DA_EMPRESA,
   parametrosVigentes,
+  REGRAS_DE_APROVACAO,
   problemaNosParametros,
   problemaNosPrazos,
   RESOLUCAO_MAXIMA,
@@ -266,7 +267,9 @@ export class ParametrosTelasService {
     if (u.superAdmin) return Object.keys(vigentes) as ChaveParametroTela[];
     const podeEditar = u.permissoes.includes('tela.editar');
     if (!podeEditar) return [];
-    return vigentes.empresaPodeRecusarAnuncios ? [...PARAMETROS_DA_EMPRESA, 'anunciosLigados'] : [...PARAMETROS_DA_EMPRESA];
+    // Quem só edita não desliga a aprovação do que ele mesmo vai publicar.
+    const daEmpresa = u.permissoes.includes('tela.aprovar') ? PARAMETROS_DA_EMPRESA : PARAMETROS_DA_EMPRESA.filter((k) => !REGRAS_DE_APROVACAO.includes(k));
+    return vigentes.empresaPodeRecusarAnuncios ? [...daEmpresa, 'anunciosLigados'] : [...daEmpresa];
   }
 
   async ler(empresaId: string, u: UsuarioRequisicao): Promise<ParametrosTelasResposta> {
@@ -293,7 +296,7 @@ export class ParametrosTelasService {
     const [global, atual] = await Promise.all([this.guardados(null), this.guardados(empresaId)]);
     const permitidos = this.editaveis(parametrosVigentes(global?.valores, atual?.valores), u);
     const barrado = Object.keys(alteracao).find((k) => !permitidos.includes(k as ChaveParametroTela));
-    if (barrado) throw new ForbiddenException('Este parâmetro é definido pelo administrador geral.');
+    if (barrado) throw new ForbiddenException(REGRAS_DE_APROVACAO.includes(barrado as ChaveParametroTela) ? 'Só quem tem a permissão de aprovar muda as regras de aprovação.' : 'Este parâmetro é definido pelo administrador geral.');
     const novos = aplicarParametros(atual?.valores, alteracao);
     const prazos = problemaNosPrazos(parametrosVigentes(global?.valores, novos));
     if (prazos) throw new BadRequestException(prazos);

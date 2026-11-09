@@ -1,17 +1,19 @@
 import { createHash } from 'node:crypto';
-import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Injectable, Logger, NotFoundException, OnApplicationBootstrap, OnModuleDestroy, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, HttpCode, Injectable, Logger, NotFoundException, OnApplicationBootstrap, OnModuleDestroy, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import {
   AJUSTES_IMAGEM_TELA,
   aparenciaDoPrograma,
   caminhoImagemTela,
   conteudoVigente,
   dadosValidosAte,
+  impedimentoParaAprovar,
   imagensUsadasPeloConteudo,
   itensDoConteudo,
   LIMITE_LINHAS_CONTEUDO,
+  LIMITE_MOTIVO_RECUSA,
   linhasParaRegistros,
   MAX_IMAGENS_TELA_POR_EMPRESA,
   modeloUsaConsulta,
@@ -30,6 +32,11 @@ import {
   type ConsultaParaConteudo,
   type ConteudoTelaResumo,
   type AjusteImagemTela,
+  type AprovacaoConteudoTela,
+  type ConteudoParaAprovar,
+  type DadosAprovacaoConteudo,
+  type PropostaConteudoTela,
+  type SituacaoAprovacao,
   type ImagemNoConteudo,
   type ImagemTelaResumo,
   type ItemConteudoTela,
@@ -221,6 +228,30 @@ class PreviaConteudoDto {
   colunaCodigo?: string | null;
 }
 
+class PedirAprovacaoDto {
+  @ValidateNested()
+  @Type(() => SalvarConteudoDto)
+  conteudo: SalvarConteudoDto;
+
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Escolha ao menos uma tela.' })
+  @ArrayMaxSize(1000)
+  @IsUUID('all', { each: true, message: 'Tela inválida.' })
+  telaIds: string[];
+}
+
+class AprovarConteudoDto {
+  @IsDateString({}, { message: 'Abra o pedido de novo.' })
+  versao: string;
+}
+
+class RecusarConteudoDto extends AprovarConteudoDto {
+  @IsString()
+  @MinLength(3, { message: 'Diga o que precisa mudar.' })
+  @MaxLength(LIMITE_MOTIVO_RECUSA)
+  motivo: string;
+}
+
 class PublicarConteudoDto {
   @IsArray()
   @ArrayMinSize(1, { message: 'Escolha ao menos uma tela.' })
@@ -249,6 +280,9 @@ const SEM_ITENS = {
   consulta: { select: { nome: true } },
   responsavel: { select: { nome: true } },
   telas: { select: { telaId: true } },
+  aprovacaoSituacao: true,
+  aprovacaoPedidaEm: true,
+  aprovacao: true,
 } satisfies Prisma.ConteudoTelaSelect;
 
 type ConteudoSemItens = Prisma.ConteudoTelaGetPayload<{ select: typeof SEM_ITENS }>;
@@ -261,6 +295,14 @@ function momento(agora: Date) {
 /** O que foi publicado nesta tela. Horário e validade são conferidos depois, com o relógio. */
 function ondeNaTela(empresaId: string, telaId: string) {
   return { empresaId, publicado: true, dadosEm: { not: null }, quantidadeItens: { gt: 0 }, telas: { some: { telaId } } };
+}
+
+/** Sair do pedido: o conteúdo fica só com o que está nas colunas. */
+const SEM_PEDIDO = { aprovacaoSituacao: null, aprovacaoPedidaEm: null, aprovacao: Prisma.DbNull };
+
+function aprovacaoDe(c: Pick<ConteudoSemItens, 'aprovacaoSituacao' | 'aprovacaoPedidaEm' | 'aprovacao'>): AprovacaoConteudoTela | null {
+  if (!c.aprovacaoSituacao || !c.aprovacaoPedidaEm) return null;
+  return { ...(c.aprovacao as unknown as DadosAprovacaoConteudo), situacao: c.aprovacaoSituacao as SituacaoAprovacao, versao: c.aprovacaoPedidaEm.toISOString() };
 }
 
 function vigencia(dto: { horarioInicio?: string | null; horarioFim?: string | null; dataInicio?: string | null; dataFim?: string | null }): VigenciaConteudo {
@@ -290,6 +332,14 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
     clearInterval(this.relogio);
   }
 
+  private async parametros(empresaId: string) {
+    const [global, daEmpresa] = await Promise.all([
+      this.prisma.parametroTelas.findFirst({ where: { empresaId: null }, select: { valores: true } }),
+      this.prisma.parametroTelas.findFirst({ where: { empresaId }, select: { valores: true } }),
+    ]);
+    return parametrosVigentes(global?.valores, daEmpresa?.valores);
+  }
+
   // Cadastro -------------------------------------------------------------------------------
 
   private resumir(c: ConteudoSemItens, agora = new Date()): ConteudoTelaResumo {
@@ -314,6 +364,7 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
       dadosEm: c.dadosEm?.toISOString() ?? null,
       erro: c.erro,
       responsavelNome: c.responsavel?.nome ?? null,
+      aprovacao: aprovacaoDe(c),
     };
   }
 
@@ -411,7 +462,13 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
 
   async atualizar(empresaId: string, id: string, dto: SalvarConteudoDto, autorId: string): Promise<ConteudoTelaResumo> {
     await this.validar(empresaId, dto);
-    const { count } = await this.prisma.conteudoTela.updateMany({ where: { id, empresaId }, data: this.dados(dto, autorId) }).catch((e) => this.conflitoDeNome(e));
+    // Salvar direto mudaria o que está na tela, sem ninguém aprovar.
+    if ((await this.parametros(empresaId)).aprovacaoObrigatoria) {
+      const noAr = await this.prisma.conteudoTela.count({ where: { id, empresaId, publicado: true } });
+      if (noAr) throw new ConflictException('Esta empresa exige aprovação: envie a mudança para aprovação. Até lá, o que está no ar continua como está.');
+    }
+    // Quem salva direto desiste do pedido que estava aberto: a versão guardada passa a ser esta.
+    const { count } = await this.prisma.conteudoTela.updateMany({ where: { id, empresaId }, data: { ...this.dados(dto, autorId), ...SEM_PEDIDO } }).catch((e) => this.conflitoDeNome(e));
     if (count === 0) throw new NotFoundException('Conteúdo não encontrado.');
     await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'tela.conteudo_editar', entidade: 'ConteudoTela', entidadeId: id, detalhes: { nome: dto.nome, modelo: dto.modelo } });
     const atual = await this.obter(empresaId, id);
@@ -460,20 +517,19 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
 
   /** Quantos conteúdos usam cada imagem: fica no JSON do conteúdo, sem chave estrangeira. */
   private async usosDeImagens(empresaId: string): Promise<Map<string, number>> {
-    const conteudos = await this.prisma.conteudoTela.findMany({ where: { empresaId }, select: { modelo: true, config: true } });
+    const conteudos = await this.prisma.conteudoTela.findMany({ where: { empresaId }, select: { modelo: true, config: true, aprovacao: true } });
     const usos = new Map<string, number>();
     for (const c of conteudos) {
-      for (const id of imagensUsadasPeloConteudo(c.modelo as ModeloConteudoTela, c.config as unknown as ConfigConteudoTela)) usos.set(id, (usos.get(id) ?? 0) + 1);
+      const proposta = (c.aprovacao as unknown as DadosAprovacaoConteudo | null)?.proposta;
+      // O que espera aprovação conta: aprovar não pode trazer uma imagem que já foi apagada.
+      const ids = [...imagensUsadasPeloConteudo(c.modelo as ModeloConteudoTela, c.config as unknown as ConfigConteudoTela), ...(proposta ? imagensUsadasPeloConteudo(proposta.modelo, proposta.config) : [])];
+      for (const id of new Set(ids)) usos.set(id, (usos.get(id) ?? 0) + 1);
     }
     return usos;
   }
 
   async enviarImagem(empresaId: string, dto: EnviarImagemTelaDto, autorId: string): Promise<ImagemTelaResumo> {
-    const [global, daEmpresa] = await Promise.all([
-      this.prisma.parametroTelas.findFirst({ where: { empresaId: null }, select: { valores: true } }),
-      this.prisma.parametroTelas.findFirst({ where: { empresaId }, select: { valores: true } }),
-    ]);
-    const maximoMb = parametrosVigentes(global?.valores, daEmpresa?.valores).imagemTamanhoMaximoMb;
+    const maximoMb = (await this.parametros(empresaId)).imagemTamanhoMaximoMb;
     const bytes = Buffer.from(dto.dados.slice(dto.dados.indexOf(',') + 1), 'base64');
     if (bytes.length > maximoMb * 1_000_000) throw new BadRequestException(`A imagem passa de ${maximoMb} MB.`);
     // Pelos bytes, não pelo que o navegador declarou: SVG pode carregar script.
@@ -504,14 +560,7 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
   // Publicação -----------------------------------------------------------------------------
 
   async publicar(empresaId: string, id: string, telaIds: string[], autor: UsuarioRequisicao): Promise<ConteudoTelaResumo> {
-    const [global, daEmpresa] = await Promise.all([
-      this.prisma.parametroTelas.findFirst({ where: { empresaId: null }, select: { valores: true } }),
-      this.prisma.parametroTelas.findFirst({ where: { empresaId }, select: { valores: true } }),
-    ]);
-    // Publicar sem aprovar passaria por cima do que a empresa pediu: melhor recusar até a aprovação existir.
-    if (parametrosVigentes(global?.valores, daEmpresa?.valores).aprovacaoObrigatoria) {
-      throw new ConflictException('Esta empresa exige aprovação, mas a tela de aprovação ainda não está disponível. Desligue “Aprovação obrigatória” nos parâmetros para publicar.');
-    }
+    if ((await this.parametros(empresaId)).aprovacaoObrigatoria) throw new ConflictException('Esta empresa exige aprovação: envie o conteúdo para aprovação.');
     const unicas = [...new Set(telaIds)];
     const achadas = await this.prisma.tela.count({ where: { empresaId, id: { in: unicas } } });
     if (achadas !== unicas.length) throw new BadRequestException('Há telas que não são desta empresa.');
@@ -525,7 +574,7 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
     await this.prisma.$transaction(async (tx) => {
       await tx.telaConteudo.deleteMany({ where: { conteudoId: id, empresaId } });
       await tx.telaConteudo.createMany({ data: unicas.map((telaId) => ({ telaId, conteudoId: id, empresaId })) });
-      await tx.conteudoTela.update({ where: { id }, data: { publicado: true, responsavelId: autor.id, proximaAtualizacaoEm: comConsulta ? new Date(Date.now() + conteudo.intervaloMinutos * 60_000) : null } });
+      await tx.conteudoTela.update({ where: { id }, data: { publicado: true, responsavelId: autor.id, proximaAtualizacaoEm: comConsulta ? new Date(Date.now() + conteudo.intervaloMinutos * 60_000) : null, ...SEM_PEDIDO } });
       await this.auditoria.registrar({ empresaId, usuarioId: autor.id, acao: 'tela.conteudo_publicar', entidade: 'ConteudoTela', entidadeId: id, detalhes: { telas: unicas.length } }, tx);
     });
     await this.atualizarDados(id);
@@ -543,6 +592,126 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
     const c = await this.prisma.conteudoTela.findFirst({ where: { id, empresaId, publicado: true }, select: { id: true } });
     if (!c) throw new NotFoundException('Conteúdo não publicado.');
     await this.atualizarDados(id);
+    return this.obter(empresaId, id);
+  }
+
+  // Aprovação ------------------------------------------------------------------------------
+
+  async regras(empresaId: string) {
+    const { aprovacaoObrigatoria } = await this.parametros(empresaId);
+    return { aprovacaoObrigatoria };
+  }
+
+  /** Guarda a proposta sem tocar no que está no ar. Reenviar troca a versão, e quem ia decidir precisa olhar de novo. */
+  async pedirAprovacao(empresaId: string, id: string, dto: PedirAprovacaoDto, autorId: string): Promise<ConteudoTelaResumo> {
+    await this.validar(empresaId, dto.conteudo);
+    const unicas = [...new Set(dto.telaIds)];
+    const achadas = await this.prisma.tela.count({ where: { empresaId, id: { in: unicas } } });
+    if (achadas !== unicas.length) throw new BadRequestException('Há telas que não são desta empresa.');
+    const nome = dto.conteudo.nome.trim();
+    if (await this.prisma.conteudoTela.count({ where: { empresaId, nome, id: { not: id } } })) throw new ConflictException('Já existe um conteúdo com este nome.');
+    const c = dto.conteudo;
+    const proposta: PropostaConteudoTela = {
+      nome,
+      modelo: c.modelo,
+      consultaId: modeloUsaConsulta(c.modelo) ? (c.consultaId ?? null) : null,
+      config: JSON.parse(JSON.stringify(c.config)) as ConfigConteudoTela,
+      intervaloMinutos: c.intervaloMinutos,
+      validadeMinutos: c.validadeMinutos,
+      ...vigencia(c),
+      telaIds: unicas,
+    };
+    const autor = await this.prisma.usuario.findUnique({ where: { id: autorId }, select: { nome: true } });
+    const dados: DadosAprovacaoConteudo = { proposta, pedidaPorId: autorId, pedidaPorNome: autor?.nome ?? null, decididaPorNome: null, decididaEm: null, motivo: null };
+    const { count } = await this.prisma.conteudoTela.updateMany({ where: { id, empresaId }, data: { aprovacaoSituacao: 'PENDENTE', aprovacaoPedidaEm: new Date(), aprovacao: dados as unknown as Prisma.InputJsonValue } });
+    if (count === 0) throw new NotFoundException('Conteúdo não encontrado.');
+    await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'tela.conteudo_pedir_aprovacao', entidade: 'ConteudoTela', entidadeId: id, detalhes: { nome, telas: unicas.length } });
+    return this.obter(empresaId, id);
+  }
+
+  async cancelarPedido(empresaId: string, id: string, autorId: string): Promise<ConteudoTelaResumo> {
+    const { count } = await this.prisma.conteudoTela.updateMany({ where: { id, empresaId, aprovacaoSituacao: { in: ['PENDENTE', 'RECUSADO'] } }, data: SEM_PEDIDO });
+    if (count === 0) throw new NotFoundException('Não há pedido aberto neste conteúdo.');
+    await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'tela.conteudo_cancelar_aprovacao', entidade: 'ConteudoTela', entidadeId: id });
+    return this.obter(empresaId, id);
+  }
+
+  async listarParaAprovar(empresaId: string, usuario: UsuarioRequisicao): Promise<ConteudoParaAprovar[]> {
+    const [lista, parametros] = await Promise.all([
+      this.prisma.conteudoTela.findMany({ where: { empresaId, aprovacaoSituacao: 'PENDENTE' }, orderBy: { aprovacaoPedidaEm: 'asc' }, select: SEM_ITENS }),
+      this.parametros(empresaId),
+    ]);
+    return lista.map((c) => {
+      const resumo = this.resumir(c);
+      return { ...resumo, impedimento: impedimentoParaAprovar(parametros, usuario, resumo.aprovacao!.pedidaPorId) };
+    });
+  }
+
+  /** Os dados de verdade, como vão aparecer, para quem decide sem ter a permissão de editar. */
+  async previaDoPedido(empresaId: string, id: string, usuarioId: string): Promise<PreviaConteudoResposta> {
+    const c = await this.prisma.conteudoTela.findFirst({ where: { id, empresaId, aprovacaoSituacao: 'PENDENTE' }, select: SEM_ITENS });
+    if (!c) throw new NotFoundException('Este pedido não está mais aberto.');
+    const { proposta, pedidaPorId } = aprovacaoDe(c)!;
+    if (!proposta?.consultaId) throw new BadRequestException('Este conteúdo não usa consulta.');
+    const k = proposta.config;
+    // Com quem enviou: a consulta pode usar {usuario.*}, e é com esse usuário que ela vai rodar no ar.
+    return this.previa(empresaId, { consultaId: proposta.consultaId, colunaNome: k.colunaNome, colunaPreco: k.colunaPreco, colunaPrecoDe: k.colunaPrecoDe, colunaDetalhe: k.colunaDetalhe, comFotos: k.comFotos, colunaCodigo: k.colunaCodigo }, pedidaPorId ?? usuarioId);
+  }
+
+  /** O pedido aberto, conferindo que é a versão que a pessoa viu e que ela pode decidir. */
+  private async pedidoParaDecidir(empresaId: string, id: string, versao: string, usuario: UsuarioRequisicao) {
+    const c = await this.prisma.conteudoTela.findFirst({ where: { id, empresaId }, select: SEM_ITENS });
+    if (!c) throw new NotFoundException('Conteúdo não encontrado.');
+    const aprovacao = aprovacaoDe(c);
+    if (aprovacao?.situacao !== 'PENDENTE' || !aprovacao.proposta) throw new ConflictException('Este pedido não está mais aberto.');
+    if (new Date(versao).getTime() !== c.aprovacaoPedidaEm!.getTime()) throw new ConflictException('O conteúdo foi enviado de novo depois que você abriu. Confira a versão nova.');
+    const impedimento = impedimentoParaAprovar(await this.parametros(empresaId), usuario, aprovacao.pedidaPorId);
+    if (impedimento) throw new ForbiddenException(impedimento);
+    return { aprovacao, proposta: aprovacao.proposta, pedidaEm: c.aprovacaoPedidaEm! };
+  }
+
+  async aprovar(empresaId: string, id: string, versao: string, usuario: UsuarioRequisicao): Promise<ConteudoTelaResumo> {
+    const { aprovacao, proposta, pedidaEm } = await this.pedidoParaDecidir(empresaId, id, versao, usuario);
+    const dto = { ...proposta, consultaId: proposta.consultaId ?? undefined } as unknown as SalvarConteudoDto;
+    // Pode ter mudado desde o pedido: consulta excluída, coluna que sumiu.
+    await this.validar(empresaId, dto);
+    const telas = await this.prisma.tela.findMany({ where: { empresaId, id: { in: proposta.telaIds } }, select: { id: true } });
+    if (telas.length === 0) throw new ConflictException('As telas escolhidas neste pedido não existem mais. Peça para enviar de novo.');
+    const quem = await this.prisma.usuario.findUnique({ where: { id: usuario.id }, select: { nome: true } });
+    const dados: DadosAprovacaoConteudo = { ...aprovacao, proposta: null, decididaPorNome: quem?.nome ?? null, decididaEm: new Date().toISOString(), motivo: null };
+    const comConsulta = modeloUsaConsulta(proposta.modelo);
+    await this.prisma
+      .$transaction(async (tx) => {
+        // Reivindica pela versão: duas decisões ao mesmo tempo, ou um reenvio agora, não passam.
+        const { count } = await tx.conteudoTela.updateMany({
+          where: { id, empresaId, aprovacaoSituacao: 'PENDENTE', aprovacaoPedidaEm: pedidaEm },
+          data: {
+            // A consulta segue rodando com quem preparou o conteúdo: aprovar não muda de quem são os dados.
+            ...this.dados(dto, aprovacao.pedidaPorId ?? usuario.id),
+            publicado: true,
+            proximaAtualizacaoEm: comConsulta ? new Date(Date.now() + proposta.intervaloMinutos * 60_000) : null,
+            aprovacaoSituacao: 'APROVADO',
+            aprovacao: dados as unknown as Prisma.InputJsonValue,
+          },
+        });
+        if (count === 0) throw new ConflictException('O pedido mudou enquanto você decidia. Confira de novo.');
+        await tx.telaConteudo.deleteMany({ where: { conteudoId: id, empresaId } });
+        await tx.telaConteudo.createMany({ data: telas.map((t) => ({ telaId: t.id, conteudoId: id, empresaId })) });
+        await this.auditoria.registrar({ empresaId, usuarioId: usuario.id, acao: 'tela.conteudo_aprovar', entidade: 'ConteudoTela', entidadeId: id, detalhes: { nome: proposta.nome, telas: telas.length } }, tx);
+      })
+      .catch((e) => this.conflitoDeNome(e));
+    await this.atualizarDados(id);
+    return this.obter(empresaId, id);
+  }
+
+  /** A proposta fica guardada, para quem enviou corrigir sem refazer. O que está no ar não muda. */
+  async recusar(empresaId: string, id: string, versao: string, motivo: string, usuario: UsuarioRequisicao): Promise<ConteudoTelaResumo> {
+    const { aprovacao, pedidaEm } = await this.pedidoParaDecidir(empresaId, id, versao, usuario);
+    const quem = await this.prisma.usuario.findUnique({ where: { id: usuario.id }, select: { nome: true } });
+    const dados: DadosAprovacaoConteudo = { ...aprovacao, decididaPorNome: quem?.nome ?? null, decididaEm: new Date().toISOString(), motivo: motivo.trim() };
+    const { count } = await this.prisma.conteudoTela.updateMany({ where: { id, empresaId, aprovacaoSituacao: 'PENDENTE', aprovacaoPedidaEm: pedidaEm }, data: { aprovacaoSituacao: 'RECUSADO', aprovacao: dados as unknown as Prisma.InputJsonValue } });
+    if (count === 0) throw new ConflictException('O pedido mudou enquanto você decidia. Confira de novo.');
+    await this.auditoria.registrar({ empresaId, usuarioId: usuario.id, acao: 'tela.conteudo_recusar', entidade: 'ConteudoTela', entidadeId: id, detalhes: { motivo: motivo.trim() } });
     return this.obter(empresaId, id);
   }
 
@@ -693,6 +862,18 @@ export class ConteudosTelaController {
     await this.conteudos.excluirImagem(empresaId, id, u.id);
   }
 
+  @Get('regras')
+  @RequerPermissao('tela.ver')
+  regras(@EmpresaAtual() empresaId: string) {
+    return this.conteudos.regras(empresaId);
+  }
+
+  @Get('aprovacoes')
+  @RequerPermissao('tela.aprovar')
+  aprovacoes(@EmpresaAtual() empresaId: string, @UsuarioAtual() u: UsuarioRequisicao) {
+    return this.conteudos.listarParaAprovar(empresaId, u);
+  }
+
   @Post('previa')
   @HttpCode(200)
   @RequerPermissao('tela.editar')
@@ -731,6 +912,41 @@ export class ConteudosTelaController {
   @RequerPermissao('tela.editar')
   despublicar(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() u: UsuarioRequisicao) {
     return this.conteudos.despublicar(empresaId, id, u.id);
+  }
+
+  @Post(':id/aprovacao')
+  @HttpCode(200)
+  @RequerPermissao('tela.editar')
+  pedirAprovacao(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: PedirAprovacaoDto, @UsuarioAtual() u: UsuarioRequisicao) {
+    return this.conteudos.pedirAprovacao(empresaId, id, dto, u.id);
+  }
+
+  @Post(':id/aprovacao/cancelar')
+  @HttpCode(200)
+  @RequerPermissao('tela.editar')
+  cancelarPedido(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() u: UsuarioRequisicao) {
+    return this.conteudos.cancelarPedido(empresaId, id, u.id);
+  }
+
+  @Post(':id/aprovacao/previa')
+  @HttpCode(200)
+  @RequerPermissao('tela.aprovar')
+  previaDoPedido(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() u: UsuarioRequisicao) {
+    return this.conteudos.previaDoPedido(empresaId, id, u.id);
+  }
+
+  @Post(':id/aprovacao/aprovar')
+  @HttpCode(200)
+  @RequerPermissao('tela.aprovar')
+  aprovar(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AprovarConteudoDto, @UsuarioAtual() u: UsuarioRequisicao) {
+    return this.conteudos.aprovar(empresaId, id, dto.versao, u);
+  }
+
+  @Post(':id/aprovacao/recusar')
+  @HttpCode(200)
+  @RequerPermissao('tela.aprovar')
+  recusar(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RecusarConteudoDto, @UsuarioAtual() u: UsuarioRequisicao) {
+    return this.conteudos.recusar(empresaId, id, dto.versao, dto.motivo, u);
   }
 
   @Post(':id/atualizar')

@@ -281,6 +281,15 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
             mensagem: `A tela “${t.nome}”${t.local ? ` (${t.local})` : ''} está sem aviso há ${textoDuracao(agora.getTime() - t.ultimoContatoEm!.getTime())}.`,
           }));
       }
+      case 'tela_aprovacao': {
+        const pedidos = await this.prisma.conteudoTela.findMany({ where: { empresaId, aprovacaoSituacao: 'PENDENTE', aprovacaoPedidaEm: { lte: atras(regra.limite * 60_000) } }, select: { id: true, nome: true, aprovacaoPedidaEm: true } });
+        return pedidos.map((c) => ({
+          // Reenviar é outro pedido, mas o problema é o mesmo: a chave fica no conteúdo.
+          chave: `aprovacao:${c.id}`,
+          titulo: 'Conteúdo esperando aprovação',
+          mensagem: `“${c.nome}” espera aprovação há ${textoDuracao(agora.getTime() - c.aprovacaoPedidaEm!.getTime())}.`,
+        }));
+      }
       case 'impressao_erro': {
         const trabalhos = await this.prisma.trabalhoImpressao.findMany({ where: { empresaId, status: 'ERRO', atualizadoEm: { gte: atras(24 * HORA_MS) } }, orderBy: { atualizadoEm: 'desc' }, select: { impressoraNome: true, erro: true }, take: 500 });
         const porImpressora = new Map<string, { quantidade: number; erro: string | null }>();

@@ -1053,6 +1053,12 @@ model ConteudoTela {
   proximaAtualizacaoEm DateTime? @map("proxima_atualizacao_em")
   /// Último a salvar: a consulta pode usar {usuario.*}.
   responsavelId        String?   @map("responsavel_id") @db.Uuid
+  /// PENDENTE, RECUSADO ou APROVADO; sem pedido, nulo.
+  aprovacaoSituacao    String?   @map("aprovacao_situacao")
+  /// Identifica a versão enviada: quem aprova confirma exatamente a que viu.
+  aprovacaoPedidaEm    DateTime? @map("aprovacao_pedida_em")
+  /// DadosAprovacaoConteudo. A proposta fica aqui: o que está no ar só muda ao aprovar.
+  aprovacao            Json?
   criadoEm             DateTime  @default(now()) @map("criado_em")
   atualizadoEm         DateTime  @updatedAt @map("atualizado_em")
 

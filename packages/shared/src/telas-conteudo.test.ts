@@ -9,6 +9,8 @@ import {
   contrasteSobreImagem,
   corDoTextoSobre,
   dadosValidosAte,
+  diferencasDaProposta,
+  impedimentoParaAprovar,
   formatoMostraFundo,
   formatoMostraLogo,
   gradeDaCena,
@@ -264,6 +266,36 @@ describe('fotos dos produtos', () => {
   it('sugere a coluna pelo nome', () => {
     expect(colunasSugeridas(['nome', 'preco', 'cod_barras']).colunaCodigo).toBe('cod_barras');
     expect(colunasSugeridas(['nome', 'preco']).colunaCodigo).toBeNull();
+  });
+});
+
+describe('aprovação', () => {
+  const pode = { criadorPodeAprovar: true, administradorGeralAprova: false };
+
+  it('quem enviou só decide se a empresa permitir', () => {
+    expect(impedimentoParaAprovar(pode, { id: 'a', superAdmin: false }, 'a')).toBeNull();
+    expect(impedimentoParaAprovar({ ...pode, criadorPodeAprovar: false }, { id: 'a', superAdmin: false }, 'a')).toMatch(/segunda pessoa/);
+    expect(impedimentoParaAprovar({ ...pode, criadorPodeAprovar: false }, { id: 'b', superAdmin: false }, 'a')).toBeNull();
+    // Quem enviou foi removido: ninguém fica preso a um pedido sem dono.
+    expect(impedimentoParaAprovar({ ...pode, criadorPodeAprovar: false }, { id: 'b', superAdmin: false }, null)).toBeNull();
+  });
+
+  it('o administrador geral só aprova com o parâmetro ligado', () => {
+    expect(impedimentoParaAprovar(pode, { id: 's', superAdmin: true }, 'a')).toMatch(/administrador geral/);
+    expect(impedimentoParaAprovar({ ...pode, administradorGeralAprova: true }, { id: 's', superAdmin: true }, 'a')).toBeNull();
+  });
+
+  const base = { nome: 'Ofertas', modelo: 'DESTAQUE' as const, consultaId: 'c1', config: { ...CONFIG_CONTEUDO_PADRAO, colunaNome: 'n', colunaPreco: 'p' }, intervaloMinutos: 15, validadeMinutos: 120, ...semVigencia, telaIds: ['t1', 't2'] };
+
+  it('lista só o que muda, sem contar a ordem das telas', () => {
+    expect(diferencasDaProposta(base, { ...base, telaIds: ['t2', 't1'] })).toEqual([]);
+    expect(diferencasDaProposta(base, { ...base, nome: 'Outro', telaIds: ['t1'] })).toEqual(['Nome', 'Telas']);
+    expect(diferencasDaProposta(base, { ...base, config: { ...base.config, titulo: 'X', logoImagemId: 'l' } })).toEqual(['Título', 'Logomarca']);
+    expect(diferencasDaProposta(base, { ...base, horarioInicio: '08:00', horarioFim: '18:00' })).toEqual(['Quando passar']);
+  });
+
+  it('não acusa mudança em campo opcional vazio nem no véu de quem não tem fundo', () => {
+    expect(diferencasDaProposta(base, { ...base, config: { ...base.config, logoImagemId: null, comFotos: false, fundoVeu: 90 } })).toEqual([]);
   });
 });
 

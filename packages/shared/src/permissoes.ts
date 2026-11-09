@@ -18,6 +18,7 @@ export const PERMISSOES = [
   },
   { codigo: 'tela.ver', grupo: 'Telas', descricao: 'Ver as telas e se estão online' },
   { codigo: 'tela.editar', grupo: 'Telas', descricao: 'Vincular e configurar telas, perfis de resolução e parâmetros' },
+  { codigo: 'tela.aprovar', grupo: 'Telas', descricao: 'Aprovar ou recusar o que vai ao ar nas telas' },
   { codigo: 'sql.ver', grupo: 'Consultas SQL', descricao: 'Ver consultas SQL' },
   { codigo: 'sql.editar', grupo: 'Consultas SQL', descricao: 'Editar e testar consultas SQL' },
   { codigo: 'etiqueta.modelo.ver', grupo: 'Etiquetas', descricao: 'Ver modelos de etiqueta' },

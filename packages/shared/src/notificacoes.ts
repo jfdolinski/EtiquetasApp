@@ -43,6 +43,15 @@ export const EVENTOS_NOTIFICACAO = [
     repetirPadrao: 120,
   },
   {
+    codigo: 'tela_aprovacao',
+    titulo: 'Conteúdo esperando aprovação',
+    descricao: 'Um conteúdo das telas foi enviado para aprovação e ninguém decidiu há mais tempo que o limite.',
+    unidade: 'minutos',
+    limitePadrao: 30,
+    nivel: 'aviso',
+    repetirPadrao: 240,
+  },
+  {
     codigo: 'impressao_erro',
     titulo: 'Impressão com erro',
     descricao: 'Um trabalho de impressão das últimas 24 horas terminou com erro e não foi reenviado.',

@@ -30,6 +30,7 @@ import {
   VEU_FUNDO_PADRAO,
   VEUS_FUNDO_TELA,
   type ConfigConteudoTela,
+  type PropostaConteudoTela,
   type AjusteImagemTela,
   type ConsultaParaConteudo,
   type ImagemTelaResumo,
@@ -76,7 +77,10 @@ export function ConteudosTela() {
   const [editando, setEditando] = useState<ConteudoTelaResumo | 'novo' | null>(null);
   const { data: conteudos = [], error } = useQuery({ queryKey: chave, queryFn: () => api<ConteudoTelaResumo[]>('/telas/conteudos'), refetchInterval: editando ? false : 15_000 });
   const { data: telas = [] } = useQuery({ queryKey: ['telas', empresaId], queryFn: () => api<TelaResumo[]>('/telas') });
-  const recarregar = () => void cliente.invalidateQueries({ queryKey: chave });
+  const recarregar = () => {
+    void cliente.invalidateQueries({ queryKey: chave });
+    void cliente.invalidateQueries({ queryKey: ['telas-aprovacoes', empresaId] });
+  };
   const acao = useMutation({
     mutationFn: ({ id, caminho, metodo = 'POST' }: { id: string; caminho: string; metodo?: string }) => api(`/telas/conteudos/${id}${caminho}`, { metodo }),
     onSuccess: recarregar,
@@ -105,6 +109,7 @@ export function ConteudosTela() {
             <td className="px-4 py-2.5">
               <Selo cor={COR_SITUACAO[c.situacao]}>{ROTULO_SITUACAO_CONTEUDO[c.situacao]}</Selo>
               {c.erro && c.publicado && <div className="mt-1 max-w-xs text-xs text-red-700">{c.erro}</div>}
+              <SituacaoDoPedido c={c} />
             </td>
             <td className="px-4 py-2.5 text-slate-600">
               {!modeloUsaConsulta(c.modelo) ? (
@@ -127,6 +132,9 @@ export function ConteudosTela() {
                     <button type="button" className="text-blue-700 hover:underline" disabled={acao.isPending} onClick={() => acao.mutate({ id: c.id, caminho: '/atualizar' })}>Atualizar dados</button>
                   )}
                   <button type="button" className="text-blue-700 hover:underline" onClick={() => setEditando(c)}>Editar</button>
+                  {(c.aprovacao?.situacao === 'PENDENTE' || c.aprovacao?.situacao === 'RECUSADO') && (
+                    <button type="button" className="text-blue-700 hover:underline" onClick={() => window.confirm('Desistir deste pedido? O que está no ar não muda.') && acao.mutate({ id: c.id, caminho: '/aprovacao/cancelar' })}>Desistir do pedido</button>
+                  )}
                   {c.publicado && (
                     <button type="button" className="text-red-700 hover:underline" onClick={() => window.confirm(`Tirar “${c.nome}” do ar? Sai das telas em até 30 segundos.`) && acao.mutate({ id: c.id, caminho: '/despublicar' })}>Tirar do ar</button>
                   )}
@@ -142,7 +150,23 @@ export function ConteudosTela() {
   );
 }
 
-interface Formulario {
+/** Pendente e recusado somem do resto da tela: a proposta só existe aqui até ser aprovada. */
+function SituacaoDoPedido({ c }: { c: ConteudoTelaResumo }) {
+  const a = c.aprovacao;
+  if (!a) return null;
+  if (a.situacao === 'PENDENTE') return <div className="mt-1"><Selo cor="amarelo">{c.publicado ? 'Mudança esperando aprovação' : 'Esperando aprovação'}</Selo></div>;
+  if (a.situacao === 'RECUSADO') {
+    return (
+      <div className="mt-1 max-w-xs">
+        <Selo cor="vermelho">{c.publicado ? 'Mudança recusada' : 'Recusado'}</Selo>
+        <div className="mt-1 text-xs text-red-700">{a.decididaPorNome ?? 'Alguém'}: {a.motivo}</div>
+      </div>
+    );
+  }
+  return <div className="mt-1 text-xs text-slate-500">Aprovado por {a.decididaPorNome ?? 'usuário removido'}{a.decididaEm ? ` em ${formatarData(a.decididaEm)}` : ''}</div>;
+}
+
+export interface Formulario {
   nome: string;
   modelo: ModeloConteudoTela;
   consultaId: string;
@@ -156,7 +180,7 @@ interface Formulario {
   telaIds: string[];
 }
 
-function formularioDe(c: ConteudoTelaResumo | null): Formulario {
+export function formularioDe(c: ConteudoTelaResumo | PropostaConteudoTela | null): Formulario {
   return {
     nome: c?.nome ?? '',
     modelo: c?.modelo ?? 'GRADE_OFERTAS',
@@ -173,7 +197,11 @@ function formularioDe(c: ConteudoTelaResumo | null): Formulario {
 }
 
 function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: ConteudoTelaResumo | null; telas: TelaResumo[]; aoFechar: () => void; aoSalvar: () => void }) {
-  const [f, setF] = useState(() => formularioDe(conteudo));
+  // Pedido aberto ou recusado: continua de onde parou, não do que está no ar.
+  const [f, setF] = useState(() => formularioDe(conteudo?.aprovacao?.proposta ?? conteudo));
+  const { empresaId } = useAuth();
+  const { data: regras } = useQuery({ queryKey: ['telas-conteudos-regras', empresaId], queryFn: () => api<{ aprovacaoObrigatoria: boolean }>('/telas/conteudos/regras') });
+  const exigeAprovacao = !!regras?.aprovacaoObrigatoria;
   const [mensagem, setMensagem] = useState<string | null>(null);
   const { data: consultas = [], error: erroConsultas } = useQuery({ queryKey: ['telas-conteudos-consultas'], queryFn: () => api<ConsultaParaConteudo[]>('/telas/conteudos/consultas') });
   const { data: perfis = [] } = useQuery({ queryKey: ['telas-perfis'], queryFn: () => api<PerfilTelaResumo[]>('/telas/perfis') });
@@ -212,7 +240,7 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
   }, [f, consulta]);
 
   const salvar = useMutation({
-    mutationFn: async (publicar: boolean) => {
+    mutationFn: async (modo: 'salvar' | 'publicar' | 'aprovacao') => {
       const corpo = {
         nome: f.nome,
         modelo: f.modelo,
@@ -225,13 +253,18 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
         dataInicio: f.dataInicio || null,
         dataFim: f.dataFim || null,
       };
+      if (modo === 'aprovacao') {
+        // Conteúdo novo nasce como rascunho. O que já existe fica como está até a aprovação.
+        const id = conteudo?.id ?? (await api<ConteudoTelaResumo>('/telas/conteudos', { metodo: 'POST', corpo })).id;
+        return api<ConteudoTelaResumo>(`/telas/conteudos/${id}/aprovacao`, { metodo: 'POST', corpo: { conteudo: corpo, telaIds: f.telaIds } });
+      }
       const salvo = await api<ConteudoTelaResumo>(conteudo ? `/telas/conteudos/${conteudo.id}` : '/telas/conteudos', { metodo: conteudo ? 'PUT' : 'POST', corpo });
-      return publicar ? api<ConteudoTelaResumo>(`/telas/conteudos/${salvo.id}/publicar`, { metodo: 'POST', corpo: { telaIds: f.telaIds } }) : salvo;
+      return modo === 'publicar' ? api<ConteudoTelaResumo>(`/telas/conteudos/${salvo.id}/publicar`, { metodo: 'POST', corpo: { telaIds: f.telaIds } }) : salvo;
     },
-    onSuccess: (salvo, publicar) => {
+    onSuccess: (salvo, modo) => {
       aoSalvar();
       // Publicou, mas a consulta falhou: quem publicou precisa ver o motivo antes de sair da tela.
-      if (publicar && salvo.situacao !== 'NO_AR' && salvo.situacao !== 'AGENDADO') {
+      if (modo === 'publicar' && salvo.situacao !== 'NO_AR' && salvo.situacao !== 'AGENDADO') {
         setMensagem(`Publicado, mas ainda não está na tela: ${salvo.erro ?? 'sem dados.'}`);
         return;
       }
@@ -247,10 +280,14 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
         className="space-y-4 rounded-lg border border-slate-200 bg-white p-5"
         onSubmit={(e) => {
           e.preventDefault();
-          salvar.mutate(false);
+          // Com aprovação, salvar direto o que está no ar seria mudar a tela sem ninguém aprovar.
+          if (!(exigeAprovacao && conteudo?.publicado)) salvar.mutate('salvar');
         }}
       >
         <h2 className="font-semibold text-slate-900">{conteudo ? `Editar ${conteudo.nome}` : 'Novo conteúdo'}</h2>
+        {conteudo?.aprovacao?.situacao === 'RECUSADO' && <Alerta tipo="aviso">Recusado por {conteudo.aprovacao.decididaPorNome ?? 'usuário removido'}: {conteudo.aprovacao.motivo}</Alerta>}
+        {conteudo?.aprovacao?.situacao === 'PENDENTE' && <Alerta tipo="aviso">Esta versão está esperando aprovação. Se enviar de novo, quem vai decidir vê a versão nova.</Alerta>}
+        {exigeAprovacao && conteudo?.publicado && <p className="text-xs text-slate-500">Esta empresa exige aprovação: o que está no ar continua como está até a mudança ser aprovada. Os preços seguem atualizando sozinhos.</p>}
         <Campo rotulo="Nome do conteúdo" value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} required minLength={2} maxLength={80} />
 
         <fieldset>
@@ -372,8 +409,12 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
         {mensagem && <Alerta tipo="aviso">{mensagem}</Alerta>}
         <div className="flex flex-wrap justify-end gap-2">
           <Botao type="button" variante="secundario" onClick={aoFechar}>{mensagem ? 'Fechar' : 'Cancelar'}</Botao>
-          <Botao type="submit" variante="secundario" disabled={!!problema || salvar.isPending}>{conteudo?.publicado ? 'Salvar sem mudar as telas' : 'Salvar rascunho'}</Botao>
-          <Botao type="button" disabled={!!problema || f.telaIds.length === 0 || salvar.isPending} onClick={() => salvar.mutate(true)}>{salvar.isPending ? 'Publicando…' : 'Publicar'}</Botao>
+          {!(exigeAprovacao && conteudo?.publicado) && <Botao type="submit" variante="secundario" disabled={!!problema || salvar.isPending}>{conteudo?.publicado ? 'Salvar sem mudar as telas' : 'Salvar rascunho'}</Botao>}
+          {exigeAprovacao ? (
+            <Botao type="button" disabled={!!problema || f.telaIds.length === 0 || salvar.isPending} onClick={() => salvar.mutate('aprovacao')}>{salvar.isPending ? 'Enviando…' : 'Enviar para aprovação'}</Botao>
+          ) : (
+            <Botao type="button" disabled={!!problema || f.telaIds.length === 0 || salvar.isPending} onClick={() => salvar.mutate('publicar')}>{salvar.isPending ? 'Publicando…' : 'Publicar'}</Botao>
+          )}
         </div>
       </form>
 
@@ -397,7 +438,7 @@ function SelecaoColuna({ rotulo, valor, colunas, opcional, aoMudar }: { rotulo: 
 const RESOLUCOES_DE_MODELO = MODELOS_RESOLUCAO.map((m) => ({ id: m.nome, nome: m.nome, largura: m.largura, altura: m.altura, tipo: m.tipo as TipoEquipamento, margemPct: 0, nivelAnimacao: 'AUTOMATICO' as NivelAnimacao }));
 
 /** A mesma exibição da TV, reduzida para caber na página. */
-function PreVisualizacao({ f, comConsulta, perfis, previa, carregando, erro, aoCarregar }: { f: Formulario; comConsulta: boolean; perfis: PerfilTelaResumo[]; previa: PreviaConteudoResposta | null; carregando: boolean; erro: Error | null; aoCarregar: () => void }) {
+export function PreVisualizacao({ f, comConsulta, perfis, previa, carregando, erro, aoCarregar }: { f: Formulario; comConsulta: boolean; perfis: PerfilTelaResumo[]; previa: PreviaConteudoResposta | null; carregando: boolean; erro: Error | null; aoCarregar?: () => void }) {
   const opcoes = useMemo(() => [...perfis.map((p) => ({ id: p.id, nome: p.nome, largura: p.largura, altura: p.altura, tipo: p.tipo, margemPct: p.margemPct, nivelAnimacao: p.nivelAnimacao })), ...RESOLUCOES_DE_MODELO], [perfis]);
   const [perfilId, setPerfilId] = useState('');
   const perfil = opcoes.find((o) => o.id === perfilId) ?? opcoes[0];
@@ -443,7 +484,7 @@ function PreVisualizacao({ f, comConsulta, perfis, previa, carregando, erro, aoC
               ))}
             </Selecao>
           </div>
-          {comConsulta && <Botao variante="secundario" disabled={!f.consultaId || carregando} onClick={aoCarregar}>{carregando ? 'Consultando…' : 'Carregar dados reais'}</Botao>}
+          {comConsulta && aoCarregar && <Botao variante="secundario" disabled={!f.consultaId || carregando} onClick={aoCarregar}>{carregando ? 'Consultando…' : 'Carregar dados reais'}</Botao>}
         </div>
         <div ref={caixa} className="flex justify-center">
           <div aria-label="Pré-visualização da tela" style={{ position: 'relative', width: perfil.largura * escala, height: perfil.altura * escala, overflow: 'hidden', borderRadius: 4, boxShadow: '0 0 0 1px rgba(0,0,0,.25)' }}>
@@ -462,7 +503,7 @@ function PreVisualizacao({ f, comConsulta, perfis, previa, carregando, erro, aoC
           {previa && previa.descartados > 0 && <p className="text-amber-700">{previa.descartados} linha(s) ficaram de fora por falta de nome ou de preço válido.</p>}
           {previa && previa.cortados > 0 && <p className="text-amber-700">{previa.cortados} produto(s) acima do limite de 200 ficaram de fora. Filtre a consulta.</p>}
           {previa && previa.banidos > 0 && <p>{previa.banidos} produto(s) banido(s) não aparecem.</p>}
-          {f.config.comFotos && !previa?.fotos && <p>Clique em “Carregar dados reais” para ver as fotos.</p>}
+          {f.config.comFotos && !previa?.fotos && aoCarregar && <p>Clique em “Carregar dados reais” para ver as fotos.</p>}
           {f.config.comFotos && previa?.fotos && (
             <p>
               {previa.fotos.com} produto(s) com foto e {previa.fotos.sem} sem.{previa.fotos.pendentes > 0 ? ` Procurando mais ${previa.fotos.pendentes} no catálogo: elas chegam à tela sozinhas.` : ''}

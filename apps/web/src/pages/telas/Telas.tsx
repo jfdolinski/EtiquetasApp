@@ -22,11 +22,14 @@ import {
   type SituacaoTela,
   type TelaResumo,
   type TipoEquipamento,
+  REGRAS_DE_APROVACAO,
+  type ConteudoParaAprovar,
 } from '@etiquetas/shared';
 import { api } from '../../api';
 import { useAuth } from '../../auth';
 import { ExigeEmpresa } from '../../components/ExigeEmpresa';
 import { Alerta, Botao, Cabecalho, Campo, Modal, Selecao, Selo, Tabela, formatarData } from '../../components/ui';
+import { AprovacoesTela } from './AprovacoesTela';
 import { ConteudosTela } from './ConteudosTela';
 
 const COR_SITUACAO: Record<SituacaoTela, 'verde' | 'amarelo' | 'vermelho' | 'cinza'> = {
@@ -37,7 +40,7 @@ const COR_SITUACAO: Record<SituacaoTela, 'verde' | 'amarelo' | 'vermelho' | 'cin
   AGUARDANDO_VINCULO: 'cinza',
 };
 
-type Aba = 'equipamentos' | 'conteudo' | 'perfis' | 'parametros';
+type Aba = 'equipamentos' | 'conteudo' | 'aprovacao' | 'perfis' | 'parametros';
 
 export function Telas() {
   return (
@@ -48,11 +51,14 @@ export function Telas() {
 }
 
 function Conteudo() {
-  const { pode } = useAuth();
+  const { pode, empresaId } = useAuth();
   const [aba, setAba] = useState<Aba>('equipamentos');
+  const podeAprovar = pode('tela.aprovar');
+  const { data: pedidos = [] } = useQuery({ queryKey: ['telas-aprovacoes', empresaId], queryFn: () => api<ConteudoParaAprovar[]>('/telas/conteudos/aprovacoes'), enabled: podeAprovar, refetchInterval: 30_000 });
   const abas: [Aba, string][] = [
     ['equipamentos', 'Equipamentos'],
     ['conteudo', 'Conteúdo'],
+    ...(podeAprovar ? ([['aprovacao', pedidos.length ? `Aprovação (${pedidos.length})` : 'Aprovação']] as [Aba, string][]) : []),
     ['perfis', 'Perfis de resolução'],
     ['parametros', 'Parâmetros'],
   ];
@@ -72,6 +78,7 @@ function Conteudo() {
       </div>
       {aba === 'equipamentos' && <Equipamentos />}
       {aba === 'conteudo' && <ConteudosTela />}
+      {aba === 'aprovacao' && <AprovacoesTela pedidos={pedidos} />}
       {aba === 'perfis' && <Perfis />}
       {aba === 'parametros' && <Parametros />}
     </>
@@ -426,6 +433,7 @@ function FormParametros({ titulo, descricao, caminho, guardados, herdados, edita
               <p className="mt-1 text-xs text-slate-500">
                 {r.ajuda}
                 {!r.emVigor && <span className="text-amber-700"> Passa a valer quando esta parte do módulo chegar.</span>}
+                {bloqueado && REGRAS_DE_APROVACAO.includes(k) && <span className="text-slate-600"> Só quem tem a permissão de aprovar altera.</span>}
               </p>
             </div>
           );

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { expect, test, type Page } from '@playwright/test';
-import { API, criarEmpresa, pedir, sql, superToken, type EmpresaTeste } from './apoio';
+import { API, criarEmpresa, login, pedir, sql, superToken, type EmpresaTeste } from './apoio';
 
 let tokenSuper: string;
 let e: EmpresaTeste;
@@ -644,6 +644,261 @@ test('imagens: regras da API, sem validade, em uso e isolamento', async () => {
   await pedir('DELETE', `/telas/conteudos/${c.j.id}`, { token: empresa.adminToken });
   expect((await pedir('DELETE', `/telas/conteudos/imagens/${id}`, { token: empresa.adminToken })).status).toBe(204);
   expect((await fetch(`http://localhost:3000/api/tv/imagens/${id}`)).status).toBe(404);
+});
+
+async function usuarioCom(empresa: EmpresaTeste, nome: string, permissoes: string[]) {
+  const perfil = await pedir('POST', '/perfis', { token: empresa.adminToken, corpo: { nome: `${nome} ${randomUUID().slice(0, 6)}`, permissoes } });
+  expect(perfil.status).toBe(201);
+  const email = `${randomUUID().slice(0, 8)}@e2e.local`;
+  const u = await pedir('POST', '/usuarios', { token: empresa.adminToken, corpo: { nome, email, senha: 'SenhaUsuario123', perfilId: perfil.j.id } });
+  expect(u.status).toBe(201);
+  return { id: u.j.id as string, email, senha: 'SenhaUsuario123', token: await login(email, 'SenhaUsuario123') };
+}
+
+test('aprovação: papéis, o que está no ar não muda, reenvio e isolamento', async () => {
+  const empresa = await criarEmpresa(tokenSuper);
+  const outra = await criarEmpresa(tokenSuper);
+  const tela = await telaVinculada(empresa, 'TV aprovada');
+  const consultaId = await criarConsulta(empresa);
+  const editor = await usuarioCom(empresa, 'Editor', ['tela.ver', 'tela.editar']);
+  const aprovador = await usuarioCom(empresa, 'Aprovador', ['tela.ver', 'tela.aprovar']);
+  const programas = async () => (await pedir('POST', '/tv/programacao', { token: tela.token, corpo: {} })).j.programas as { nome: string; config: { titulo: string } }[];
+  const lista = async () => (await pedir('GET', '/telas/conteudos/aprovacoes', { token: aprovador.token })).j as { id: string; impedimento: string | null; aprovacao: { versao: string; proposta: { config: { titulo: string } } } }[];
+
+  await pedir('PUT', '/telas/parametros/empresa', { token: empresa.adminToken, corpo: { valores: { aprovacaoObrigatoria: true, criadorPodeAprovar: false } } });
+  expect((await pedir('GET', '/telas/conteudos/regras', { token: editor.token })).j.aprovacaoObrigatoria).toBe(true);
+
+  // Quem só edita não desliga a aprovação do que ele mesmo vai publicar.
+  for (const valores of [{ aprovacaoObrigatoria: false }, { criadorPodeAprovar: true }]) {
+    const burla = await pedir('PUT', '/telas/parametros/empresa', { token: editor.token, corpo: { valores } });
+    expect(burla.status).toBe(403);
+    expect(burla.j.message).toMatch(/permissão de aprovar/);
+  }
+  expect((await pedir('GET', '/telas/parametros', { token: editor.token })).j.editaveis).toEqual([]);
+  expect((await pedir('GET', '/telas/conteudos/regras', { token: editor.token })).j.aprovacaoObrigatoria).toBe(true);
+
+  const corpo = corpoConteudo('Vitrine', consultaId);
+  const c = await pedir('POST', '/telas/conteudos', { token: editor.token, corpo });
+  expect(c.status).toBe(201);
+  const id = c.j.id as string;
+  const pedirA = (t: string, titulo: string, extra: Record<string, unknown> = {}) => pedir('POST', `/telas/conteudos/${id}/aprovacao`, { token: t, corpo: { conteudo: { ...corpo, config: { ...CONFIG, titulo }, ...extra }, telaIds: [tela.id] } });
+
+  // Publicar direto não passa, nem por quem pode aprovar.
+  expect((await pedir('POST', `/telas/conteudos/${id}/publicar`, { token: empresa.adminToken, corpo: { telaIds: [tela.id] } })).status).toBe(409);
+
+  // Enviado: esperando, e nada na TV.
+  const pedido = await pedirA(editor.token, 'Primeira versão');
+  expect(pedido.status).toBe(200);
+  expect(pedido.j.aprovacao.situacao).toBe('PENDENTE');
+  expect(pedido.j.publicado).toBe(false);
+  expect(await programas()).toEqual([]);
+  let [item] = await lista();
+  expect(item.aprovacao.proposta.config.titulo).toBe('Primeira versão');
+  expect(item.impedimento).toBeNull();
+
+  // Sem a permissão não entra; outra empresa não enxerga.
+  expect((await pedir('GET', '/telas/conteudos/aprovacoes', { token: editor.token })).status).toBe(403);
+  expect((await pedir('POST', `/telas/conteudos/${id}/aprovacao/aprovar`, { token: editor.token, corpo: { versao: item.aprovacao.versao } })).status).toBe(403);
+  expect((await pedir('GET', '/telas/conteudos/aprovacoes', { token: outra.adminToken })).j).toEqual([]);
+  expect((await pedir('POST', `/telas/conteudos/${id}/aprovacao/aprovar`, { token: outra.adminToken, corpo: { versao: item.aprovacao.versao } })).status).toBe(404);
+  expect((await pedir('POST', `/telas/conteudos/${id}/aprovacao/previa`, { token: outra.adminToken })).status).toBe(404);
+
+  // Quem enviou não decide: a empresa pediu uma segunda pessoa.
+  const proprio = await usuarioCom(empresa, 'Faz tudo', ['tela.ver', 'tela.editar', 'tela.aprovar']);
+  await pedirA(proprio.token, 'Enviada por quem aprova');
+  const envio = (await pedir('GET', '/telas/conteudos/aprovacoes', { token: proprio.token })).j[0];
+  expect(envio.impedimento).toMatch(/segunda pessoa/);
+  const seu = await pedir('POST', `/telas/conteudos/${id}/aprovacao/aprovar`, { token: proprio.token, corpo: { versao: envio.aprovacao.versao } });
+  expect(seu.status).toBe(403);
+  expect(seu.j.message).toMatch(/segunda pessoa/);
+
+  // O administrador geral só com o parâmetro.
+  [item] = await lista();
+  const geral = await pedir('POST', `/telas/conteudos/${id}/aprovacao/aprovar`, { token: tokenSuper, empresa: empresa.id, corpo: { versao: item.aprovacao.versao } });
+  expect(geral.status).toBe(403);
+  expect(geral.j.message).toMatch(/administrador geral/);
+
+  // Reenviar enquanto alguém olha: a decisão sobre a versão antiga não vale.
+  const antiga = item.aprovacao.versao;
+  await pedirA(editor.token, 'Segunda versão');
+  const velha = await pedir('POST', `/telas/conteudos/${id}/aprovacao/aprovar`, { token: aprovador.token, corpo: { versao: antiga } });
+  expect(velha.status).toBe(409);
+  expect(velha.j.message).toMatch(/enviado de novo/);
+  expect(await programas()).toEqual([]);
+
+  // Recusar pede motivo, guarda a proposta e sai da fila.
+  [item] = await lista();
+  expect((await pedir('POST', `/telas/conteudos/${id}/aprovacao/recusar`, { token: aprovador.token, corpo: { versao: item.aprovacao.versao, motivo: '' } })).status).toBe(400);
+  const recusa = await pedir('POST', `/telas/conteudos/${id}/aprovacao/recusar`, { token: aprovador.token, corpo: { versao: item.aprovacao.versao, motivo: 'O título está errado' } });
+  expect(recusa.j.aprovacao.situacao).toBe('RECUSADO');
+  expect(recusa.j.aprovacao.motivo).toBe('O título está errado');
+  expect(recusa.j.aprovacao.decididaPorNome).toBe('Aprovador');
+  expect(recusa.j.aprovacao.proposta.config.titulo).toBe('Segunda versão');
+  expect(await lista()).toEqual([]);
+  expect((await pedir('POST', `/telas/conteudos/${id}/aprovacao/aprovar`, { token: aprovador.token, corpo: { versao: item.aprovacao.versao } })).status).toBe(409);
+
+  // Aprovar publica o que foi enviado, com a consulta rodando em nome de quem preparou.
+  await pedirA(editor.token, 'Terceira versão');
+  [item] = await lista();
+  const aprovado = await pedir('POST', `/telas/conteudos/${id}/aprovacao/aprovar`, { token: aprovador.token, corpo: { versao: item.aprovacao.versao } });
+  expect(aprovado.status).toBe(200);
+  expect(aprovado.j.publicado).toBe(true);
+  expect(aprovado.j.config.titulo).toBe('Terceira versão');
+  expect(aprovado.j.telaIds).toEqual([tela.id]);
+  expect(aprovado.j.aprovacao.situacao).toBe('APROVADO');
+  expect(aprovado.j.aprovacao.decididaPorNome).toBe('Aprovador');
+  const [{ responsavel_id: responsavel }] = await sql(`SELECT responsavel_id FROM conteudos_tela WHERE id = $1`, [id]);
+  expect(responsavel).toBe(editor.id);
+  await gravarDados(id);
+  expect((await programas())[0].config.titulo).toBe('Terceira versão');
+
+  // Decidir de novo não publica duas vezes.
+  expect((await pedir('POST', `/telas/conteudos/${id}/aprovacao/aprovar`, { token: aprovador.token, corpo: { versao: item.aprovacao.versao } })).status).toBe(409);
+
+  // No ar: salvar direto não passa, e a mudança só vale depois de aprovada.
+  const direto = await pedir('PUT', `/telas/conteudos/${id}`, { token: editor.token, corpo: { ...corpo, config: { ...CONFIG, titulo: 'Sem aprovar' } } });
+  expect(direto.status).toBe(409);
+  expect((await programas())[0].config.titulo).toBe('Terceira versão');
+  const mudanca = await pedirA(editor.token, 'Mudança no ar');
+  expect(mudanca.j.situacao).toBe('NO_AR');
+  expect(mudanca.j.config.titulo).toBe('Terceira versão');
+  expect((await programas())[0].config.titulo).toBe('Terceira versão');
+  // Tirar do ar é segurança: não espera aprovação, e o pedido continua.
+  expect((await pedir('POST', `/telas/conteudos/${id}/despublicar`, { token: editor.token })).status).toBe(200);
+  expect(await programas()).toEqual([]);
+  expect(await lista()).toHaveLength(1);
+  // Desistir: fila vazia, e o conteúdo fica como estava.
+  const desistiu = await pedir('POST', `/telas/conteudos/${id}/aprovacao/cancelar`, { token: editor.token });
+  expect(desistiu.j.aprovacao).toBeNull();
+  expect(desistiu.j.config.titulo).toBe('Terceira versão');
+  expect(await lista()).toEqual([]);
+
+  // A imagem de um pedido aberto fica presa: aprovar não pode trazer imagem apagada, e outra empresa não usa.
+  const img = (await enviarImagem(empresa, { nome: 'logo.png' })).j.id as string;
+  expect((await pedir('POST', `/telas/conteudos/${id}/aprovacao`, { token: editor.token, corpo: { conteudo: { ...corpo, config: { ...CONFIG, logoImagemId: img } }, telaIds: [tela.id] } })).status).toBe(200);
+  expect((await pedir('DELETE', `/telas/conteudos/imagens/${img}`, { token: editor.token })).status).toBe(409);
+  // Tela de outra empresa não entra no pedido.
+  const telaOutra = await telaVinculada(outra, 'TV alheia');
+  expect((await pedir('POST', `/telas/conteudos/${id}/aprovacao`, { token: editor.token, corpo: { conteudo: corpo, telaIds: [telaOutra.id] } })).status).toBe(400);
+
+  // Com o parâmetro, o administrador geral decide.
+  await pedir('PUT', '/telas/parametros/global', { token: tokenSuper, empresa: empresa.id, corpo: { valores: { administradorGeralAprova: true } } });
+  [item] = await lista();
+  const peloGeral = await pedir('POST', `/telas/conteudos/${id}/aprovacao/aprovar`, { token: tokenSuper, empresa: empresa.id, corpo: { versao: item.aprovacao.versao } });
+  await pedir('PUT', '/telas/parametros/global', { token: tokenSuper, empresa: empresa.id, corpo: { valores: { administradorGeralAprova: null } } });
+  expect(peloGeral.status).toBe(200);
+
+  const auditoria = await sql(`SELECT acao FROM logs_auditoria WHERE entidade_id = $1 AND acao LIKE 'tela.conteudo_%'`, [id]);
+  for (const acao of ['tela.conteudo_pedir_aprovacao', 'tela.conteudo_aprovar', 'tela.conteudo_recusar', 'tela.conteudo_cancelar_aprovacao']) expect(auditoria.map((a) => a.acao)).toContain(acao);
+});
+
+test('aprovação pelo site: envia, recusa com motivo, corrige e aprova, e a TV mostra', async ({ page, context }) => {
+  test.setTimeout(120_000);
+  const empresa = await criarEmpresa(tokenSuper);
+  const tela = await telaVinculada(empresa, 'TV do site');
+  const consultaId = await criarConsulta(empresa);
+  const editor = await usuarioCom(empresa, 'Editora Ana', ['tela.ver', 'tela.editar']);
+  const aprovador = await usuarioCom(empresa, 'Gerente Bia', ['tela.ver', 'tela.aprovar']);
+
+  // Ligado pela tela de parâmetros.
+  await page.setViewportSize({ width: 1400, height: 1100 });
+  await entrar(page, empresa.adminEmail, empresa.adminSenha);
+  await page.goto('/telas');
+  await page.getByRole('tab', { name: 'Parâmetros' }).click();
+  await page.getByRole('combobox', { name: 'Aprovação obrigatória' }).selectOption('true');
+  await page.getByRole('combobox', { name: 'Quem criou pode aprovar' }).selectOption('false');
+  await page.getByRole('button', { name: 'Salvar parâmetros' }).click();
+  await expect.poll(async () => (await pedir('GET', '/telas/conteudos/regras', { token: editor.token })).j.aprovacaoObrigatoria).toBe(true);
+  await page.getByRole('button', { name: 'Sair' }).click();
+
+  // Quem edita não vê a aba, e o botão é outro.
+  await entrar(page, editor.email, editor.senha);
+  await page.goto('/telas');
+  await expect(page.getByRole('tab', { name: /Aprovação/ })).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Conteúdo' }).click();
+  await page.getByRole('button', { name: 'Novo conteúdo' }).click();
+  await page.getByLabel('Nome do conteúdo').fill('Vitrine da semana');
+  await page.getByRole('combobox', { name: /^Consulta/ }).selectOption(consultaId);
+  await page.getByRole('combobox', { name: 'Coluna do nome' }).selectOption('descricao');
+  await page.getByRole('combobox', { name: 'Coluna do preço' }).selectOption('preco');
+  await page.getByLabel('Título').fill('Titulo com erro');
+  await page.getByRole('checkbox', { name: /TV do site/ }).check();
+  await expect(page.getByRole('button', { name: 'Publicar' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Enviar para aprovação' }).click();
+  const linha = page.getByRole('row', { name: /Vitrine da semana/ });
+  await expect(linha.getByText('Esperando aprovação')).toBeVisible();
+  await page.getByRole('button', { name: 'Sair' }).click();
+
+  // Quem aprova vê o pedido, a pré-visualização e recusa.
+  await entrar(page, aprovador.email, aprovador.senha);
+  await page.goto('/telas');
+  await page.getByRole('tab', { name: 'Aprovação (1)' }).click();
+  await expect(page.getByText(/enviado por Editora Ana/)).toBeVisible();
+  await page.getByRole('button', { name: 'Ver e decidir' }).click();
+  const previa = page.getByLabel('Pré-visualização da tela');
+  await expect(previa.getByTestId('titulo-tela')).toHaveText('Titulo com erro');
+  await page.screenshot({ path: 'test-results/aprovacao-decidir.png' });
+  await page.getByRole('button', { name: 'Recusar' }).click();
+  await expect(page.getByRole('button', { name: 'Confirmar recusa' })).toBeDisabled();
+  await page.getByLabel('O que precisa mudar').fill('Corrigir o acento do título');
+  await page.getByRole('button', { name: 'Confirmar recusa' }).click();
+  await expect(page.getByText('Nada esperando aprovação.')).toBeVisible();
+  await page.getByRole('button', { name: 'Sair' }).click();
+
+  // Quem editou vê o motivo, abre onde parou e envia de novo.
+  await entrar(page, editor.email, editor.senha);
+  await page.goto('/telas');
+  await page.getByRole('tab', { name: 'Conteúdo' }).click();
+  await expect(linha.getByText('Recusado', { exact: true })).toBeVisible();
+  await expect(linha.getByText(/Gerente Bia: Corrigir o acento/)).toBeVisible();
+  await page.screenshot({ path: 'test-results/aprovacao-recusado.png' });
+  await linha.getByRole('button', { name: 'Editar' }).click();
+  await expect(page.getByText(/Recusado por Gerente Bia/)).toBeVisible();
+  await expect(page.getByLabel('Título')).toHaveValue('Titulo com erro');
+  await page.getByLabel('Título').fill('Título certo');
+  await page.getByRole('button', { name: 'Enviar para aprovação' }).click();
+  await expect(linha.getByText('Esperando aprovação')).toBeVisible();
+  await page.getByRole('button', { name: 'Sair' }).click();
+
+  await entrar(page, aprovador.email, aprovador.senha);
+  await page.goto('/telas');
+  await page.getByRole('tab', { name: 'Aprovação (1)' }).click();
+  await page.getByRole('button', { name: 'Ver e decidir' }).click();
+  await expect(page.getByLabel('Pré-visualização da tela').getByTestId('titulo-tela')).toHaveText('Título certo');
+  await page.getByRole('button', { name: 'Aprovar e publicar' }).click();
+  await expect(page.getByText('Nada esperando aprovação.')).toBeVisible();
+  await page.getByRole('tab', { name: 'Conteúdo' }).click();
+  await expect(linha.getByText(/Aprovado por Gerente Bia/)).toBeVisible();
+
+  const [{ id }] = await sql(`SELECT id FROM conteudos_tela WHERE empresa_id = $1 AND nome = 'Vitrine da semana'`, [empresa.id]);
+  await gravarDados(id);
+  const tv = await context.newPage();
+  await tv.setViewportSize({ width: 1280, height: 720 });
+  await tv.addInitScript((t) => localStorage.setItem('etiquetas.tv.token', t), tela.token);
+  await tv.goto('/tv');
+  await expect(tv.getByTestId('titulo-tela')).toHaveText('Título certo');
+
+  // Mudança no conteúdo no ar: mostra o que muda, e a TV segue igual até aprovar.
+  await page.getByRole('button', { name: 'Sair' }).click();
+  await entrar(page, editor.email, editor.senha);
+  await page.goto('/telas');
+  await page.getByRole('tab', { name: 'Conteúdo' }).click();
+  await linha.getByRole('button', { name: 'Editar' }).click();
+  await expect(page.getByRole('button', { name: /Salvar/ })).toHaveCount(0);
+  await page.getByLabel('Título').fill('Título novo');
+  await page.getByRole('button', { name: 'Enviar para aprovação' }).click();
+  await expect(linha.getByText('Mudança esperando aprovação')).toBeVisible();
+  await tv.reload();
+  await expect(tv.getByTestId('titulo-tela')).toHaveText('Título certo');
+  await page.getByRole('button', { name: 'Sair' }).click();
+
+  await entrar(page, aprovador.email, aprovador.senha);
+  await page.goto('/telas');
+  await page.getByRole('tab', { name: 'Aprovação (1)' }).click();
+  await expect(page.getByText(/mudança em conteúdo no ar/)).toBeVisible();
+  await page.getByRole('button', { name: 'Ver e decidir' }).click();
+  await expect(page.getByText('O que muda em relação ao que está no ar').locator('..').getByText('Título', { exact: true })).toBeVisible();
+  await page.screenshot({ path: 'test-results/aprovacao-mudanca.png' });
 });
 
 test('logomarca e fundo: regras da API, isolamento, em uso e o que a TV recebe', async () => {

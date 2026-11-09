@@ -231,6 +231,40 @@ describe('programação da tela', () => {
   });
 });
 
+describe('decidir um pedido de aprovação', () => {
+  const VERSAO = new Date('2026-11-09T10:00:00.000Z');
+  const proposta = { nome: 'Ofertas', modelo: 'DESTAQUE', consultaId: 'c1', config: CONFIG, intervaloMinutos: 15, validadeMinutos: 60, horarioInicio: null, horarioFim: null, dataInicio: null, dataFim: null, telaIds: ['t1'] };
+  const pedido = (extra: Record<string, unknown> = {}) => ({ id: 'x', aprovacaoSituacao: 'PENDENTE', aprovacaoPedidaEm: VERSAO, aprovacao: { proposta, pedidaPorId: 'u1', pedidaPorNome: 'Ana', decididaPorNome: null, decididaEm: null, motivo: null }, ...extra });
+  const aprovador = { id: 'u2', superAdmin: false } as UsuarioRequisicao;
+
+  it('recusa quando o conteúdo foi reenviado depois que a pessoa abriu', async () => {
+    const { s, prisma } = montar();
+    prisma.conteudoTela.findFirst.mockResolvedValue(pedido() as never);
+    await expect(s.aprovar('e1', 'x', '2026-11-09T09:00:00.000Z', aprovador)).rejects.toThrow(/enviado de novo/);
+    expect(prisma.conteudoTela.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('recusa pedido já decidido', async () => {
+    const { s, prisma } = montar();
+    prisma.conteudoTela.findFirst.mockResolvedValue(pedido({ aprovacaoSituacao: 'RECUSADO' }) as never);
+    await expect(s.aprovar('e1', 'x', VERSAO.toISOString(), aprovador)).rejects.toThrow(/não está mais aberto/);
+  });
+
+  it('quem enviou não decide quando a empresa exige uma segunda pessoa', async () => {
+    const { s, prisma } = montar();
+    prisma.conteudoTela.findFirst.mockResolvedValue(pedido() as never);
+    prisma.parametroTelas.findFirst.mockResolvedValue({ valores: { criadorPodeAprovar: false } });
+    await expect(s.recusar('e1', 'x', VERSAO.toISOString(), 'Trocar o título', { id: 'u1', superAdmin: false } as UsuarioRequisicao)).rejects.toThrow(/segunda pessoa/);
+    expect(prisma.conteudoTela.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('o administrador geral só decide com o parâmetro ligado', async () => {
+    const { s, prisma } = montar();
+    prisma.conteudoTela.findFirst.mockResolvedValue(pedido() as never);
+    await expect(s.aprovar('e1', 'x', VERSAO.toISOString(), { id: 's', superAdmin: true } as UsuarioRequisicao)).rejects.toThrow(/administrador geral/);
+  });
+});
+
 describe('publicar', () => {
   const autor = { id: 'u1' } as UsuarioRequisicao;
 

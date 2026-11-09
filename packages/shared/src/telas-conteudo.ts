@@ -4,7 +4,7 @@
  */
 import { dataIsoDe, textoNaTela } from './etiquetas/valores';
 import type { Registro } from './etiquetas/tipos';
-import { dentroDoHorarioDaTela, familiaDoFormato, horarioValido, type FamiliaFormato, type NivelAnimacao, type TipoEquipamento } from './telas';
+import { dentroDoHorarioDaTela, familiaDoFormato, horarioValido, type FamiliaFormato, type NivelAnimacao, type ParametrosTelas, type TipoEquipamento } from './telas';
 import { formatarPrecoPost } from './posts';
 
 export const MODELOS_CONTEUDO_TELA = ['GRADE_OFERTAS', 'DESTAQUE', 'LISTA_PRECOS', 'IMAGENS'] as const;
@@ -423,6 +423,78 @@ export interface ConteudoTelaResumo extends VigenciaConteudo {
   /** Por que a última atualização falhou. Os dados anteriores seguem até vencer. */
   erro: string | null;
   responsavelNome: string | null;
+  aprovacao: AprovacaoConteudoTela | null;
+}
+
+// Aprovação ----------------------------------------------------------------------------------
+
+export type SituacaoAprovacao = 'PENDENTE' | 'RECUSADO' | 'APROVADO';
+
+/** O conteúdo como vai ficar. Só vale ao aprovar: até lá, o que está no ar não muda. */
+export interface PropostaConteudoTela extends VigenciaConteudo {
+  nome: string;
+  modelo: ModeloConteudoTela;
+  consultaId: string | null;
+  config: ConfigConteudoTela;
+  intervaloMinutos: number;
+  validadeMinutos: number;
+  telaIds: string[];
+}
+
+/** O que fica guardado no banco, além da situação e da data do pedido. */
+export interface DadosAprovacaoConteudo {
+  proposta: PropostaConteudoTela | null;
+  pedidaPorId: string | null;
+  pedidaPorNome: string | null;
+  decididaPorNome: string | null;
+  decididaEm: string | null;
+  motivo: string | null;
+}
+
+export interface AprovacaoConteudoTela extends DadosAprovacaoConteudo {
+  situacao: SituacaoAprovacao;
+  /** A data do pedido. Quem decide devolve: se o conteúdo foi reenviado nesse meio-tempo, a decisão é recusada. */
+  versao: string;
+}
+
+export interface ConteudoParaAprovar extends ConteudoTelaResumo {
+  /** Por que esta pessoa não pode aprovar este pedido. Recusar segue a mesma regra. */
+  impedimento: string | null;
+}
+
+export const LIMITE_MOTIVO_RECUSA = 500;
+
+/** Devolve o motivo de não poder decidir, se houver. A permissão `tela.aprovar` é conferida antes. */
+export function impedimentoParaAprovar(parametros: Pick<ParametrosTelas, 'criadorPodeAprovar' | 'administradorGeralAprova'>, usuario: { id: string; superAdmin: boolean }, pedidaPorId: string | null): string | null {
+  if (usuario.superAdmin && !parametros.administradorGeralAprova) return 'O administrador geral não aprova o conteúdo desta empresa. Para permitir, ligue “Administrador geral aprova” nos parâmetros.';
+  if (!parametros.criadorPodeAprovar && pedidaPorId === usuario.id) return 'Esta empresa exige uma segunda pessoa: quem enviou para aprovação não pode decidir.';
+  return null;
+}
+
+/** O que muda em relação ao que está no ar. Os preços não entram: vêm da consulta, sem passar por aprovação. */
+export function diferencasDaProposta(atual: PropostaConteudoTela, proposta: PropostaConteudoTela): string[] {
+  const a = atual.config;
+  const p = proposta.config;
+  const igual = (x: unknown, y: unknown) => JSON.stringify(x ?? null) === JSON.stringify(y ?? null);
+  const comparar: [string, unknown, unknown][] = [
+    ['Nome', atual.nome, proposta.nome],
+    ['Modelo', atual.modelo, proposta.modelo],
+    ['Consulta', atual.consultaId, proposta.consultaId],
+    ['Título', a.titulo, p.titulo],
+    ['Rodapé', a.rodape, p.rodape],
+    ['Colunas', [a.colunaNome, a.colunaPreco, a.colunaPrecoDe, a.colunaDetalhe], [p.colunaNome, p.colunaPreco, p.colunaPrecoDe, p.colunaDetalhe]],
+    ['Tempo de cada cena', a.segundosPorCena, p.segundosPorCena],
+    ['Cores', [a.corFundo, a.corDestaque], [p.corFundo, p.corDestaque]],
+    ['Imagens', a.imagens ?? [], p.imagens ?? []],
+    ['Encaixe das imagens', a.ajuste, p.ajuste],
+    ['Fotos dos produtos', [!!a.comFotos, a.comFotos ? a.colunaCodigo : null], [!!p.comFotos, p.comFotos ? p.colunaCodigo : null]],
+    ['Logomarca', a.logoImagemId, p.logoImagemId],
+    ['Imagem de fundo', [a.fundoImagemId, a.fundoImagemId ? (a.fundoVeu ?? VEU_FUNDO_PADRAO) : null], [p.fundoImagemId, p.fundoImagemId ? (p.fundoVeu ?? VEU_FUNDO_PADRAO) : null]],
+    ['Atualização e validade', [atual.intervaloMinutos, atual.validadeMinutos], [proposta.intervaloMinutos, proposta.validadeMinutos]],
+    ['Quando passar', [atual.horarioInicio, atual.horarioFim, atual.dataInicio, atual.dataFim], [proposta.horarioInicio, proposta.horarioFim, proposta.dataInicio, proposta.dataFim]],
+    ['Telas', [...atual.telaIds].sort(), [...proposta.telaIds].sort()],
+  ];
+  return comparar.filter(([, x, y]) => !igual(x, y)).map(([rotulo]) => rotulo);
 }
 
 export interface ImagemTelaResumo {

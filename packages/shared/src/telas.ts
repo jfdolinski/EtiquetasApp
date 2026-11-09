@@ -115,11 +115,13 @@ export const LIMITES_PARAMETROS_TELAS: Partial<Record<ChaveParametroTela, readon
 
 /** O que a empresa decide sozinha. O resto é do administrador geral, que pode sobrescrever por empresa. */
 export const PARAMETROS_DA_EMPRESA: readonly ChaveParametroTela[] = ['aprovacaoObrigatoria', 'criadorPodeAprovar'];
+/** Destes, a empresa decide, mas só quem também pode aprovar. */
+export const REGRAS_DE_APROVACAO: readonly ChaveParametroTela[] = ['aprovacaoObrigatoria', 'criadorPodeAprovar'];
 
 export const ROTULO_PARAMETRO_TELA: Record<ChaveParametroTela, { titulo: string; ajuda: string; unidade?: string; emVigor: boolean }> = {
-  aprovacaoObrigatoria: { titulo: 'Aprovação obrigatória', ajuda: 'O conteúdo só vai ao ar depois de aprovado. Enquanto a tela de aprovação não chega, ligar isto impede publicar.', emVigor: true },
-  criadorPodeAprovar: { titulo: 'Quem criou pode aprovar', ajuda: 'Desligado, a aprovação precisa de uma segunda pessoa.', emVigor: false },
-  administradorGeralAprova: { titulo: 'Administrador geral aprova', ajuda: 'O administrador geral também pode aprovar o conteúdo da empresa.', emVigor: false },
+  aprovacaoObrigatoria: { titulo: 'Aprovação obrigatória', ajuda: 'Conteúdo novo ou alterado só vai ao ar depois de aprovado. O que já está no ar continua, e os preços seguem atualizando sozinhos.', emVigor: true },
+  criadorPodeAprovar: { titulo: 'Quem criou pode aprovar', ajuda: 'Desligado, quem enviou para aprovação não pode aprovar: precisa de uma segunda pessoa com a permissão de aprovar.', emVigor: true },
+  administradorGeralAprova: { titulo: 'Administrador geral aprova', ajuda: 'O administrador geral também pode aprovar o conteúdo da empresa.', emVigor: true },
   imagemTamanhoMaximoMb: { titulo: 'Tamanho máximo de imagem', ajuda: 'Maior arquivo de imagem aceito nas telas. Até 10 MB.', unidade: 'MB', emVigor: true },
   videoTamanhoMaximoMb: { titulo: 'Tamanho máximo de vídeo', ajuda: 'Maior arquivo de vídeo aceito.', unidade: 'MB', emVigor: false },
   videoAlturaMaxima: { titulo: 'Altura máxima de vídeo', ajuda: 'Por exemplo, 1080 para Full HD.', unidade: 'pixels', emVigor: false },
