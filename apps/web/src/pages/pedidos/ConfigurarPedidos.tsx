@@ -5,6 +5,7 @@ import {
   centavosDe,
   colunasSugeridasPedidos,
   DIAS_SEMANA,
+  DURACOES_FAIXA,
   formatarCentavos,
   LIMITES_PEDIDOS,
   MAX_PERIODOS_POR_DIA,
@@ -59,6 +60,8 @@ interface Formulario {
   intervalo: string;
   validade: string;
   horario: HorarioFuncionamento;
+  agDias: string;
+  agDuracao: number;
 }
 
 const reais = (c: number) => (c / 100).toFixed(2).replace('.', ',');
@@ -77,6 +80,8 @@ function formularioDe(c: ConfiguracaoPedidosResumo): Formulario {
     intervalo: String(c.intervaloMinutos),
     validade: String(c.validadeMinutos),
     horario: c.horario,
+    agDias: String(k.agendamento?.dias ?? 7),
+    agDuracao: k.agendamento?.duracaoMinutos ?? 120,
   };
 }
 
@@ -91,6 +96,7 @@ function corpoDe(f: Formulario): SalvarConfiguracaoPedidos {
     modalidades: Object.fromEntries(MODALIDADES_ENTREGA.map((m) => [m, { ativa: f.modalidades[m].ativa, precoCentavos: f.modalidades[m].ativa ? centavosDoCampo(f.modalidades[m].preco) : 0 }])) as ConfigPedidos['modalidades'],
     mensagem: f.mensagem,
     enderecoRetirada: f.enderecoRetirada,
+    agendamento: { dias: Number(f.agDias), duracaoMinutos: f.agDuracao },
   };
   return { ativo: f.ativo, consultaId: f.consultaId, config, intervaloMinutos: Number(f.intervalo), validadeMinutos: Number(f.validade), horario: f.horario };
 }
@@ -224,6 +230,16 @@ export function ConfigurarPedidos() {
               </div>
             ))}
           </div>
+          {f.modalidades.AGENDADA.ativa && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Campo rotulo="Agendar até quantos dias à frente" type="number" min={1} max={30} value={f.agDias} onChange={(e) => mudar({ agDias: e.target.value })} />
+              <Selecao rotulo="Tamanho de cada faixa de horário" value={f.agDuracao} onChange={(e) => mudar({ agDuracao: Number(e.target.value) })}>
+                {DURACOES_FAIXA.map((d) => (
+                  <option key={d} value={d}>{d < 60 ? `${d} minutos` : d === 60 ? '1 hora' : `${d / 60} horas`}</option>
+                ))}
+              </Selecao>
+            </div>
+          )}
           {f.modalidades.RETIRADA.ativa && <Campo rotulo="Endereço para retirada" value={f.enderecoRetirada} maxLength={LIMITES_PEDIDOS.enderecoRetirada} placeholder="Rua das Flores, 100 – Centro" onChange={(e) => mudar({ enderecoRetirada: e.target.value })} />}
           <Campo rotulo="Pedido mínimo (R$, opcional)" inputMode="decimal" value={f.minimo} placeholder="Sem mínimo" onChange={(e) => mudar({ minimo: e.target.value })} ajuda="Conta só os produtos, sem a taxa de entrega." />
         </Secao>
@@ -273,8 +289,8 @@ export function ConfigurarPedidos() {
           <h3 className="mb-2 text-sm font-semibold text-slate-900">Link para os clientes</h3>
           {link ? (
             <>
-              <p className="break-all rounded bg-slate-100 px-2 py-1.5 font-mono text-xs text-slate-800" data-testid="link-catalogo">{link}</p>
-              <p className="mt-2 text-xs text-slate-500">O mesmo link para todos: mande no WhatsApp, no status ou na bio do Instagram. A página de pedidos chega na próxima etapa.</p>
+              <a href={link} target="_blank" rel="noreferrer" className="block break-all rounded bg-slate-100 px-2 py-1.5 font-mono text-xs text-blue-700 hover:underline" data-testid="link-catalogo">{link}</a>
+              <p className="mt-2 text-xs text-slate-500">O mesmo link para todos: mande no WhatsApp, no status ou na bio do Instagram.</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Botao variante="secundario" onClick={() => void navigator.clipboard?.writeText(link)}>Copiar</Botao>
                 <Botao

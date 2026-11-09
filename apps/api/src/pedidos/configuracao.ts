@@ -3,6 +3,7 @@ import { BadRequestException, Body, Controller, Get, Injectable, Logger, OnAppli
 import { Prisma } from '@prisma/client';
 import { IsArray, IsBoolean, IsInt, IsObject, IsOptional, IsUUID } from 'class-validator';
 import {
+  AGENDAMENTO_PADRAO,
   CONFIG_PEDIDOS_PADRAO,
   horarioVazio,
   itensDoCatalogo,
@@ -95,6 +96,7 @@ function configLimpa(c: Partial<ConfigPedidos>): ConfigPedidos {
     modalidades,
     mensagem: texto(c.mensagem, 1000),
     enderecoRetirada: texto(c.enderecoRetirada, 1000),
+    agendamento: { dias: c.agendamento?.dias ?? AGENDAMENTO_PADRAO.dias, duracaoMinutos: c.agendamento?.duracaoMinutos ?? AGENDAMENTO_PADRAO.duracaoMinutos },
   };
 }
 

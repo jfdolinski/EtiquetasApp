@@ -23,10 +23,23 @@ import {
   textoProximaAbertura,
   trocoPara,
   unidadesDe,
+  faixasDeAgendamento,
+  problemaNoEndereco,
+  problemaNoPedido,
+  rotuloSituacaoPedido,
+
+  textoDataAgendamento,
+  textoEndereco,
+  textoFaixa,
+  totaisDoPedido,
   type ColunasCatalogo,
+  type ContextoPedido,
+  type EnderecoPedido,
+  type NovoPedido,
   type ConfigPedidos,
   type HorarioFuncionamento,
 } from './pedidos';
+import { somarDias } from './etiquetas/valores';
 
 const colunas: ColunasCatalogo = { colunaCodigo: 'codigo', colunaNome: 'descricao', colunaPreco: 'preco', colunaPrecoDe: 'preco_de', colunaUnidade: 'un', colunaCategoria: 'grupo', colunaEstoque: null, colunaCodigoBarras: 'ean' };
 
@@ -244,5 +257,89 @@ describe('dados do cliente', () => {
     expect(normalizarCep('01001-000')).toBe('01001000');
     expect(normalizarCep('0100100')).toBeNull();
     expect(normalizarCep('00000-000')).toBeNull();
+  });
+});
+
+describe('entrega agendada', () => {
+  const h = horarioVazio();
+  h[1] = [{ inicio: '08:00', fim: '12:00' }, { inicio: '14:00', fim: '17:00' }];
+  h[2] = [{ inicio: '09:00', fim: '10:15' }];
+
+  it('corta o horário em faixas, com antecedência hoje e a sobra pequena de fora', () => {
+    // 2026-11-09 é segunda; 9h30: só a partir das 10h30.
+    const faixas = faixasDeAgendamento(h, '2026-11-09', '09:30', { dias: 1, duracaoMinutos: 120 });
+    expect(faixas).toEqual([
+      { data: '2026-11-09', inicio: '14:00', fim: '16:00' },
+      { data: '2026-11-09', inicio: '16:00', fim: '17:00' },
+      { data: '2026-11-10', inicio: '09:00', fim: '10:15' },
+    ]);
+    const meiaHora = faixasDeAgendamento(h, '2026-11-10', '06:00', { dias: 0, duracaoMinutos: 60 });
+    expect(meiaHora).toEqual([{ data: '2026-11-10', inicio: '09:00', fim: '10:00' }]);
+    expect(faixasDeAgendamento(horarioVazio(), '2026-11-09', '08:00', { dias: 7, duracaoMinutos: 60 })).toEqual([]);
+  });
+
+  it('escreve a data como o cliente fala', () => {
+    expect(textoDataAgendamento('2026-11-09', '2026-11-09')).toBe('Hoje');
+    expect(textoDataAgendamento('2026-11-10', '2026-11-09')).toBe('Amanhã');
+    expect(textoDataAgendamento('2026-11-13', '2026-11-09')).toBe('Sex, 13 nov');
+    expect(textoFaixa({ data: '2026-11-10', inicio: '09:00', fim: '11:00' }, '2026-11-09')).toBe('Amanhã, 09:00 às 11:00');
+    expect(somarDias('2026-12-31', 1)).toBe('2027-01-01');
+  });
+
+  it('valida o tamanho das faixas e os dias à frente', () => {
+    const boa: ConfigPedidos = { ...CONFIG_PEDIDOS_PADRAO, ...colunas, enderecoRetirada: 'Rua A' };
+    expect(problemaNaConfigPedidos({ ...boa, agendamento: { dias: 0, duracaoMinutos: 60 } })).toMatch(/1 a 30/);
+    expect(problemaNaConfigPedidos({ ...boa, agendamento: { dias: 7, duracaoMinutos: 45 } })).toMatch(/faixas/);
+  });
+});
+
+describe('pedido do cliente', () => {
+  const endereco: EnderecoPedido = { cep: '01001-000', rua: 'Praça da Sé', numero: '10', semNumero: false, complemento: '', bairro: 'Sé', cidade: 'São Paulo', uf: 'SP' };
+  const faixa = { data: '2026-11-10', inicio: '09:00', fim: '11:00' };
+  const ctx: ContextoPedido = {
+    modalidades: { ENTREGA: { ativa: true, precoCentavos: 500 }, AGENDADA: { ativa: true, precoCentavos: 300 }, EXPRESSA: { ativa: true, precoCentavos: 1500 }, RETIRADA: { ativa: true, precoCentavos: 0 } },
+    aberta: true,
+    faixas: [faixa],
+    pedidoMinimoCentavos: 3000,
+  };
+  const itens = [{ codigo: '1', nome: 'Arroz', quantidade: 2, precoCentavos: 2490 }];
+  const p: NovoPedido = { itens: [{ codigo: '1', quantidade: 2, precoCentavos: 2490 }], nome: 'Maria', telefone: '(11) 98765-4321', modalidade: 'ENTREGA', endereco, agendamento: null, pagamento: 'PIX', trocoParaCentavos: null, observacao: '' };
+
+  it('aceita o pedido completo e calcula os totais e o troco', () => {
+    expect(problemaNoPedido(p, itens, ctx)).toBeNull();
+    expect(totaisDoPedido(itens, 500, 10000)).toEqual({ subtotalCentavos: 4980, taxaCentavos: 500, totalCentavos: 5480, trocoCentavos: 4520 });
+    expect(totaisDoPedido(itens, 0, null).trocoCentavos).toBeNull();
+  });
+
+  it('confere dados, endereço, modalidade, faixa, mínimo e troco', () => {
+    const erro = (x: Partial<NovoPedido>, c: Partial<ContextoPedido> = {}, i = itens) => problemaNoPedido({ ...p, ...x }, i, { ...ctx, ...c });
+    expect(erro({ nome: ' ' })).toMatch(/nome/);
+    expect(erro({ telefone: '1133334444' })).toMatch(/celular/);
+    expect(erro({ endereco: null })).toMatch(/endereço/);
+    expect(erro({ endereco: { ...endereco, numero: '' } })).toMatch(/sem número/);
+    expect(erro({ endereco: { ...endereco, numero: '', semNumero: true } })).toBeNull();
+    expect(erro({ endereco: { ...endereco, uf: 'XX' } })).toMatch(/estado/);
+    expect(erro({ modalidade: 'RETIRADA', endereco: null })).toBeNull();
+    expect(erro({ modalidade: 'AGENDADA' })).toMatch(/dia e o horário/);
+    expect(erro({ modalidade: 'AGENDADA', agendamento: faixa })).toBeNull();
+    expect(erro({ modalidade: 'AGENDADA', agendamento: { ...faixa, inicio: '08:00' } })).toMatch(/dia e o horário/);
+    // Fechada: só a agendada.
+    expect(erro({}, { aberta: false })).toMatch(/fechada/);
+    expect(erro({ modalidade: 'AGENDADA', agendamento: faixa }, { aberta: false })).toBeNull();
+    expect(erro({ modalidade: 'EXPRESSA' }, { modalidades: { ...ctx.modalidades, EXPRESSA: { ativa: false, precoCentavos: 0 } } })).toMatch(/não está disponível/);
+    expect(erro({}, {}, [{ ...itens[0], quantidade: 1 }])).toBe('Faltam R$ 5,10 para o pedido mínimo de R$ 30,00.');
+    expect(erro({ pagamento: 'DINHEIRO', trocoParaCentavos: 5000 })).toBe('O troco precisa ser para um valor igual ou maior que o total, R$ 54,80.');
+    expect(erro({ pagamento: 'DINHEIRO', trocoParaCentavos: 5480 })).toBeNull();
+    expect(erro({ pagamento: 'DINHEIRO', trocoParaCentavos: null })).toBeNull();
+    expect(erro({ pagamento: 'BOLETO' as never })).toMatch(/pagamento/);
+    expect(erro({ itens: [{ codigo: '1', quantidade: 1.5, precoCentavos: 2490 }] })).toMatch(/Quantidade/);
+    expect(erro({ itens: [] })).toMatch(/vazio/);
+  });
+
+  it('situação diz "pronto" do jeito de cada entrega, e o endereço vira uma linha', () => {
+    expect(rotuloSituacaoPedido('PRONTO', 'RETIRADA')).toBe('Pronto para retirar');
+    expect(rotuloSituacaoPedido('PRONTO', 'ENTREGA')).toBe('Saiu para entrega');
+    expect(textoEndereco({ ...endereco, cep: '01001000', complemento: 'apto 2' })).toBe('Praça da Sé, 10 – apto 2 – Sé, São Paulo/SP – CEP 01001-000');
+    expect(problemaNoEndereco(endereco)).toBeNull();
   });
 });

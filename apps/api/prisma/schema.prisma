@@ -69,6 +69,7 @@ model Empresa {
   imagensPost         ImagemPost[]
   marcaPost           MarcaPost?
   configuracaoPedidos ConfiguracaoPedidos?
+  pedidos             Pedido[]
 
   @@map("empresas")
 }
@@ -1156,6 +1157,8 @@ model ConfiguracaoPedidos {
   proximaAtualizacaoEm DateTime? @map("proxima_atualizacao_em")
   /// Último a salvar: a consulta pode usar {usuario.*}.
   responsavelId        String?   @map("responsavel_id") @db.Uuid
+  /// Número do próximo pedido da empresa: incrementado na mesma linha, sem corrida entre dois pedidos.
+  proximoNumero        Int       @default(1) @map("proximo_numero")
   criadoEm             DateTime  @default(now()) @map("criado_em")
   atualizadoEm         DateTime  @updatedAt @map("atualizado_em")
 
@@ -1165,4 +1168,45 @@ model ConfiguracaoPedidos {
 
   @@index([ativo, proximaAtualizacaoEm])
   @@map("configuracoes_pedidos")
+}
+
+/// Pedido feito pelo link da empresa. Preços e totais são os conferidos no servidor na hora de gravar.
+model Pedido {
+  id                String   @id @default(uuid()) @db.Uuid
+  empresaId         String   @map("empresa_id") @db.Uuid
+  /// Sequencial por empresa.
+  numero            Int
+  /// SHA-256 do código do link de acompanhamento: o banco sozinho não abre o pedido.
+  codigoHash        String   @unique @map("codigo_hash")
+  /// O mesmo código cifrado, para a loja mandar o link de novo ao cliente.
+  codigoCifrado     String   @map("codigo_cifrado")
+  /// SituacaoPedido de packages/shared.
+  situacao          String   @default("NOVO")
+  clienteNome       String   @map("cliente_nome")
+  /// Só os 11 dígitos.
+  clienteTelefone   String   @map("cliente_telefone")
+  /// EnderecoPedido; nulo na retirada.
+  endereco          Json?
+  modalidade        String
+  /// FaixaAgendamento; só na agendada.
+  agendamento       Json?
+  pagamento         String
+  trocoParaCentavos Int?     @map("troco_para_centavos")
+  observacao        String   @default("")
+  /// ItemConferido[].
+  itens             Json
+  subtotalCentavos  Int      @map("subtotal_centavos")
+  taxaCentavos      Int      @map("taxa_centavos")
+  totalCentavos     Int      @map("total_centavos")
+  /// SHA-256 do IP de quem enviou, só para limitar pedidos seguidos.
+  origemHash        String   @map("origem_hash")
+  criadoEm          DateTime @default(now()) @map("criado_em")
+  atualizadoEm      DateTime @updatedAt @map("atualizado_em")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@unique([empresaId, numero])
+  @@index([empresaId, criadoEm])
+  @@index([empresaId, origemHash, criadoEm])
+  @@map("pedidos")
 }

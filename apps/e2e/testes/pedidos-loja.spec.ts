@@ -1,0 +1,212 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { expect, test } from '@playwright/test';
+import { criarEmpresa, pedir, sql, superToken, type EmpresaTeste } from './apoio';
+
+let tokenSuper: string;
+
+const SEMPRE_ABERTA = Array.from({ length: 7 }, () => [{ inicio: '00:00', fim: '23:59' }]);
+const FECHADA = Array.from({ length: 7 }, () => []);
+const CONFIG = {
+  colunaCodigo: 'codigo',
+  colunaNome: 'descricao',
+  colunaPreco: 'preco',
+  colunaPrecoDe: null,
+  colunaUnidade: null,
+  colunaCategoria: null,
+  colunaEstoque: 'estoque',
+  colunaCodigoBarras: null,
+  comFotos: false,
+  pedidoMinimoCentavos: 3000,
+  modalidades: { ENTREGA: { ativa: true, precoCentavos: 500 }, AGENDADA: { ativa: true, precoCentavos: 300 }, EXPRESSA: { ativa: false, precoCentavos: 0 }, RETIRADA: { ativa: true, precoCentavos: 0 } },
+  mensagem: 'Pedidos até as 17h saem no mesmo dia',
+  enderecoRetirada: 'Rua das Flores, 100',
+  agendamento: { dias: 3, duracaoMinutos: 120 },
+};
+const ITENS = [
+  { codigo: '10', nome: 'Arroz Tipo 1 5kg', precoCentavos: 2490, precoDeCentavos: 2990, unidade: 'PCT', categoria: 'Mercearia', estoque: 5, codigoBarras: '7891234567895' },
+  { codigo: '11', nome: 'Feijão Carioca 1kg', precoCentavos: 849, unidade: 'KG', categoria: 'Mercearia', estoque: 20 },
+  { codigo: '20', nome: 'Detergente Limão', precoCentavos: 299, categoria: 'Limpeza', estoque: 50 },
+];
+const ENDERECO = { cep: '01001000', rua: 'Praça da Sé', numero: '10', semNumero: false, complemento: '', bairro: 'Sé', cidade: 'São Paulo', uf: 'SP' };
+const ip = () => `10.96.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+
+/** Catálogo no ar, como a atualização deixaria, sem precisar do agente. */
+async function lojaNoAr(empresa: EmpresaTeste, opcoes: { horario?: unknown; itens?: unknown; config?: unknown } = {}) {
+  const codigo = randomUUID().replace(/-/g, '').slice(0, 12);
+  await sql(`UPDATE empresas SET nome_fantasia = 'Mercadinho Bom Preço', horario_funcionamento = $2 WHERE id = $1`, [empresa.id, JSON.stringify(opcoes.horario ?? SEMPRE_ABERTA)]);
+  await sql(
+    `INSERT INTO configuracoes_pedidos (id, empresa_id, ativo, codigo_link, config, itens, quantidade_itens, dados_em, validade_minutos, atualizado_em)
+     VALUES ($1, $2, true, $3, $4, $5, $6, now() at time zone 'utc', 120, now())
+     ON CONFLICT (empresa_id) DO UPDATE SET ativo = true, codigo_link = $3, config = $4, itens = $5, quantidade_itens = $6, dados_em = now() at time zone 'utc'`,
+    [randomUUID(), empresa.id, codigo, JSON.stringify(opcoes.config ?? CONFIG), JSON.stringify(opcoes.itens ?? ITENS), ((opcoes.itens as unknown[]) ?? ITENS).length],
+  );
+  return codigo;
+}
+
+const pedido = (extra: Record<string, unknown> = {}) => ({
+  itens: [{ codigo: '10', quantidade: 2, precoCentavos: 2490 }],
+  nome: 'Maria Silva',
+  telefone: '(11) 98765-4321',
+  modalidade: 'ENTREGA',
+  endereco: ENDERECO,
+  agendamento: null,
+  pagamento: 'PIX',
+  trocoParaCentavos: null,
+  observacao: '',
+  ...extra,
+});
+
+test.beforeAll(async () => {
+  tokenSuper = await superToken();
+});
+
+test('o cliente compra pelo celular: busca, carrinho, CEP, troco, preço que mudou e acompanhamento', async ({ page }) => {
+  const e = await criarEmpresa(tokenSuper);
+  const codigo = await lojaNoAr(e);
+  await page.setViewportSize({ width: 390, height: 844 });
+  // A busca de CEP real sai para a internet: aqui a resposta é fixa.
+  await page.route('**/api/loja/*/cep/*', (r) => r.fulfill({ json: { cep: '01001000', rua: 'Praça da Sé', bairro: 'Sé', cidade: 'São Paulo', uf: 'SP' } }));
+  const erros: string[] = [];
+  page.on('console', (m) => m.type() === 'error' && erros.push(m.text()));
+  await page.goto(`/loja/${codigo}`);
+
+  await expect(page.getByRole('heading', { name: 'Mercadinho Bom Preço' })).toBeVisible();
+  await expect(page.getByText('Pedidos até as 17h saem no mesmo dia')).toBeVisible();
+  await expect(page.getByText('Aberto agora')).toBeVisible();
+  await expect(page.getByTestId('produto-loja')).toHaveCount(3);
+  await page.getByRole('tab', { name: 'Limpeza' }).click();
+  await expect(page.getByTestId('produto-loja')).toHaveCount(1);
+  await page.getByRole('tab', { name: 'Todos' }).click();
+  await page.getByLabel('Buscar produto').fill('feijao');
+  await expect(page.getByTestId('produto-loja')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Adicionar Feijão Carioca 1kg' }).click();
+  await expect(page.getByText('Faltam R$ 21,51 para o pedido mínimo')).toBeVisible();
+  await page.getByLabel('Buscar produto').fill('');
+  await page.getByRole('button', { name: 'Adicionar Arroz Tipo 1 5kg' }).click();
+  // O estoque limita a quantidade.
+  for (let i = 0; i < 6; i++) if (await page.getByRole('button', { name: 'Mais um Arroz Tipo 1 5kg' }).isEnabled()) await page.getByRole('button', { name: 'Mais um Arroz Tipo 1 5kg' }).click();
+  await expect(page.getByLabel('Quantidade de Arroz Tipo 1 5kg')).toHaveText('5');
+  await page.getByRole('button', { name: 'Tirar um Arroz Tipo 1 5kg' }).click();
+  await page.getByRole('button', { name: 'Tirar um Arroz Tipo 1 5kg' }).click();
+  await page.getByRole('button', { name: 'Tirar um Arroz Tipo 1 5kg' }).click();
+  await expect(page.getByText('3 itens · R$ 58,29')).toBeVisible();
+  await page.screenshot({ path: 'test-results/loja-catalogo.png' });
+
+  // O carrinho fica guardado no aparelho.
+  await page.reload();
+  await expect(page.getByText('3 itens · R$ 58,29')).toBeVisible();
+  await page.getByRole('button', { name: 'Ver carrinho' }).click();
+  await page.getByRole('button', { name: 'Continuar', exact: true }).click();
+
+  await page.getByLabel('Nome').fill('Maria Silva');
+  await page.getByLabel('Celular (WhatsApp)').fill('11987654321');
+  await expect(page.getByLabel('Celular (WhatsApp)')).toHaveValue('(11) 98765-4321');
+  await page.getByLabel('CEP').fill('01001000');
+  await expect(page.getByLabel('Rua')).toHaveValue('Praça da Sé');
+  await expect(page.getByLabel('Estado')).toHaveValue('SP');
+  await expect(page.getByText('Informe o número, ou marque “sem número”.')).toBeVisible();
+  await page.getByLabel('Número', { exact: true }).fill('10');
+  await page.getByText('Dinheiro', { exact: true }).click();
+  await page.getByLabel('Troco para quanto?').fill('100');
+  await expect(page.getByTestId('troco')).toHaveText('Seu troco: R$ 36,71');
+  await page.screenshot({ path: 'test-results/loja-finalizar.png', fullPage: true });
+
+  // Enquanto o cliente preenchia, o preço do feijão mudou no sistema.
+  const novos = ITENS.map((i) => (i.codigo === '11' ? { ...i, precoCentavos: 999 } : i));
+  await sql(`UPDATE configuracoes_pedidos SET itens = $2 WHERE empresa_id = $1`, [e.id, JSON.stringify(novos)]);
+  await page.getByRole('button', { name: /Enviar pedido/ }).click();
+  await expect(page.getByRole('alert')).toContainText('Feijão Carioca 1kg: o preço mudou de R$ 8,49 para R$ 9,99.');
+  await expect(page.getByRole('button', { name: 'Enviar pedido · R$ 64,79' })).toBeVisible();
+  expect((await sql(`SELECT count(*)::int AS n FROM pedidos WHERE empresa_id = $1`, [e.id]))[0].n).toBe(0);
+  await page.getByRole('button', { name: 'Enviar pedido · R$ 64,79' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Pedido nº 1 enviado!' })).toBeVisible();
+  const [salvo] = await sql(`SELECT * FROM pedidos WHERE empresa_id = $1`, [e.id]);
+  expect(salvo).toMatchObject({ numero: 1, situacao: 'NOVO', cliente_nome: 'Maria Silva', cliente_telefone: '11987654321', modalidade: 'ENTREGA', pagamento: 'DINHEIRO', troco_para_centavos: 10000, subtotal_centavos: 5979, taxa_centavos: 500, total_centavos: 6479 });
+  expect(salvo.endereco).toMatchObject({ cep: '01001000', numero: '10', uf: 'SP' });
+  expect(salvo.itens.map((i: { codigo: string; quantidade: number; precoCentavos: number }) => [i.codigo, i.quantidade, i.precoCentavos])).toEqual([['10', 2, 2490], ['11', 1, 999]]);
+
+  await page.getByRole('link', { name: 'Acompanhar o pedido' }).click();
+  await expect(page.getByRole('heading', { name: 'Pedido nº 1' })).toBeVisible();
+  await expect(page.getByTestId('situacao-pedido')).toHaveText(/Recebido/);
+  await expect(page.getByText('Total')).toBeVisible();
+  await expect(page.getByText('troco para R$ 100,00: devolver R$ 35,21', { exact: false })).toBeVisible();
+  // A loja muda a situação (o painel vem na etapa 3): o cliente vê sem recarregar a mão.
+  await sql(`UPDATE pedidos SET situacao = 'PRONTO' WHERE empresa_id = $1`, [e.id]);
+  await page.reload();
+  await expect(page.getByTestId('situacao-pedido')).toHaveText(/Saiu para entrega/);
+  await page.screenshot({ path: 'test-results/loja-acompanhamento.png', fullPage: true });
+
+  // De volta ao catálogo: o carrinho esvaziou e o pedido aparece em "Seus pedidos".
+  await page.goto(`/loja/${codigo}`);
+  await expect(page.getByRole('link', { name: 'nº 1' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Ver carrinho' })).toHaveCount(0);
+  expect(erros.filter((t) => !/Failed to load resource/.test(t))).toEqual([]);
+});
+
+test('API pública: link, regras, preço nunca vem do cliente, limite por aparelho e isolamento', async () => {
+  const e = await criarEmpresa(tokenSuper);
+  const outra = await criarEmpresa(tokenSuper);
+  const codigo = await lojaNoAr(e);
+  const codigoOutra = await lojaNoAr(outra, { itens: [{ codigo: '99', nome: 'Produto da outra', precoCentavos: 5000, estoque: 3 }] });
+
+  expect((await pedir('GET', '/loja/naoexiste1234')).status).toBe(404);
+  const c = await pedir('GET', `/loja/${codigo}`);
+  expect(c.status).toBe(200);
+  expect(c.j.itens.map((i: { codigo: string }) => i.codigo)).toEqual(['10', '11', '20']);
+  expect(c.j.itens[0]).not.toHaveProperty('codigoBarras');
+  expect(c.j.modalidades.map((m: { modalidade: string }) => m.modalidade)).toEqual(['ENTREGA', 'AGENDADA', 'RETIRADA']);
+  expect(c.j.categorias).toEqual(['Limpeza', 'Mercearia']);
+  // Cada link só mostra a própria empresa.
+  expect((await pedir('GET', `/loja/${codigoOutra}`)).j.itens.map((i: { codigo: string }) => i.codigo)).toEqual(['99']);
+
+  // Preço adulterado: recusado, com o preço certo para o cliente confirmar.
+  const adulterado = await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido({ itens: [{ codigo: '10', quantidade: 2, precoCentavos: 1 }] }), ip: ip() });
+  expect(adulterado.status).toBe(409);
+  expect(adulterado.j.mudancas).toEqual([{ codigo: '10', nome: 'Arroz Tipo 1 5kg', tipo: 'PRECO', antes: 1, depois: 2490 }]);
+  // Produto da outra empresa não existe aqui.
+  expect((await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido({ itens: [{ codigo: '99', quantidade: 1, precoCentavos: 5000 }] }), ip: ip() })).j.mudancas[0].tipo).toBe('SUMIU');
+  expect((await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido({ telefone: '1133334444' }), ip: ip() })).status).toBe(400);
+  expect((await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido({ itens: [{ codigo: '11', quantidade: 1, precoCentavos: 849 }] }), ip: ip() })).j.message).toMatch(/pedido mínimo/);
+  expect((await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido({ modalidade: 'EXPRESSA' }), ip: ip() })).status).toBe(400);
+  expect((await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: { ...pedido(), extra: 1 }, ip: ip() })).status).toBe(400);
+
+  // Agendada: só uma faixa oferecida vale.
+  const faixa = c.j.faixas[c.j.faixas.length - 1];
+  expect((await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido({ modalidade: 'AGENDADA', agendamento: { ...faixa, inicio: '03:17' } }), ip: ip() })).status).toBe(400);
+  const agendado = await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido({ modalidade: 'AGENDADA', agendamento: faixa }), ip: ip() });
+  expect(agendado.status).toBe(201);
+  expect(agendado.j.numero).toBe(1);
+  // Retirada: sem endereço, e a numeração continua.
+  const retirada = await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido({ modalidade: 'RETIRADA', endereco: null }), ip: ip() });
+  expect(retirada.j.numero).toBe(2);
+  const acompanhar = await pedir('GET', `/loja/pedido/${retirada.j.codigo}`);
+  expect(acompanhar.j).toMatchObject({ numero: 2, situacao: 'NOVO', modalidade: 'RETIRADA', endereco: null, enderecoRetirada: 'Rua das Flores, 100', empresa: 'Mercadinho Bom Preço' });
+  expect(acompanhar.j.totais).toEqual({ subtotalCentavos: 4980, taxaCentavos: 0, totalCentavos: 4980, trocoCentavos: null });
+  expect((await pedir('GET', `/loja/pedido/${retirada.j.codigo}x`)).status).toBe(404);
+  // O código do acompanhamento não fica legível no banco.
+  const [guardado] = await sql(`SELECT codigo_hash, codigo_cifrado FROM pedidos WHERE empresa_id = $1 AND numero = 2`, [e.id]);
+  expect(guardado.codigo_hash).toBe(createHash('sha256').update(retirada.j.codigo).digest('hex'));
+  expect(guardado.codigo_cifrado).not.toContain(retirada.j.codigo);
+  // A outra empresa numera do começo.
+  expect((await pedir('POST', `/loja/${codigoOutra}/pedidos`, { corpo: pedido({ itens: [{ codigo: '99', quantidade: 1, precoCentavos: 5000 }] }), ip: ip() })).j.numero).toBe(1);
+
+  // Limite por aparelho, na mesma loja.
+  const mesmoIp = ip();
+  const origem = createHash('sha256').update(`${e.id}:${mesmoIp}`).digest('hex');
+  for (let n = 0; n < 10; n++) {
+    await sql(`INSERT INTO pedidos (id, empresa_id, numero, codigo_hash, codigo_cifrado, cliente_nome, cliente_telefone, modalidade, pagamento, itens, subtotal_centavos, taxa_centavos, total_centavos, origem_hash, criado_em, atualizado_em) VALUES ($1, $2, $3, $4, 'x', 'Robô', '11987654321', 'RETIRADA', 'PIX', '[]', 0, 0, 0, $5, now() at time zone 'utc', now())`, [randomUUID(), e.id, 1000 + n, randomUUID(), origem]);
+  }
+  expect((await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido(), ip: mesmoIp })).status).toBe(429);
+
+  // Desligado: indisponível; fechada: só a agendada, e sem horário não há faixa, então nada.
+  await sql(`UPDATE configuracoes_pedidos SET ativo = false WHERE empresa_id = $1`, [e.id]);
+  expect((await pedir('GET', `/loja/${codigo}`)).status).toBe(503);
+  const fechada = await lojaNoAr(e, { horario: FECHADA });
+  const f = await pedir('GET', `/loja/${fechada}`);
+  expect(f.j.aberta).toBe(false);
+  expect(f.j.modalidades).toEqual([]);
+  expect((await pedir('POST', `/loja/${fechada}/pedidos`, { corpo: pedido(), ip: ip() })).j.message).toMatch(/fechada/);
+  // O link antigo deixou de valer quando o código mudou.
+  expect((await pedir('GET', `/loja/${codigo}`)).status).toBe(404);
+});

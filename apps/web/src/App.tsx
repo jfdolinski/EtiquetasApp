@@ -41,6 +41,7 @@ import { VincularTela } from './pages/telas/VincularTela';
 const EditorModelo = lazy(() => import('./pages/modelos/EditorModelo').then((m) => ({ default: m.EditorModelo })));
 const EditorPost = lazy(() => import('./pages/posts/EditorPost').then((m) => ({ default: m.EditorPost })));
 const PlayerTv = lazy(() => import('./pages/telas/PlayerTv').then((m) => ({ default: m.PlayerTv })));
+const Loja = lazy(() => import('./pages/loja/Loja').then((m) => ({ default: m.Loja })));
 
 function Protegida({ children, permissao, superAdmin }: { children: ReactNode; permissao?: CodigoPermissao; superAdmin?: boolean }) {
   const { usuario, pode } = useAuth();
@@ -58,6 +59,15 @@ export function App() {
     return (
       <Suspense fallback={<div className="h-screen w-screen bg-slate-950" />}>
         <PlayerTv />
+      </Suspense>
+    );
+  }
+
+  // O cliente da loja não tem login: o link da empresa basta, esteja quem estiver logado neste navegador.
+  if (pathname.startsWith('/loja/')) {
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
+        <Loja />
       </Suspense>
     );
   }

@@ -4,7 +4,7 @@
  * total, mínimo e troco não podem errar por arredondamento.
  */
 import type { Registro } from './etiquetas/tipos';
-import { textoNaTela } from './etiquetas/valores';
+import { somarDias, textoNaTela } from './etiquetas/valores';
 import { numeroDe } from './avulsa';
 
 // Entrega e pagamento ------------------------------------------------------------------------
@@ -124,7 +124,17 @@ export interface ConfigPedidos extends ColunasCatalogo {
   mensagem: string;
   /** Para quem escolhe retirar. */
   enderecoRetirada: string;
+  /** Só com a entrega agendada: até quantos dias à frente e o tamanho de cada faixa de horário. */
+  agendamento: ConfigAgendamento;
 }
+
+export interface ConfigAgendamento {
+  dias: number;
+  duracaoMinutos: number;
+}
+
+export const DURACOES_FAIXA = [30, 60, 120, 180, 240] as const;
+export const AGENDAMENTO_PADRAO: ConfigAgendamento = { dias: 7, duracaoMinutos: 120 };
 
 export const LIMITES_PEDIDOS = {
   mensagem: 300,
@@ -157,6 +167,7 @@ export const CONFIG_PEDIDOS_PADRAO: ConfigPedidos = {
   },
   mensagem: '',
   enderecoRetirada: '',
+  agendamento: AGENDAMENTO_PADRAO,
 };
 
 const valorValido = (v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= LIMITES_PEDIDOS.valorMaximoCentavos;
@@ -177,6 +188,9 @@ export function problemaNaConfigPedidos(c: ConfigPedidos): string | null {
   }
   if (!MODALIDADES_ENTREGA.some((m) => c.modalidades[m].ativa)) return 'Escolha ao menos uma forma de entrega.';
   if (c.modalidades.RETIRADA.ativa && !c.enderecoRetirada?.trim()) return 'Informe o endereço para quem vai retirar no local.';
+  const a = c.agendamento ?? AGENDAMENTO_PADRAO;
+  if (!Number.isInteger(a.dias) || a.dias < 1 || a.dias > 30) return 'A entrega agendada pode ir de 1 a 30 dias à frente.';
+  if (!(DURACOES_FAIXA as readonly number[]).includes(a.duracaoMinutos)) return 'Escolha o tamanho das faixas de horário.';
   return null;
 }
 
@@ -475,3 +489,226 @@ export interface PreviaCatalogo extends Omit<ResultadoCatalogo, 'itens'> {
   total: number;
   banidos: number;
 }
+
+// Entrega agendada ---------------------------------------------------------------------------
+
+export interface FaixaAgendamento {
+  /** AAAA-MM-DD no fuso do sistema. */
+  data: string;
+  inicio: string;
+  fim: string;
+}
+
+/** Faixa que começa daqui a menos que isto não dá tempo de separar. */
+export const ANTECEDENCIA_AGENDAMENTO_MINUTOS = 60;
+const MENOR_FAIXA_MINUTOS = 30;
+
+const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+const diaDaSemana = (data: string) => new Date(`${data}T12:00:00Z`).getUTCDay();
+
+/**
+ * As faixas que o cliente pode escolher: de hoje até `dias` à frente, dentro do horário de funcionamento,
+ * cortadas no tamanho escolhido. Faixa pequena no fim de um período só entra com pelo menos 30 min.
+ */
+export function faixasDeAgendamento(h: HorarioFuncionamento, hoje: string, horaAgora: string, cfg: ConfigAgendamento): FaixaAgendamento[] {
+  const faixas: FaixaAgendamento[] = [];
+  const minimo = minutosDe(horaAgora) + ANTECEDENCIA_AGENDAMENTO_MINUTOS;
+  for (let n = 0; n <= cfg.dias; n++) {
+    const data = somarDias(hoje, n);
+    for (const p of h[diaDaSemana(data)] ?? []) {
+      const fim = minutosDe(p.fim);
+      for (let ini = minutosDe(p.inicio); fim - ini >= MENOR_FAIXA_MINUTOS; ini += cfg.duracaoMinutos) {
+        if (n === 0 && ini < minimo) continue;
+        faixas.push({ data, inicio: hhmm(ini), fim: hhmm(Math.min(ini + cfg.duracaoMinutos, fim)) });
+      }
+    }
+  }
+  return faixas;
+}
+
+const NOMES_MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+/** "Hoje", "Amanhã" ou "Sex, 13 nov". */
+export function textoDataAgendamento(data: string, hoje: string): string {
+  if (data === hoje) return 'Hoje';
+  if (data === somarDias(hoje, 1)) return 'Amanhã';
+  const [, m, d] = data.split('-').map(Number);
+  return `${DIAS_SEMANA[diaDaSemana(data)].slice(0, 3)}, ${d} ${NOMES_MES[m - 1]}`;
+}
+
+export const textoFaixa = (f: FaixaAgendamento, hoje: string) => `${textoDataAgendamento(f.data, hoje)}, ${f.inicio} às ${f.fim}`;
+
+// Pedido -------------------------------------------------------------------------------------
+
+export const SITUACOES_PEDIDO = ['NOVO', 'EM_SEPARACAO', 'PRONTO', 'CONCLUIDO', 'CANCELADO'] as const;
+export type SituacaoPedido = (typeof SITUACOES_PEDIDO)[number];
+
+/** "Pronto" quer dizer coisas diferentes para quem retira e para quem recebe. */
+export function rotuloSituacaoPedido(s: SituacaoPedido, modalidade: ModalidadeEntrega): string {
+  switch (s) {
+    case 'NOVO':
+      return 'Recebido';
+    case 'EM_SEPARACAO':
+      return 'Em separação';
+    case 'PRONTO':
+      return modalidade === 'RETIRADA' ? 'Pronto para retirar' : 'Saiu para entrega';
+    case 'CONCLUIDO':
+      return 'Concluído';
+    default:
+      return 'Cancelado';
+  }
+}
+
+export interface EnderecoPedido {
+  cep: string;
+  rua: string;
+  /** Vazio com `semNumero`. */
+  numero: string;
+  semNumero: boolean;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  uf: string;
+}
+
+export const UFS = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'] as const;
+
+export const LIMITES_DADOS_PEDIDO = { nome: 80, rua: 120, numero: 10, complemento: 80, bairro: 80, cidade: 80, observacao: 300 } as const;
+
+export function problemaNoEndereco(e: EnderecoPedido | null | undefined): string | null {
+  if (!e) return 'Informe o endereço de entrega.';
+  if (!normalizarCep(e.cep)) return 'Informe um CEP válido.';
+  if (!e.rua?.trim()) return 'Informe a rua.';
+  if (!e.semNumero && !e.numero?.trim()) return 'Informe o número, ou marque “sem número”.';
+  if (!e.bairro?.trim()) return 'Informe o bairro.';
+  if (!e.cidade?.trim()) return 'Informe a cidade.';
+  if (!(UFS as readonly string[]).includes(e.uf)) return 'Informe o estado.';
+  const L = LIMITES_DADOS_PEDIDO;
+  if (e.rua.length > L.rua || (e.numero ?? '').length > L.numero || (e.complemento ?? '').length > L.complemento || e.bairro.length > L.bairro || e.cidade.length > L.cidade) return 'Endereço comprido demais.';
+  return null;
+}
+
+export const textoEndereco = (e: EnderecoPedido) =>
+  `${e.rua}, ${e.semNumero ? 's/n' : e.numero}${e.complemento ? ` – ${e.complemento}` : ''} – ${e.bairro}, ${e.cidade}/${e.uf} – CEP ${formatarCep(e.cep)}`;
+
+/** O que o cliente manda ao finalizar. Preço e total nunca vêm dele: o servidor confere com o catálogo. */
+export interface NovoPedido {
+  itens: ItemCarrinho[];
+  nome: string;
+  telefone: string;
+  modalidade: ModalidadeEntrega;
+  /** Só fora da retirada. */
+  endereco: EnderecoPedido | null;
+  /** Só na agendada. */
+  agendamento: FaixaAgendamento | null;
+  pagamento: FormaPagamento;
+  /** Só em dinheiro; nulo = não precisa de troco. */
+  trocoParaCentavos: number | null;
+  observacao: string;
+}
+
+/** O que o servidor sabe na hora de conferir. */
+export interface ContextoPedido {
+  modalidades: Record<ModalidadeEntrega, ModalidadeConfig>;
+  aberta: boolean;
+  faixas: FaixaAgendamento[];
+  pedidoMinimoCentavos: number | null;
+}
+
+export interface TotaisPedido {
+  subtotalCentavos: number;
+  taxaCentavos: number;
+  totalCentavos: number;
+  trocoCentavos: number | null;
+}
+
+export function totaisDoPedido(itens: { quantidade: number; precoCentavos: number }[], taxaCentavos: number, trocoParaCentavos: number | null): TotaisPedido {
+  const subtotalCentavos = subtotalDe(itens);
+  const totalCentavos = subtotalCentavos + taxaCentavos;
+  return { subtotalCentavos, taxaCentavos, totalCentavos, trocoCentavos: trocoParaCentavos === null ? null : trocoPara(totalCentavos, trocoParaCentavos) };
+}
+
+/** Confere o pedido já com os itens do catálogo (`conferirCarrinho` sem mudanças). Devolve a mensagem para o cliente. */
+export function problemaNoPedido(p: NovoPedido, itens: ItemConferido[], ctx: ContextoPedido): string | null {
+  if (!Array.isArray(p.itens) || p.itens.length === 0 || itens.length === 0) return 'O carrinho está vazio.';
+  if (p.itens.length > MAX_ITENS_CARRINHO) return `O pedido pode ter até ${MAX_ITENS_CARRINHO} produtos diferentes.`;
+  if (!p.itens.every((i) => quantidadeValida(i.quantidade))) return 'Quantidade inválida.';
+  const nome = p.nome?.trim() ?? '';
+  if (nome.length < 2) return 'Informe o seu nome.';
+  if (nome.length > LIMITES_DADOS_PEDIDO.nome) return 'Nome comprido demais.';
+  if (!normalizarCelular(p.telefone)) return 'Informe um celular com DDD, como (11) 98765-4321.';
+  if (!(MODALIDADES_ENTREGA as readonly string[]).includes(p.modalidade)) return 'Escolha como quer receber.';
+  if (!modalidadesPermitidas(ctx.modalidades, ctx.aberta).includes(p.modalidade)) {
+    return ctx.aberta ? 'Esta forma de entrega não está disponível.' : 'A loja está fechada agora: só a entrega agendada está disponível.';
+  }
+  if (p.modalidade !== 'RETIRADA') {
+    const e = problemaNoEndereco(p.endereco);
+    if (e) return e;
+  }
+  if (p.modalidade === 'AGENDADA') {
+    const a = p.agendamento;
+    if (!a || !ctx.faixas.some((f) => f.data === a.data && f.inicio === a.inicio && f.fim === a.fim)) return 'Escolha o dia e o horário da entrega.';
+  }
+  if (!(FORMAS_PAGAMENTO as readonly string[]).includes(p.pagamento)) return 'Escolha a forma de pagamento.';
+  if ((p.observacao ?? '').length > LIMITES_DADOS_PEDIDO.observacao) return 'Observação comprida demais.';
+  const falta = faltaParaMinimo(subtotalDe(itens), ctx.pedidoMinimoCentavos);
+  if (falta > 0) return `Faltam ${formatarCentavos(falta)} para o pedido mínimo de ${formatarCentavos(ctx.pedidoMinimoCentavos!)}.`;
+  if (p.pagamento === 'DINHEIRO' && p.trocoParaCentavos !== null && p.trocoParaCentavos !== undefined) {
+    if (!Number.isInteger(p.trocoParaCentavos) || p.trocoParaCentavos > LIMITES_PEDIDOS.valorMaximoCentavos) return 'Valor do troco inválido.';
+    const total = subtotalDe(itens) + ctx.modalidades[p.modalidade].precoCentavos;
+    if (p.trocoParaCentavos < total) return `O troco precisa ser para um valor igual ou maior que o total, ${formatarCentavos(total)}.`;
+  }
+  return null;
+}
+
+// O que o cliente vê -------------------------------------------------------------------------
+
+export interface CatalogoPublico {
+  empresa: string;
+  mensagem: string;
+  aberta: boolean;
+  /** "hoje às 14h"; nulo quando aberta ou sem horário. */
+  abreEm: string | null;
+  /** Hoje no fuso do sistema, para escrever "Hoje" e "Amanhã" nas faixas. */
+  hoje: string;
+  modalidades: { modalidade: ModalidadeEntrega; precoCentavos: number }[];
+  enderecoRetirada: string | null;
+  faixas: FaixaAgendamento[];
+  pedidoMinimoCentavos: number | null;
+  itens: ItemCatalogo[];
+  categorias: string[];
+  dadosEm: string;
+}
+
+export interface PedidoPublico {
+  empresa: string;
+  numero: number;
+  situacao: SituacaoPedido;
+  criadoEm: string;
+  nome: string;
+  telefone: string;
+  modalidade: ModalidadeEntrega;
+  endereco: EnderecoPedido | null;
+  enderecoRetirada: string | null;
+  agendamento: FaixaAgendamento | null;
+  pagamento: FormaPagamento;
+  trocoParaCentavos: number | null;
+  observacao: string;
+  itens: ItemConferido[];
+  totais: TotaisPedido;
+}
+
+/** Resposta de quem envia: o número e o código do acompanhamento, que só ele recebe. */
+export interface PedidoCriado {
+  numero: number;
+  codigo: string;
+}
+
+/** Recusa porque algo mudou desde que o cliente viu: ele confirma e envia de novo. */
+export interface RecusaPorMudanca {
+  mudancas: MudancaCarrinho[];
+  itens: ItemConferido[];
+}
+
+export const caminhoAcompanhamento = (codigo: string) => `/loja/pedido/${codigo}`;
