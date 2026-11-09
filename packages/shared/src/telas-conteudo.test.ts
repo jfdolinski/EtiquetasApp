@@ -10,6 +10,7 @@ import {
   corDoTextoSobre,
   dadosValidosAte,
   diferencasDaProposta,
+  entradaDaCena,
   impedimentoParaAprovar,
   formatoMostraFundo,
   formatoMostraLogo,
@@ -140,6 +141,29 @@ describe('animação', () => {
     expect(nivelEfetivo('AUTOMATICO', null)).toBe('LEVE');
     expect(nivelEfetivo('AUTOMATICO', 60, 'LED')).toBe('LEVE');
     expect(nivelEfetivo('ESTATICO', 60)).toBe('ESTATICO');
+  });
+
+  it('a entrada: sem escolha sobe, como antes; o revezamento muda a cada cena e volta ao começo', () => {
+    expect(entradaDaCena(undefined, 3)).toBe('SUBIR');
+    expect(entradaDaCena('QUICAR', 7)).toBe('QUICAR');
+    const seis = [0, 1, 2, 3, 4, 5].map((p) => entradaDaCena('REVEZAR', p));
+    expect(new Set(seis).size).toBe(6);
+    expect(seis).not.toContain('REVEZAR');
+    expect(entradaDaCena('REVEZAR', 6)).toBe(seis[0]);
+  });
+
+  it('recusa animação desconhecida, e conteúdo antigo, sem animação escolhida, continua valendo', () => {
+    const base = { ...CONFIG_CONTEUDO_PADRAO, ...colunas };
+    expect(problemaNaConfigConteudo(base)).toBeNull();
+    expect(problemaNaConfigConteudo({ ...base, animacaoEntrada: 'GIRAR', animacaoPreco: 'BRILHAR' })).toBeNull();
+    expect(problemaNaConfigConteudo({ ...base, animacaoEntrada: 'X' as never })).toMatch(/entrada/);
+    expect(problemaNaConfigConteudo({ ...base, animacaoPreco: 'X' as never })).toMatch(/preço/);
+  });
+
+  it('mudar a animação aparece entre as diferenças do pedido de aprovação; deixar o padrão escrito, não', () => {
+    const proposta = { nome: 'A', modelo: 'GRADE_OFERTAS' as const, consultaId: 'c', config: { ...CONFIG_CONTEUDO_PADRAO, ...colunas }, intervaloMinutos: 15, validadeMinutos: 60, ...semVigencia, telaIds: [] };
+    expect(diferencasDaProposta(proposta, { ...proposta, config: { ...proposta.config, animacaoEntrada: 'SUBIR', animacaoPreco: 'PULSAR' } })).toEqual([]);
+    expect(diferencasDaProposta(proposta, { ...proposta, config: { ...proposta.config, animacaoPreco: 'NENHUM' } })).toEqual(['Animação']);
   });
 
   it('escolhe o texto legível', () => {

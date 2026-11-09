@@ -23,9 +23,9 @@ async function entrar(page: Page, email: string, senha: string) {
   await expect(page.getByRole('link', { name: 'Minha conta' }).first()).toBeVisible();
 }
 
-async function telaVinculada(empresa: EmpresaTeste, nome: string) {
+async function telaVinculada(empresa: EmpresaTeste, nome: string, nivelAnimacao = 'COMPLETO') {
   const p = await pedir('POST', '/tv/pedidos', { corpo: RESOLUCAO, ip: `10.94.${Math.floor(Math.random() * 250)}.1` });
-  const v = await pedir('POST', '/telas/vincular', { token: empresa.adminToken, corpo: { codigo: p.j.codigo, nome, novoPerfil: { nome: `Perfil ${nome} ${p.j.codigo}`, tipo: 'TV', largura: 1280, altura: 720, nivelAnimacao: 'COMPLETO' } } });
+  const v = await pedir('POST', '/telas/vincular', { token: empresa.adminToken, corpo: { codigo: p.j.codigo, nome, novoPerfil: { nome: `Perfil ${nome} ${p.j.codigo}`, tipo: 'TV', largura: 1280, altura: 720, nivelAnimacao } } });
   expect(v.status).toBe(201);
   const s = await pedir('POST', '/tv/pedidos/situacao', { corpo: { segredo: p.j.segredo } });
   return { id: v.j.id as string, token: s.j.token as string };
@@ -119,6 +119,33 @@ test('a TV exibe o conteúdo e tira do ar quando os dados vencem', async ({ page
   await expect(cena).toHaveCount(0);
   await page.unroute('**/api/tv/**');
   expect(erros.filter((t) => !/net::ERR_FAILED|Failed to load resource/.test(t))).toEqual([]);
+});
+
+test('a animação escolhida aparece, e o automático não fica preso no leve por causa do carregamento', async ({ page }) => {
+  const tela = await telaVinculada(e, 'TV animada', 'AUTOMATICO');
+  const consultaId = await criarConsulta(e);
+  expect((await pedir('POST', '/telas/conteudos', { token: e.adminToken, corpo: corpoConteudo('Animação errada', consultaId, { config: { ...CONFIG, animacaoEntrada: 'DANCAR' } }) })).status).toBe(400);
+  const c = await pedir('POST', '/telas/conteudos', { token: e.adminToken, corpo: corpoConteudo('Grade animada', consultaId, { config: { ...CONFIG, segundosPorCena: 3, animacaoEntrada: 'QUICAR', animacaoPreco: 'BRILHAR' } }) });
+  expect(c.status).toBe(201);
+  expect((await pedir('POST', `/telas/conteudos/${c.j.id}/publicar`, { token: e.adminToken, corpo: { telaIds: [tela.id] } })).status).toBe(200);
+  await gravarDados(c.j.id);
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.addInitScript((t) => localStorage.setItem('etiquetas.tv.token', t), tela.token);
+  await page.goto('/tv');
+  const animacoes = () =>
+    page.evaluate(() => ({
+      cena: getComputedStyle(document.querySelector('[data-testid="cena-tela"]')!).animationName,
+      celula: getComputedStyle(document.querySelector('[data-testid="celula-tela"]')!).animationName,
+      preco: getComputedStyle(document.querySelector('[data-testid="celula-tela"] [data-testid="preco-tela"]')!).animationName,
+    }));
+  await expect(page.getByTestId('cena-tela').getByText('Arroz Tipo 1 5kg')).toBeVisible();
+  // Antes de medir: leve, a cena inteira entra com a animação escolhida, e o preço fica parado.
+  expect(await animacoes()).toEqual({ cena: 'tvQuica', celula: 'none', preco: 'none' });
+  // Medido depois de a página assentar, o navegador folgado ganha a animação completa.
+  await expect.poll(animacoes, { timeout: 15_000 }).toEqual({ cena: 'tvSurge', celula: 'tvQuica', preco: 'tvBrilho' });
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: 'test-results/tela-animacao-quicar.png' });
 });
 
 /** Uma foto de verdade, para o olho conferir o encaixe: mais alta que larga, como a maioria das embalagens. */

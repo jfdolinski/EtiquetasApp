@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { cenasDosItens, corDoTextoSobre, familiaDoFormato, formatoMostraFundo, formatoMostraLogo, gradeDaCena, gradeParaItens, horaDosDados, type GradeDaCena, type ItemConteudoTela, type NivelEfetivo, type ProgramaTela } from '@etiquetas/shared';
+import { cenasDosItens, corDoTextoSobre, entradaDaCena, familiaDoFormato, formatoMostraFundo, formatoMostraLogo, gradeDaCena, gradeParaItens, horaDosDados, type EfeitoPreco, type EntradaConcreta, type GradeDaCena, type ItemConteudoTela, type NivelEfetivo, type ProgramaTela } from '@etiquetas/shared';
 
 /**
  * Desenha as cenas em pixels, a partir da largura e altura recebidas: a pré-visualização e a TV usam
@@ -9,15 +9,67 @@ const ANIMACOES = `
 @keyframes tvSobe { from { opacity: 0; transform: translateY(6%); } to { opacity: 1; transform: none; } }
 @keyframes tvZoom { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: none; } }
 @keyframes tvSurge { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tvDesliza { from { opacity: 0; transform: translateX(-14%); } to { opacity: 1; transform: none; } }
+@keyframes tvVira { from { opacity: 0; transform: perspective(1400px) rotateY(-75deg); } to { opacity: 1; transform: perspective(1400px) rotateY(0); } }
+@keyframes tvQuica { 0% { opacity: 0; transform: translateY(-18%); } 55% { opacity: 1; transform: translateY(3%); } 75% { transform: translateY(-1.5%); } 90% { transform: translateY(.6%); } 100% { opacity: 1; transform: none; } }
+@keyframes tvGira { from { opacity: 0; transform: rotate(-10deg) scale(.6); } to { opacity: 1; transform: none; } }
 @keyframes tvPulso { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+@keyframes tvBrilho { 0%, 55% { background-position: 130% 0; } 100% { background-position: -30% 0; } }
+@keyframes tvBalanca { 0%, 78%, 100% { transform: rotate(0); } 82% { transform: rotate(-5deg); } 86% { transform: rotate(5deg); } 90% { transform: rotate(-3deg); } 94% { transform: rotate(2deg); } }
+@keyframes tvPisca { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 `;
+
+/** Só transformação e opacidade nas entradas: a TV faz isso na placa de vídeo, sem redesenhar a página. */
+const ENTRADAS: Record<EntradaConcreta, { nome: string; duracao: number; curva: string }> = {
+  SUBIR: { nome: 'tvSobe', duracao: 0.55, curva: 'ease-out' },
+  DESLIZAR: { nome: 'tvDesliza', duracao: 0.6, curva: 'cubic-bezier(.2,.8,.2,1)' },
+  APROXIMAR: { nome: 'tvZoom', duracao: 0.6, curva: 'ease-out' },
+  VIRAR: { nome: 'tvVira', duracao: 0.7, curva: 'cubic-bezier(.2,.8,.2,1)' },
+  QUICAR: { nome: 'tvQuica', duracao: 0.85, curva: 'ease-out' },
+  GIRAR: { nome: 'tvGira', duracao: 0.6, curva: 'cubic-bezier(.2,.8,.2,1)' },
+  SURGIR: { nome: 'tvSurge', duracao: 0.5, curva: 'ease-out' },
+};
 
 /** Texto secundário. Sobre imagem de fundo fica inteiro (`--tv-suave`, na cena): transparente, some nas partes claras. */
 const SUAVE = 'var(--tv-suave, .75)';
 
-function entrada(nivel: NivelEfetivo, indice: number): CSSProperties {
+/** A animação de cada produto. Leve: a cena inteira entra de uma vez (`entradaDaCenaInteira`), e cada um fica parado. */
+function entrada(nivel: NivelEfetivo, indice: number, tipo: EntradaConcreta): CSSProperties {
   if (nivel !== 'COMPLETO') return {};
-  return { animation: `tvSobe .55s ease-out ${indice * 90}ms both` };
+  const e = ENTRADAS[tipo];
+  return { animation: `${e.nome} ${e.duracao}s ${e.curva} ${indice * 90}ms both` };
+}
+
+/** Um movimento só, para a cena toda: é o que uma TV fraca aguenta sem engasgar. */
+function entradaDaCenaInteira(nivel: NivelEfetivo, tipo: EntradaConcreta): CSSProperties {
+  if (nivel === 'ESTATICO') return {};
+  if (nivel === 'COMPLETO') return { animation: 'tvSurge .35s ease-out both' };
+  const e = ENTRADAS[tipo];
+  return { animation: `${e.nome} ${e.duracao}s ${e.curva} both` };
+}
+
+function efeitoDoPreco(nivel: NivelEfetivo, efeito: EfeitoPreco, indice: number, cor: string): CSSProperties {
+  if (nivel !== 'COMPLETO') return {};
+  const atraso = `${0.7 + indice * 0.09}s`;
+  switch (efeito) {
+    case 'NENHUM':
+      return {};
+    case 'BRILHAR':
+      return {
+        backgroundColor: cor,
+        backgroundImage: 'linear-gradient(105deg, transparent 35%, rgba(255,255,255,.65) 50%, transparent 65%)',
+        backgroundSize: '250% 100%',
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: '130% 0',
+        animation: `tvBrilho 3.2s ease-in-out ${atraso} infinite`,
+      };
+    case 'BALANCAR':
+      return { animation: `tvBalanca 4s ease-in-out ${atraso} infinite` };
+    case 'PISCAR':
+      return { animation: `tvPisca 1.8s ease-in-out ${atraso} infinite` };
+    default:
+      return { animation: `tvPulso 2.4s ease-in-out ${atraso} infinite` };
+  }
 }
 
 /** A folga dos lados é para as reticências: em texto centralizado, o navegador as deixa um pouco fora da caixa. */
@@ -43,9 +95,9 @@ function TextoQueCabe({ tamanho, maxLargura, style, testId, children }: { tamanh
   );
 }
 
-function Preco({ item, tamanho, maxLargura, cor, nivel, indice }: { item: ItemConteudoTela; tamanho: number; maxLargura: number; cor: string; nivel: NivelEfetivo; indice: number }) {
+function Preco({ item, tamanho, maxLargura, cor, nivel, indice, efeito }: { item: ItemConteudoTela; tamanho: number; maxLargura: number; cor: string; nivel: NivelEfetivo; indice: number; efeito: EfeitoPreco }) {
   return (
-    <TextoQueCabe tamanho={tamanho} maxLargura={maxLargura} testId="preco-tela" style={{ background: cor, color: corDoTextoSobre(cor), fontWeight: 800, lineHeight: 1.15, padding: '.08em .28em', borderRadius: '.16em', ...(nivel === 'COMPLETO' ? { animation: `tvPulso 2.4s ease-in-out ${0.7 + indice * 0.09}s infinite` } : {}) }}>
+    <TextoQueCabe tamanho={tamanho} maxLargura={maxLargura} testId="preco-tela" style={{ backgroundColor: cor, color: corDoTextoSobre(cor), fontWeight: 800, lineHeight: 1.15, padding: '.08em .28em', borderRadius: '.16em', ...efeitoDoPreco(nivel, efeito, indice, cor) }}>
       {item.preco}
     </TextoQueCabe>
   );
@@ -85,9 +137,11 @@ interface Celula {
   nivel: NivelEfetivo;
   /** Algum produto da cena tem foto: todos usam as mesmas letras, senão o preço de quem não tem foto parece maior. */
   fotosNaCena: boolean;
+  tipoEntrada: EntradaConcreta;
+  efeitoPreco: EfeitoPreco;
 }
 
-function CartaoGrade({ item, indice, largura, altura, corDestaque, nivel, fotosNaCena }: Celula) {
+function CartaoGrade({ item, indice, largura, altura, corDestaque, nivel, fotosNaCena, tipoEntrada, efeitoPreco }: Celula) {
   const foto = useFoto(item);
   const margem = Math.min(largura, altura) * 0.07;
   // Cartão largo: foto ao lado. Cartão alto ou quadrado: foto em cima, e o texto fica com o resto.
@@ -110,7 +164,7 @@ function CartaoGrade({ item, indice, largura, altura, corDestaque, nivel, fotosN
   const sobra = alturaTexto - blocoPreco - blocoDetalhe;
   const linhasDoNome = Math.max(1, Math.min(6, Math.floor(sobra / (nome * 1.15))));
   return (
-    <div data-testid="celula-tela" style={{ width: largura, height: altura, boxSizing: 'border-box', padding: margem, borderRadius: Math.min(largura, altura) * 0.05, background: 'rgba(127,127,127,.16)', display: 'flex', flexDirection: aoLado ? 'row' : 'column', alignItems: 'center', gap: vao, textAlign: 'center', overflow: 'hidden', ...entrada(nivel, indice) }}>
+    <div data-testid="celula-tela" style={{ width: largura, height: altura, boxSizing: 'border-box', padding: margem, borderRadius: Math.min(largura, altura) * 0.05, background: 'rgba(127,127,127,.16)', display: 'flex', flexDirection: aoLado ? 'row' : 'column', alignItems: 'center', gap: vao, textAlign: 'center', overflow: 'hidden', ...entrada(nivel, indice, tipoEntrada) }}>
       {foto.url && <FotoProduto url={foto.url} largura={aoLado ? ladoFoto : Math.min(larguraTexto, ladoFoto * 1.6)} altura={ladoFoto} aoFalhar={foto.aoFalhar} />}
       <div style={{ width: larguraTexto, height: alturaTexto, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden' }}>
         <div data-testid="texto-celula" style={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden' }}>
@@ -119,16 +173,16 @@ function CartaoGrade({ item, indice, largura, altura, corDestaque, nivel, fotosN
         </div>
         <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: nome * 0.2, marginTop: nome * 0.2 }}>
           <PrecoDe item={item} tamanho={nome * 0.8} maxLargura={util} />
-          <Preco item={item} tamanho={preco} maxLargura={util} cor={corDestaque} nivel={nivel} indice={indice} />
+          <Preco item={item} tamanho={preco} maxLargura={util} cor={corDestaque} nivel={nivel} indice={indice} efeito={efeitoPreco} />
         </div>
       </div>
     </div>
   );
 }
 
-function CartaoDestaque({ item, indice, largura, altura, corDestaque, nivel, faixa }: Celula & { faixa: boolean }) {
+function CartaoDestaque({ item, indice, largura, altura, corDestaque, nivel, faixa, tipoEntrada, efeitoPreco }: Celula & { faixa: boolean }) {
   const foto = useFoto(item);
-  const animacao: CSSProperties = nivel === 'COMPLETO' ? { animation: 'tvZoom .6s ease-out both' } : {};
+  const animacao = entrada(nivel, indice, tipoEntrada);
   // Lado a lado não cabe: nome em uma linha e o preço embaixo, que é o que importa de longe.
   if (faixa && largura < 400) {
     const nome = Math.min(altura * 0.28, largura * 0.11);
@@ -136,7 +190,7 @@ function CartaoDestaque({ item, indice, largura, altura, corDestaque, nivel, fai
     return (
       <div data-testid="celula-tela" style={{ width: largura, height: altura, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: altura * 0.06, overflow: 'hidden', ...animacao }}>
         <div style={{ maxWidth: largura, fontSize: nome, fontWeight: 600, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.nome}</div>
-        <Preco item={item} tamanho={preco} maxLargura={largura} cor={corDestaque} nivel="LEVE" indice={indice} />
+        <Preco item={item} tamanho={preco} maxLargura={largura} cor={corDestaque} nivel="LEVE" indice={indice} efeito={efeitoPreco} />
       </div>
     );
   }
@@ -158,7 +212,7 @@ function CartaoDestaque({ item, indice, largura, altura, corDestaque, nivel, fai
             <div data-testid="nome-tela" style={{ ...linhas(2), maxWidth: larguraTexto, fontSize: nomeAqui, fontWeight: 700, lineHeight: 1.1 }}>{item.nome}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: nomeAqui * 0.6 }}>
               <PrecoDe item={item} tamanho={nomeAqui * 0.7} maxLargura={larguraTexto * 0.3} />
-              <Preco item={item} tamanho={precoAqui} maxLargura={larguraTexto * 0.65} cor={corDestaque} nivel={nivel} indice={indice} />
+              <Preco item={item} tamanho={precoAqui} maxLargura={larguraTexto * 0.65} cor={corDestaque} nivel={nivel} indice={indice} efeito={efeitoPreco} />
             </div>
           </div>
         </div>
@@ -169,7 +223,7 @@ function CartaoDestaque({ item, indice, largura, altura, corDestaque, nivel, fai
         <div style={{ ...linhas(2), fontSize: nome, fontWeight: 700, lineHeight: 1.1, textAlign: 'left', minWidth: 0 }}>{item.nome}</div>
         <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: nome * 0.1 }}>
           <PrecoDe item={item} tamanho={nome * 0.6} maxLargura={largura * 0.5} />
-          <Preco item={item} tamanho={preco} maxLargura={largura * 0.5} cor={corDestaque} nivel={nivel} indice={indice} />
+          <Preco item={item} tamanho={preco} maxLargura={largura * 0.5} cor={corDestaque} nivel={nivel} indice={indice} efeito={efeitoPreco} />
         </div>
       </div>
     );
@@ -190,7 +244,7 @@ function CartaoDestaque({ item, indice, largura, altura, corDestaque, nivel, fai
           <div data-testid="nome-tela" style={{ ...linhas(3), fontSize: nome, fontWeight: 700, lineHeight: 1.12, maxWidth: larguraTexto * 0.95 }}>{item.nome}</div>
           {item.detalhe && <div style={{ ...linhas(1), fontSize: nome * 0.55, opacity: SUAVE }}>{item.detalhe}</div>}
           <PrecoDe item={item} tamanho={nome * 0.7} maxLargura={larguraTexto * 0.92} />
-          <Preco item={item} tamanho={preco} maxLargura={larguraTexto * 0.92} cor={corDestaque} nivel={nivel} indice={indice} />
+          <Preco item={item} tamanho={preco} maxLargura={larguraTexto * 0.92} cor={corDestaque} nivel={nivel} indice={indice} efeito={efeitoPreco} />
         </div>
       </div>
     );
@@ -202,16 +256,16 @@ function CartaoDestaque({ item, indice, largura, altura, corDestaque, nivel, fai
       <div style={{ ...linhas(3), fontSize: nome, fontWeight: 700, lineHeight: 1.12, maxWidth: largura * 0.92 }}>{item.nome}</div>
       {item.detalhe && <div style={{ ...linhas(1), fontSize: nome * 0.55, opacity: SUAVE }}>{item.detalhe}</div>}
       <PrecoDe item={item} tamanho={nome * 0.7} maxLargura={largura * 0.92} />
-      <Preco item={item} tamanho={preco} maxLargura={largura * 0.92} cor={corDestaque} nivel={nivel} indice={indice} />
+      <Preco item={item} tamanho={preco} maxLargura={largura * 0.92} cor={corDestaque} nivel={nivel} indice={indice} efeito={efeitoPreco} />
     </div>
   );
 }
 
-function LinhaLista({ item, indice, largura, altura, corDestaque, nivel, fotosNaCena }: Celula) {
+function LinhaLista({ item, indice, largura, altura, corDestaque, nivel, fotosNaCena, tipoEntrada, efeitoPreco }: Celula) {
   const foto = useFoto(item);
   const fonte = Math.min(altura * 0.46, largura * 0.055);
   return (
-    <div data-testid="celula-tela" style={{ width: largura, height: altura, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: largura * 0.02, borderBottom: '1px solid rgba(127,127,127,.35)', overflow: 'hidden', ...entrada(nivel, indice) }}>
+    <div data-testid="celula-tela" style={{ width: largura, height: altura, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: largura * 0.02, borderBottom: '1px solid rgba(127,127,127,.35)', overflow: 'hidden', ...entrada(nivel, indice, tipoEntrada) }}>
       {foto.url && altura >= 40 && <FotoProduto url={foto.url} largura={altura * 0.86} altura={altura * 0.86} aoFalhar={foto.aoFalhar} />}
       {/* Reserva o lugar, para os nomes começarem todos na mesma coluna. */}
       {!foto.url && fotosNaCena && altura >= 40 && <div style={{ width: altura * 0.86, flexShrink: 0 }} />}
@@ -222,7 +276,7 @@ function LinhaLista({ item, indice, largura, altura, corDestaque, nivel, fotosNa
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: fonte * 0.5 }}>
         {/* Em linha estreita o preço anterior espreme o nome, que é o que identifica o produto. */}
         {largura >= 1200 && <PrecoDe item={item} tamanho={fonte * 0.68} maxLargura={largura * 0.2} />}
-        <Preco item={item} tamanho={fonte * 0.92} maxLargura={largura * 0.42} cor={corDestaque} nivel="LEVE" indice={indice} />
+        <Preco item={item} tamanho={fonte * 0.92} maxLargura={largura * 0.42} cor={corDestaque} nivel="LEVE" indice={indice} efeito={efeitoPreco} />
       </div>
     </div>
   );
@@ -241,12 +295,13 @@ interface PropsCena {
   comFundo: boolean;
   logo?: string;
   aoFalharLogo: () => void;
+  tipoEntrada: EntradaConcreta;
 }
 
 /** O lugar é reservado, sem esperar o arquivo abrir: assim o título não muda de tamanho a cada cena. */
 const LARGURA_LOGO = 0.18;
 
-function CenaProdutos({ programa, itens, grade: gradeCheia, largura, altura, margemPct, nivel, fuso, comFundo, logo, aoFalharLogo }: PropsCena) {
+function CenaProdutos({ programa, itens, grade: gradeCheia, largura, altura, margemPct, nivel, fuso, comFundo, logo, aoFalharLogo, tipoEntrada }: PropsCena) {
   const { config, modelo } = programa;
   const grade = gradeParaItens(modelo, gradeCheia, itens.length);
   const pequena = Math.min(largura, altura) < 200;
@@ -280,7 +335,7 @@ function CenaProdutos({ programa, itens, grade: gradeCheia, largura, altura, mar
         color: texto,
         fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif',
         overflow: 'hidden',
-        ...(nivel === 'ESTATICO' ? {} : { animation: 'tvSurge .35s ease-out both' }),
+        ...entradaDaCenaInteira(nivel, tipoEntrada),
       }}
     >
       {altTitulo > 0 && (
@@ -304,7 +359,7 @@ function CenaProdutos({ programa, itens, grade: gradeCheia, largura, altura, mar
       )}
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${grade.colunas}, ${celL}px)`, gridAutoRows: `${celA}px`, gap: espaco, justifyContent: 'center' }}>
         {itens.map((item, i) => {
-          const comum = { item, indice: i, largura: celL, altura: celA, corDestaque: config.corDestaque, nivel, fotosNaCena: itens.some((x) => x.foto) };
+          const comum = { item, indice: i, largura: celL, altura: celA, corDestaque: config.corDestaque, nivel, fotosNaCena: itens.some((x) => x.foto), tipoEntrada, efeitoPreco: config.animacaoPreco ?? 'PULSAR' };
           // Painel bem pequeno mostra um produto por vez, seja qual for o modelo.
           if (modelo === 'DESTAQUE' || (pequena && grade.colunas === 1)) return <CartaoDestaque key={i} {...comum} faixa={faixa || pequena} />;
           if (modelo === 'LISTA_PRECOS') return <LinhaLista key={i} {...comum} />;
@@ -332,12 +387,14 @@ interface PropsExibicao {
   fuso?: string;
 }
 
-function CenaImagem({ programa, url, largura, altura, margemPct, nivel, aoFalhar }: { programa: ProgramaTela; url: string; largura: number; altura: number; margemPct: number; nivel: NivelEfetivo; aoFalhar: () => void }) {
+function CenaImagem({ programa, url, largura, altura, margemPct, nivel, aoFalhar, tipoEntrada }: { programa: ProgramaTela; url: string; largura: number; altura: number; margemPct: number; nivel: NivelEfetivo; aoFalhar: () => void; tipoEntrada: EntradaConcreta }) {
   const cobrir = programa.config.ajuste === 'COBRIR';
   // Cobrindo, a imagem vai até a borda de propósito: quem escolheu aceitou cortar.
   const margemX = cobrir ? 0 : (largura * margemPct) / 100;
   const margemY = cobrir ? 0 : (altura * margemPct) / 100;
-  const animacao: CSSProperties = nivel === 'ESTATICO' ? {} : { animation: nivel === 'COMPLETO' ? 'tvZoom .6s ease-out both' : 'tvSurge .35s ease-out both' };
+  // Uma imagem só por cena: o leve aguenta a mesma entrada do completo.
+  const e = ENTRADAS[tipoEntrada];
+  const animacao: CSSProperties = nivel === 'ESTATICO' ? {} : { animation: `${e.nome} ${e.duracao}s ${e.curva} both` };
   return (
     <div data-testid="cena-imagem" style={{ position: 'absolute', inset: 0, background: programa.config.corFundo, overflow: 'hidden' }}>
       <img src={url} alt="" onError={aoFalhar} style={{ position: 'absolute', left: margemX, top: margemY, width: largura - 2 * margemX, height: altura - 2 * margemY, objectFit: cobrir ? 'cover' : 'contain', ...animacao }} />
@@ -394,14 +451,15 @@ export function ExibicaoTela({ programas, largura, altura, margemPct, nivel, fus
   const { fundo, logo } = atual.programa;
   // Logomarca ou fundo que não abrem saem, e a cena fica como seria sem eles.
   const fundoNaCena = atual.tipo === 'produtos' && fundo && !falhas.has(fundo.url) && formatoMostraFundo(largura, altura) ? fundo : null;
+  const tipoEntrada = entradaDaCena(atual.programa.config.animacaoEntrada, passo);
   return (
     <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: atual.programa.config.corFundo }}>
       <style>{ANIMACOES}</style>
       {fundoNaCena && <FundoDaCena key={fundoNaCena.url} url={fundoNaCena.url} veu={fundoNaCena.veu} cor={atual.programa.config.corFundo} aoFalhar={() => falhou(fundoNaCena.url)} />}
       {atual.tipo === 'imagem' ? (
-        <CenaImagem key={passo} programa={atual.programa} url={atual.url} largura={largura} altura={altura} margemPct={margemPct} nivel={nivel} aoFalhar={() => falhou(atual.url)} />
+        <CenaImagem key={passo} programa={atual.programa} url={atual.url} largura={largura} altura={altura} margemPct={margemPct} nivel={nivel} aoFalhar={() => falhou(atual.url)} tipoEntrada={tipoEntrada} />
       ) : (
-        <CenaProdutos key={passo} programa={atual.programa} itens={atual.itens} grade={atual.grade} largura={largura} altura={altura} margemPct={margemPct} nivel={nivel} fuso={fuso} comFundo={!!fundoNaCena} logo={logo && !falhas.has(logo) ? logo : undefined} aoFalharLogo={() => logo && falhou(logo)} />
+        <CenaProdutos key={passo} programa={atual.programa} itens={atual.itens} grade={atual.grade} largura={largura} altura={altura} margemPct={margemPct} nivel={nivel} fuso={fuso} comFundo={!!fundoNaCena} logo={logo && !falhas.has(logo) ? logo : undefined} aoFalharLogo={() => logo && falhou(logo)} tipoEntrada={tipoEntrada} />
       )}
     </div>
   );

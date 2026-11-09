@@ -9,6 +9,8 @@ import {
   CONTRASTE_MINIMO_SOBRE_FUNDO,
   contrasteSobreImagem,
   dadosValidosAte,
+  EFEITOS_PRECO,
+  ENTRADAS_ANIMACAO,
   formatoMostraFundo,
   formatoMostraLogo,
   imagemCombinaComTela,
@@ -23,6 +25,8 @@ import {
   problemaNaVigencia,
   problemaNosPrazosConteudo,
   ROTULO_AJUSTE_IMAGEM,
+  ROTULO_EFEITO_PRECO,
+  ROTULO_ENTRADA_ANIMACAO,
   ROTULO_MODELO_CONTEUDO,
   ROTULO_SITUACAO_CONTEUDO,
   ROTULO_VEU_FUNDO,
@@ -33,6 +37,8 @@ import {
   type PropostaConteudoTela,
   type AjusteImagemTela,
   type ConsultaParaConteudo,
+  type EfeitoPreco,
+  type EntradaAnimacao,
   type ImagemTelaResumo,
   type ConteudoTelaResumo,
   type ItemConteudoTela,
@@ -380,6 +386,22 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
         </>
         )}
 
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Selecao rotulo={comConsulta ? 'Como os produtos entram' : 'Como as imagens entram'} value={f.config.animacaoEntrada ?? 'SUBIR'} onChange={(e) => ajustar({ animacaoEntrada: e.target.value as EntradaAnimacao })}>
+            {ENTRADAS_ANIMACAO.map((a) => (
+              <option key={a} value={a}>{ROTULO_ENTRADA_ANIMACAO[a]}</option>
+            ))}
+          </Selecao>
+          {comConsulta && (
+            <Selecao rotulo="Efeito no preço" value={f.config.animacaoPreco ?? 'PULSAR'} onChange={(e) => ajustar({ animacaoPreco: e.target.value as EfeitoPreco })}>
+              {EFEITOS_PRECO.map((a) => (
+                <option key={a} value={a}>{ROTULO_EFEITO_PRECO[a]}</option>
+              ))}
+            </Selecao>
+          )}
+        </div>
+        <p className="-mt-2 text-xs text-slate-500">Tela marcada como “leve” (ou painel de LED no automático) faz só a entrada, da cena inteira, e deixa o preço parado. “Sem animação” não mexe em nada.</p>
+
         <fieldset>
           <legend className="mb-1 text-sm font-medium text-slate-700">Quando passar (vazio: sempre)</legend>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -458,7 +480,7 @@ export function PreVisualizacao({ f, comConsulta, perfis, previa, carregando, er
       id: 'previa',
       nome: f.nome,
       modelo: f.modelo,
-      config: { titulo: f.config.titulo, rodape: f.config.rodape, segundosPorCena: Math.max(LIMITES_CONTEUDO_TELA.segundosPorCena[0], f.config.segundosPorCena || 8), corFundo: f.config.corFundo, corDestaque: f.config.corDestaque, ajuste: f.config.ajuste },
+      config: { titulo: f.config.titulo, rodape: f.config.rodape, segundosPorCena: Math.max(LIMITES_CONTEUDO_TELA.segundosPorCena[0], f.config.segundosPorCena || 8), corFundo: f.config.corFundo, corDestaque: f.config.corDestaque, ajuste: f.config.ajuste, animacaoEntrada: f.config.animacaoEntrada, animacaoPreco: f.config.animacaoPreco },
       // Desligou as fotos depois de carregar: a pré-visualização não espera outra consulta para mostrar sem elas.
       itens: !comConsulta ? [] : reais ? (f.config.comFotos ? previa.itens : previa.itens.map(({ foto: _foto, ...item }) => item)) : ITENS_DE_EXEMPLO,
       ...(comConsulta ? {} : { imagens: (f.config.imagens ?? []).map((i) => ({ url: caminhoImagemTela(i.imagemId), segundos: Math.max(LIMITES_CONTEUDO_TELA.segundosPorCena[0], i.segundos || 8) })) }),

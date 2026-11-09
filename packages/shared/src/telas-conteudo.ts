@@ -58,7 +58,47 @@ export interface ConfigConteudoTela {
   fundoImagemId?: string | null;
   /** Quanto a cor de fundo cobre a imagem, em %: é o que mantém nome e preço legíveis. */
   fundoVeu?: number;
+  /** Como os produtos (ou a imagem) entram em cada cena. Sem valor: sobem, como antes. */
+  animacaoEntrada?: EntradaAnimacao;
+  /** O efeito que fica repetindo no preço. Sem valor: pulsa, como antes. */
+  animacaoPreco?: EfeitoPreco;
 }
+
+export const ENTRADAS_ANIMACAO = ['SUBIR', 'DESLIZAR', 'APROXIMAR', 'VIRAR', 'QUICAR', 'GIRAR', 'SURGIR', 'REVEZAR'] as const;
+export type EntradaAnimacao = (typeof ENTRADAS_ANIMACAO)[number];
+export type EntradaConcreta = Exclude<EntradaAnimacao, 'REVEZAR'>;
+
+export const ROTULO_ENTRADA_ANIMACAO: Record<EntradaAnimacao, string> = {
+  SUBIR: 'Subir',
+  DESLIZAR: 'Deslizar do lado',
+  APROXIMAR: 'Aproximar',
+  VIRAR: 'Virar como carta',
+  QUICAR: 'Cair quicando',
+  GIRAR: 'Girar',
+  SURGIR: 'Só aparecer, sem movimento',
+  REVEZAR: 'Uma diferente a cada cena',
+};
+
+/** A ordem do revezamento: as mais calmas entre as mais agitadas. */
+const REVEZAMENTO: EntradaConcreta[] = ['SUBIR', 'VIRAR', 'DESLIZAR', 'QUICAR', 'APROXIMAR', 'GIRAR'];
+
+/** A entrada desta cena: no revezamento, muda a cada troca. */
+export function entradaDaCena(entrada: EntradaAnimacao | undefined, passo: number): EntradaConcreta {
+  if (!entrada) return 'SUBIR';
+  if (entrada !== 'REVEZAR') return entrada;
+  return REVEZAMENTO[((passo % REVEZAMENTO.length) + REVEZAMENTO.length) % REVEZAMENTO.length];
+}
+
+export const EFEITOS_PRECO = ['PULSAR', 'BRILHAR', 'BALANCAR', 'PISCAR', 'NENHUM'] as const;
+export type EfeitoPreco = (typeof EFEITOS_PRECO)[number];
+
+export const ROTULO_EFEITO_PRECO: Record<EfeitoPreco, string> = {
+  PULSAR: 'Pulsar',
+  BRILHAR: 'Brilho passando',
+  BALANCAR: 'Balançar de vez em quando',
+  PISCAR: 'Acender e apagar de leve',
+  NENHUM: 'Parado',
+};
 
 export const VEUS_FUNDO_TELA = [60, 75, 90] as const;
 export const VEU_FUNDO_PADRAO = 75;
@@ -111,6 +151,12 @@ export function problemaNaConfigConteudo(c: ConfigConteudoTela): string | null {
   if (!COR.test(c.corFundo) || !COR.test(c.corDestaque)) return 'Cor inválida.';
   if (c.comFotos && !c.colunaCodigo?.trim()) return 'Escolha a coluna do código de barras, usada para achar as fotos.';
   if (c.fundoVeu !== undefined && c.fundoVeu !== null && !(VEUS_FUNDO_TELA as readonly number[]).includes(c.fundoVeu)) return 'Escolha como a imagem de fundo aparece.';
+  return problemaNaAnimacao(c);
+}
+
+export function problemaNaAnimacao(c: Pick<ConfigConteudoTela, 'animacaoEntrada' | 'animacaoPreco'>): string | null {
+  if (c.animacaoEntrada && !ENTRADAS_ANIMACAO.includes(c.animacaoEntrada)) return 'Animação de entrada desconhecida.';
+  if (c.animacaoPreco && !EFEITOS_PRECO.includes(c.animacaoPreco)) return 'Efeito do preço desconhecido.';
   return null;
 }
 
@@ -135,7 +181,7 @@ export function aparenciaDoPrograma(modelo: ModeloConteudoTela, c: Pick<ConfigCo
 }
 
 /** Devolve a mensagem de erro, se houver. Que as imagens são da empresa, a API confere. */
-export function problemaNasImagensDoConteudo(c: Pick<ConfigConteudoTela, 'imagens' | 'ajuste' | 'corFundo'>): string | null {
+export function problemaNasImagensDoConteudo(c: Pick<ConfigConteudoTela, 'imagens' | 'ajuste' | 'corFundo' | 'animacaoEntrada' | 'animacaoPreco'>): string | null {
   const imagens = c.imagens ?? [];
   if (imagens.length === 0) return 'Escolha ao menos uma imagem.';
   if (imagens.length > MAX_IMAGENS_POR_CONTEUDO) return `Um conteúdo pode ter até ${MAX_IMAGENS_POR_CONTEUDO} imagens.`;
@@ -146,7 +192,7 @@ export function problemaNasImagensDoConteudo(c: Pick<ConfigConteudoTela, 'imagen
   }
   if (c.ajuste && !AJUSTES_IMAGEM_TELA.includes(c.ajuste)) return 'Ajuste de imagem desconhecido.';
   if (!COR.test(c.corFundo)) return 'Cor inválida.';
-  return null;
+  return problemaNaAnimacao(c);
 }
 
 /** Validade curta demais tiraria o conteúdo do ar entre duas atualizações normais. */
@@ -487,6 +533,7 @@ export function diferencasDaProposta(atual: PropostaConteudoTela, proposta: Prop
     ['Cores', [a.corFundo, a.corDestaque], [p.corFundo, p.corDestaque]],
     ['Imagens', a.imagens ?? [], p.imagens ?? []],
     ['Encaixe das imagens', a.ajuste, p.ajuste],
+    ['Animação', [a.animacaoEntrada ?? 'SUBIR', a.animacaoPreco ?? 'PULSAR'], [p.animacaoEntrada ?? 'SUBIR', p.animacaoPreco ?? 'PULSAR']],
     ['Fotos dos produtos', [!!a.comFotos, a.comFotos ? a.colunaCodigo : null], [!!p.comFotos, p.comFotos ? p.colunaCodigo : null]],
     ['Logomarca', a.logoImagemId, p.logoImagemId],
     ['Imagem de fundo', [a.fundoImagemId, a.fundoImagemId ? (a.fundoVeu ?? VEU_FUNDO_PADRAO) : null], [p.fundoImagemId, p.fundoImagemId ? (p.fundoVeu ?? VEU_FUNDO_PADRAO) : null]],
@@ -552,7 +599,7 @@ export interface ProgramaTela {
   id: string;
   nome: string;
   modelo: ModeloConteudoTela;
-  config: Pick<ConfigConteudoTela, 'titulo' | 'rodape' | 'segundosPorCena' | 'corFundo' | 'corDestaque' | 'ajuste'>;
+  config: Pick<ConfigConteudoTela, 'titulo' | 'rodape' | 'segundosPorCena' | 'corFundo' | 'corDestaque' | 'ajuste' | 'animacaoEntrada' | 'animacaoPreco'>;
   itens: ItemConteudoTela[];
   /** Só no modelo de imagens. */
   imagens?: { url: string; segundos: number }[];

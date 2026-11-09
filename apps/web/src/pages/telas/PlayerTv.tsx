@@ -51,21 +51,41 @@ function gravarGuardado(g: Guardado | null) {
   }
 }
 
-/** Quadros por segundo nos primeiros instantes: é o que decide a animação no modo automático. */
+/** A primeira medida espera a página assentar; as outras pegam a TV folgada, e vale a melhor. */
+const MEDIR_QUADROS_APOS_MS = [3_000, 15_000, 45_000, 120_000, 300_000];
+const MEDIR_QUADROS_DURANTE_MS = 2_000;
+
+/**
+ * Quadros por segundo: é o que decide a animação no modo automático. Medir só no carregamento enganava,
+ * porque a página, os dados e o vídeo que mantém a tela acesa disputam o aparelho nesse instante, e
+ * a TV ficava sem animação para sempre. Fica a melhor medida: o que o aparelho consegue, não o pior momento.
+ */
 function useQuadrosPorSegundo(): number | null {
   const [quadros, setQuadros] = useState<number | null>(null);
   useEffect(() => {
     let id = 0;
-    let n = 0;
-    let inicio = 0;
-    const passo = (t: number) => {
-      if (!inicio) inicio = t;
-      n++;
-      if (t - inicio >= 1500) return setQuadros((n / (t - inicio)) * 1000);
-      id = requestAnimationFrame(passo);
+    const relogios = MEDIR_QUADROS_APOS_MS.map((espera) =>
+      setTimeout(() => {
+        if (document.visibilityState !== 'visible') return;
+        cancelAnimationFrame(id);
+        let n = 0;
+        let inicio = 0;
+        const passo = (t: number) => {
+          if (!inicio) inicio = t;
+          else n++;
+          if (t - inicio >= MEDIR_QUADROS_DURANTE_MS) {
+            const medida = (n / (t - inicio)) * 1000;
+            return setQuadros((antes) => Math.max(antes ?? 0, medida));
+          }
+          id = requestAnimationFrame(passo);
+        };
+        id = requestAnimationFrame(passo);
+      }, espera),
+    );
+    return () => {
+      relogios.forEach(clearTimeout);
+      cancelAnimationFrame(id);
     };
-    id = requestAnimationFrame(passo);
-    return () => cancelAnimationFrame(id);
   }, []);
   return quadros;
 }

@@ -9,6 +9,8 @@ import {
   caminhoImagemTela,
   conteudoVigente,
   dadosValidosAte,
+  EFEITOS_PRECO,
+  ENTRADAS_ANIMACAO,
   impedimentoParaAprovar,
   imagensUsadasPeloConteudo,
   itensDoConteudo,
@@ -35,6 +37,8 @@ import {
   type AprovacaoConteudoTela,
   type ConteudoParaAprovar,
   type DadosAprovacaoConteudo,
+  type EfeitoPreco,
+  type EntradaAnimacao,
   type PropostaConteudoTela,
   type SituacaoAprovacao,
   type ImagemNoConteudo,
@@ -128,6 +132,14 @@ class ConfigConteudoDto implements ConfigConteudoTela {
   @IsOptional()
   @IsIn(VEUS_FUNDO_TELA, { message: 'Escolha como a imagem de fundo aparece.' })
   fundoVeu?: number;
+
+  @IsOptional()
+  @IsIn(ENTRADAS_ANIMACAO, { message: 'Animação de entrada desconhecida.' })
+  animacaoEntrada?: EntradaAnimacao;
+
+  @IsOptional()
+  @IsIn(EFEITOS_PRECO, { message: 'Efeito do preço desconhecido.' })
+  animacaoPreco?: EfeitoPreco;
 }
 
 class EnviarImagemTelaDto {
@@ -813,7 +825,7 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
           id: c.id,
           nome: c.nome,
           modelo: c.modelo as ModeloConteudoTela,
-          config: { titulo: cfg.titulo, rodape: cfg.rodape, segundosPorCena: cfg.segundosPorCena, corFundo: cfg.corFundo, corDestaque: cfg.corDestaque, ajuste: cfg.ajuste },
+          config: { titulo: cfg.titulo, rodape: cfg.rodape, segundosPorCena: cfg.segundosPorCena, corFundo: cfg.corFundo, corDestaque: cfg.corDestaque, ajuste: cfg.ajuste, animacaoEntrada: cfg.animacaoEntrada, animacaoPreco: cfg.animacaoPreco },
           // O código só serve para achar a foto, e a foto só vale com a opção ligada: uma atualização que falhou pode ter deixado a antiga.
           itens: (c.itens as unknown as ItemConteudoTela[]).map(({ codigo: _codigo, foto, ...item }) => (foto && cfg.comFotos ? { ...item, foto } : item)),
           ...(c.modelo === 'IMAGENS' ? { imagens: (cfg.imagens ?? []).map((i) => ({ url: caminhoImagemTela(i.imagemId), segundos: i.segundos })) } : {}),
