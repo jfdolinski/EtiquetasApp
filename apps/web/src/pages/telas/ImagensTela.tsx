@@ -41,6 +41,68 @@ async function enviar(arquivo: File): Promise<ImagemTelaResumo> {
 
 const tamanhoLegivel = (bytes: number) => (bytes >= 1_000_000 ? `${(bytes / 1_000_000).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(bytes / 1000))} KB`);
 
+/** Uma imagem só, como a logomarca ou o fundo. A galeria fica fechada: o formulário já é comprido. */
+export function ImagemUnica({ rotulo, ajuda, valor, aoMudar }: { rotulo: string; ajuda: string; valor: string | null; aoMudar: (id: string | null) => void }) {
+  const { empresaId } = useAuth();
+  const cliente = useQueryClient();
+  const entrada = useRef<HTMLInputElement>(null);
+  const { data: imagens = [] } = useImagensTela();
+  const [aberta, setAberta] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const excluir = useMutation({ mutationFn: (id: string) => api(`/telas/conteudos/imagens/${id}`, { metodo: 'DELETE' }), onSuccess: () => void cliente.invalidateQueries({ queryKey: ['telas-imagens', empresaId] }) });
+
+  async function aoEscolher(e: ChangeEvent<HTMLInputElement>) {
+    const arquivo = e.target.files?.[0];
+    e.target.value = '';
+    if (!arquivo) return;
+    setEnviando(true);
+    setErro(null);
+    try {
+      const nova = await enviar(arquivo);
+      aoMudar(nova.id);
+      await cliente.invalidateQueries({ queryKey: ['telas-imagens', empresaId] });
+    } catch (falha) {
+      setErro((falha as Error).message);
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  const nome = imagens.find((i) => i.id === valor)?.nome;
+  return (
+    <fieldset className="rounded-md border border-slate-200 p-3">
+      <legend className="px-1 text-sm font-medium text-slate-700">{rotulo}</legend>
+      <div className="flex flex-wrap items-center gap-2">
+        {valor && <img src={caminhoImagemTela(valor)} alt="" className="h-10 w-16 shrink-0 rounded bg-slate-200 object-contain" />}
+        {valor && <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{nome ?? 'Imagem'}</span>}
+        <Botao type="button" variante="secundario" disabled={enviando} onClick={() => entrada.current?.click()}>{enviando ? 'Enviando…' : valor ? 'Trocar' : 'Enviar imagem'}</Botao>
+        <input ref={entrada} aria-label={`Arquivo: ${rotulo}`} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={(e) => void aoEscolher(e)} />
+        {imagens.length > 0 && <button type="button" aria-expanded={aberta} className="text-sm text-blue-700 hover:underline" onClick={() => setAberta(!aberta)}>{aberta ? 'Fechar a galeria' : 'Escolher da galeria'}</button>}
+        {valor && <button type="button" className="text-sm text-red-700 hover:underline" onClick={() => aoMudar(null)}>Tirar</button>}
+      </div>
+      <p className="mt-1.5 text-xs text-slate-500">{ajuda}</p>
+      {erro && <div className="mt-2"><Alerta>{erro}</Alerta></div>}
+      {excluir.error && <div className="mt-2"><Alerta>{(excluir.error as Error).message}</Alerta></div>}
+      {aberta && (
+        <ul className="mt-2 grid max-h-48 grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-4">
+          {imagens.map((i) => (
+            <li key={i.id} className={`rounded-md border p-1 ${i.id === valor ? 'border-blue-600 bg-blue-50' : 'border-slate-200'}`}>
+              <button type="button" title={i.nome} aria-label={`Usar ${i.nome}`} aria-pressed={i.id === valor} className="block w-full" onClick={() => aoMudar(i.id === valor ? null : i.id)}>
+                <img src={caminhoImagemTela(i.id)} alt="" loading="lazy" className="h-14 w-full rounded bg-slate-200 object-contain" />
+              </button>
+              <div className="mt-1 flex items-center justify-between gap-1 text-[11px] text-slate-500">
+                <span>{tamanhoLegivel(i.bytes)}</span>
+                {i.id !== valor && <button type="button" aria-label={`Excluir ${i.nome}`} className="text-red-700 hover:underline" onClick={() => window.confirm(`Excluir “${i.nome}” da galeria?`) && excluir.mutate(i.id)}>Excluir</button>}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </fieldset>
+  );
+}
+
 export function ImagensDoConteudo({ selecionadas, segundosPadrao, aoMudar }: { selecionadas: ImagemNoConteudo[]; segundosPadrao: number; aoMudar: (imagens: ImagemNoConteudo[]) => void }) {
   const { empresaId } = useAuth();
   const cliente = useQueryClient();

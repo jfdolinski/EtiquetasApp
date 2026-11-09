@@ -53,7 +53,21 @@ export interface ConfigConteudoTela {
   /** Mostra a foto do catálogo de cada produto, achada pelo código de barras. */
   comFotos?: boolean;
   colunaCodigo?: string | null;
+  /** Só nos modelos de produtos. Imagens da galeria das telas: um banner já traz a arte que quiser. */
+  logoImagemId?: string | null;
+  fundoImagemId?: string | null;
+  /** Quanto a cor de fundo cobre a imagem, em %: é o que mantém nome e preço legíveis. */
+  fundoVeu?: number;
 }
+
+export const VEUS_FUNDO_TELA = [60, 75, 90] as const;
+export const VEU_FUNDO_PADRAO = 75;
+
+export const ROTULO_VEU_FUNDO: Record<(typeof VEUS_FUNDO_TELA)[number], string> = {
+  60: 'Imagem mais visível',
+  75: 'Equilibrado',
+  90: 'Texto em primeiro lugar',
+};
 
 export const LIMITES_CONTEUDO_TELA = {
   segundosPorCena: [3, 120],
@@ -96,7 +110,28 @@ export function problemaNaConfigConteudo(c: ConfigConteudoTela): string | null {
   if (!Number.isInteger(c.segundosPorCena) || c.segundosPorCena < min || c.segundosPorCena > max) return `O tempo de cada cena precisa ficar entre ${min} e ${max} segundos.`;
   if (!COR.test(c.corFundo) || !COR.test(c.corDestaque)) return 'Cor inválida.';
   if (c.comFotos && !c.colunaCodigo?.trim()) return 'Escolha a coluna do código de barras, usada para achar as fotos.';
+  if (c.fundoVeu !== undefined && c.fundoVeu !== null && !(VEUS_FUNDO_TELA as readonly number[]).includes(c.fundoVeu)) return 'Escolha como a imagem de fundo aparece.';
   return null;
+}
+
+/** Imagens da galeria de que este conteúdo depende. Olha o modelo: trocar de modelo pode deixar sobra na configuração. */
+export function imagensUsadasPeloConteudo(modelo: ModeloConteudoTela, c: Pick<ConfigConteudoTela, 'imagens' | 'logoImagemId' | 'fundoImagemId'>): string[] {
+  const ids = modeloUsaConsulta(modelo) ? [c.logoImagemId, c.fundoImagemId] : (c.imagens ?? []).map((i) => i.imagemId);
+  return [...new Set(ids.filter((id): id is string => !!id))];
+}
+
+/** O título tem a mesma regra: painel pequeno e faixa guardam o espaço para o produto. */
+export const formatoMostraLogo = (largura: number, altura: number) => Math.min(largura, altura) >= 200 && familiaDoFormato(largura, altura) !== 'FAIXA';
+/** Em painel pequeno, a imagem vira borrão atrás do preço. */
+export const formatoMostraFundo = (largura: number, altura: number) => Math.min(largura, altura) >= 200;
+
+/** Só a TV e a pré-visualização usam: as duas montam igual. */
+export function aparenciaDoPrograma(modelo: ModeloConteudoTela, c: Pick<ConfigConteudoTela, 'logoImagemId' | 'fundoImagemId' | 'fundoVeu'>): Pick<ProgramaTela, 'logo' | 'fundo'> {
+  if (!modeloUsaConsulta(modelo)) return {};
+  return {
+    ...(c.logoImagemId ? { logo: caminhoImagemTela(c.logoImagemId) } : {}),
+    ...(c.fundoImagemId ? { fundo: { url: caminhoImagemTela(c.fundoImagemId), veu: c.fundoVeu ?? VEU_FUNDO_PADRAO } } : {}),
+  };
 }
 
 /** Devolve a mensagem de erro, se houver. Que as imagens são da empresa, a API confere. */
@@ -288,12 +323,32 @@ export function nivelEfetivo(nivel: NivelAnimacao, quadrosPorSegundo: number | n
 
 /** Preto ou branco, o que for mais legível sobre a cor. */
 export function corDoTextoSobre(cor: string): '#ffffff' | '#0f172a' {
-  const canal = (i: number) => {
-    const v = parseInt(cor.slice(i, i + 2), 16) / 255;
+  return luminanciaDe(rgbDe(cor)) > 0.4 ? '#0f172a' : '#ffffff';
+}
+
+const rgbDe = (cor: string) => [1, 3, 5].map((i) => parseInt(cor.slice(i, i + 2), 16));
+
+function luminanciaDe(rgb: number[]): number {
+  const [r, g, b] = rgb.map((c) => {
+    const v = c / 255;
     return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-  };
-  const luminancia = 0.2126 * canal(1) + 0.7152 * canal(3) + 0.0722 * canal(5);
-  return luminancia > 0.4 ? '#0f172a' : '#ffffff';
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** Abaixo disto, até letra grande fica difícil de ler (WCAG, texto grande). */
+export const CONTRASTE_MINIMO_SOBRE_FUNDO = 3;
+
+/** O contraste do texto no pior ponto de uma imagem qualquer, toda branca ou toda preta, sob o véu. */
+export function contrasteSobreImagem(corFundo: string, veu: number): number {
+  const texto = luminanciaDe(rgbDe(corDoTextoSobre(corFundo)));
+  const fundo = rgbDe(corFundo);
+  return Math.min(
+    ...[0, 255].map((imagem) => {
+      const mistura = luminanciaDe(fundo.map((c) => (c * veu + imagem * (100 - veu)) / 100));
+      return (Math.max(texto, mistura) + 0.05) / (Math.min(texto, mistura) + 0.05);
+    }),
+  );
 }
 
 // Vigência -----------------------------------------------------------------------------------
@@ -429,6 +484,8 @@ export interface ProgramaTela {
   itens: ItemConteudoTela[];
   /** Só no modelo de imagens. */
   imagens?: { url: string; segundos: number }[];
+  logo?: string;
+  fundo?: { url: string; veu: number };
   dadosEm: string;
   validoAte: string;
 }

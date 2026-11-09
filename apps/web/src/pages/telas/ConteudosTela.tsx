@@ -2,10 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AJUSTES_IMAGEM_TELA,
+  aparenciaDoPrograma,
   caminhoImagemTela,
   colunasSugeridas,
   CONFIG_CONTEUDO_PADRAO,
+  CONTRASTE_MINIMO_SOBRE_FUNDO,
+  contrasteSobreImagem,
   dadosValidosAte,
+  formatoMostraFundo,
+  formatoMostraLogo,
   imagemCombinaComTela,
   INTERVALO_PADRAO_MINUTOS,
   LIMITES_CONTEUDO_TELA,
@@ -20,7 +25,10 @@ import {
   ROTULO_AJUSTE_IMAGEM,
   ROTULO_MODELO_CONTEUDO,
   ROTULO_SITUACAO_CONTEUDO,
+  ROTULO_VEU_FUNDO,
   VALIDADE_PADRAO_MINUTOS,
+  VEU_FUNDO_PADRAO,
+  VEUS_FUNDO_TELA,
   type ConfigConteudoTela,
   type AjusteImagemTela,
   type ConsultaParaConteudo,
@@ -40,7 +48,7 @@ import { api } from '../../api';
 import { useAuth } from '../../auth';
 import { Alerta, Botao, Campo, Selecao, Selo, Tabela, formatarData } from '../../components/ui';
 import { ExibicaoTela } from './ExibicaoTela';
-import { ImagensDoConteudo, useImagensTela } from './ImagensTela';
+import { ImagemUnica, ImagensDoConteudo, useImagensTela } from './ImagensTela';
 
 const COR_SITUACAO: Record<SituacaoConteudoTela, 'verde' | 'amarelo' | 'vermelho' | 'cinza'> = {
   RASCUNHO: 'cinza',
@@ -317,6 +325,17 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
           <Campo rotulo="Cor do preço" type="color" className="h-10 w-full cursor-pointer rounded-md border border-slate-300 bg-white p-1" value={f.config.corDestaque} onChange={(e) => ajustar({ corDestaque: e.target.value })} />
         </div>
 
+        <ImagemUnica rotulo="Logomarca" ajuda="Aparece no alto de cada cena, ao lado do título. Use uma imagem que se destaque sobre a cor de fundo, de preferência um PNG transparente." valor={f.config.logoImagemId ?? null} aoMudar={(logoImagemId) => ajustar({ logoImagemId })} />
+        <ImagemUnica rotulo="Imagem de fundo" ajuda="Preenche a tela atrás dos produtos, e as bordas podem ser cortadas. A cor de fundo fica por cima, para o preço continuar fácil de ler." valor={f.config.fundoImagemId ?? null} aoMudar={(fundoImagemId) => ajustar({ fundoImagemId })} />
+        {f.config.fundoImagemId && (
+          <Selecao rotulo="Como a imagem de fundo aparece" value={String(f.config.fundoVeu ?? VEU_FUNDO_PADRAO)} onChange={(e) => ajustar({ fundoVeu: Number(e.target.value) })}>
+            {VEUS_FUNDO_TELA.map((v) => (
+              <option key={v} value={v}>{ROTULO_VEU_FUNDO[v]}</option>
+            ))}
+          </Selecao>
+        )}
+        {f.config.fundoImagemId && contrasteSobreImagem(f.config.corFundo, f.config.fundoVeu ?? VEU_FUNDO_PADRAO) < CONTRASTE_MINIMO_SOBRE_FUNDO && <p className="text-xs text-amber-700">Com esta cor de fundo, o texto pode ficar difícil de ler sobre partes da imagem. Escolha uma cor mais clara ou mais escura, ou dê prioridade ao texto.</p>}
+
         <div className="grid gap-3 sm:grid-cols-2">
           <Campo rotulo="Atualizar os dados a cada (minutos)" type="number" min={1} max={1440} value={f.intervalo} onChange={(e) => setF({ ...f, intervalo: e.target.value })} ajuda="Cada atualização consulta o banco do cliente." />
           <Campo rotulo="Validade dos dados (minutos)" type="number" min={5} max={10080} value={f.validade} onChange={(e) => setF({ ...f, validade: e.target.value })} ajuda="Passou disso sem atualizar, sai do ar." />
@@ -402,6 +421,7 @@ function PreVisualizacao({ f, comConsulta, perfis, previa, carregando, erro, aoC
       // Desligou as fotos depois de carregar: a pré-visualização não espera outra consulta para mostrar sem elas.
       itens: !comConsulta ? [] : reais ? (f.config.comFotos ? previa.itens : previa.itens.map(({ foto: _foto, ...item }) => item)) : ITENS_DE_EXEMPLO,
       ...(comConsulta ? {} : { imagens: (f.config.imagens ?? []).map((i) => ({ url: caminhoImagemTela(i.imagemId), segundos: Math.max(LIMITES_CONTEUDO_TELA.segundosPorCena[0], i.segundos || 8) })) }),
+      ...aparenciaDoPrograma(f.modelo, f.config),
       dadosEm: new Date().toISOString(),
       validoAte: new Date(Date.now() + 3_600_000).toISOString(),
     }),
@@ -436,6 +456,8 @@ function PreVisualizacao({ f, comConsulta, perfis, previa, carregando, erro, aoC
         {comConsulta && (
         <div className="mt-3 space-y-1 text-xs text-slate-500">
           {!reais && <p className="font-medium text-amber-700">Dados de exemplo. Eles nunca vão para a tela.</p>}
+          {f.config.logoImagemId && !formatoMostraLogo(perfil.largura, perfil.altura) && <p>Neste formato não há espaço para a logomarca: o espaço fica para o produto.</p>}
+          {f.config.fundoImagemId && !formatoMostraFundo(perfil.largura, perfil.altura) && <p>Em painel pequeno, a imagem de fundo não aparece, para não atrapalhar o preço.</p>}
           {reais && <p>{previa.itens.length} produto(s) da consulta, como vão aparecer.</p>}
           {previa && previa.descartados > 0 && <p className="text-amber-700">{previa.descartados} linha(s) ficaram de fora por falta de nome ou de preço válido.</p>}
           {previa && previa.cortados > 0 && <p className="text-amber-700">{previa.cortados} produto(s) acima do limite de 200 ficaram de fora. Filtre a consulta.</p>}

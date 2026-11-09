@@ -645,3 +645,177 @@ test('imagens: regras da API, sem validade, em uso e isolamento', async () => {
   expect((await pedir('DELETE', `/telas/conteudos/imagens/${id}`, { token: empresa.adminToken })).status).toBe(204);
   expect((await fetch(`http://localhost:3000/api/tv/imagens/${id}`)).status).toBe(404);
 });
+
+test('logomarca e fundo: regras da API, isolamento, em uso e o que a TV recebe', async () => {
+  const empresa = await criarEmpresa(tokenSuper);
+  const outra = await criarEmpresa(tokenSuper);
+  const tela = await telaVinculada(empresa, 'TV aparência');
+  const consultaId = await criarConsulta(empresa);
+  const consultaOutra = await criarConsulta(outra);
+  const logo = (await enviarImagem(empresa, { nome: 'logo.png' })).j.id as string;
+  const fundo = (await enviarImagem(empresa, { nome: 'fundo.png' })).j.id as string;
+
+  // O endereço é público, mas o id de outra empresa não vira logomarca aqui.
+  for (const campo of ['logoImagemId', 'fundoImagemId']) {
+    const roubo = await pedir('POST', '/telas/conteudos', { token: outra.adminToken, corpo: corpoConteudo(`Roubo ${campo}`, consultaOutra, { config: { ...CONFIG, [campo]: logo } }) });
+    expect(roubo.status).toBe(400);
+    expect(roubo.j.message).toMatch(/não são desta empresa/);
+  }
+  expect((await pedir('POST', '/telas/conteudos', { token: empresa.adminToken, corpo: corpoConteudo('Véu errado', consultaId, { config: { ...CONFIG, fundoImagemId: fundo, fundoVeu: 10 } }) })).status).toBe(400);
+  expect((await pedir('POST', '/telas/conteudos', { token: empresa.adminToken, corpo: corpoConteudo('Id errado', consultaId, { config: { ...CONFIG, logoImagemId: 'nao-e-id' } }) })).status).toBe(400);
+
+  const corpo = corpoConteudo('Com marca', consultaId, { config: { ...CONFIG, logoImagemId: logo, fundoImagemId: fundo, fundoVeu: 60 } });
+  const c = await pedir('POST', '/telas/conteudos', { token: empresa.adminToken, corpo });
+  expect(c.status).toBe(201);
+  await pedir('POST', `/telas/conteudos/${c.j.id}/publicar`, { token: empresa.adminToken, corpo: { telaIds: [tela.id] } });
+  await gravarDados(c.j.id);
+
+  const p = (await pedir('POST', '/tv/programacao', { token: tela.token, corpo: {} })).j.programas[0];
+  expect(p.logo).toBe(`/api/tv/imagens/${logo}`);
+  expect(p.fundo).toEqual({ url: `/api/tv/imagens/${fundo}`, veu: 60 });
+
+  // Logomarca e fundo também contam como uso: sem isto, excluir a imagem deixaria a tela sem ela.
+  for (const id of [logo, fundo]) expect((await pedir('DELETE', `/telas/conteudos/imagens/${id}`, { token: empresa.adminToken })).status).toBe(409);
+  const galeria = (await pedir('GET', '/telas/conteudos/imagens', { token: empresa.adminToken })).j as { id: string; usos: number }[];
+  expect(galeria.find((i) => i.id === logo)?.usos).toBe(1);
+
+  // Tirar a logomarca libera a imagem e a TV deixa de receber.
+  const semLogo = await pedir('PUT', `/telas/conteudos/${c.j.id}`, { token: empresa.adminToken, corpo: { ...corpo, config: { ...corpo.config as object, logoImagemId: null } } });
+  expect(semLogo.status).toBe(200);
+  await gravarDados(c.j.id);
+  const p2 = (await pedir('POST', '/tv/programacao', { token: tela.token, corpo: {} })).j.programas[0];
+  expect(p2.logo).toBeUndefined();
+  expect((await pedir('DELETE', `/telas/conteudos/imagens/${logo}`, { token: empresa.adminToken })).status).toBe(204);
+
+  // No modelo de imagens, nada disso fica guardado nem preso: o banner já traz a arte.
+  const banner = (await enviarImagem(empresa, { nome: 'banner.png' })).j.id as string;
+  const soImagens = corpoImagens('Só banner', [banner]);
+  const i = await pedir('POST', '/telas/conteudos', { token: empresa.adminToken, corpo: { ...soImagens, config: { ...soImagens.config, fundoImagemId: fundo } } });
+  expect(i.status).toBe(201);
+  expect(i.j.config.fundoImagemId).toBeNull();
+});
+
+test('logomarca e fundo pelo site, cabendo em todos os modelos e formatos', async ({ page, context }) => {
+  test.setTimeout(240_000);
+  const empresa = await criarEmpresa(tokenSuper);
+  const tela = await telaVinculada(empresa, 'TV da marca');
+  const consultaId = await criarConsulta(empresa);
+
+  await page.setViewportSize({ width: 1400, height: 1200 });
+  await entrar(page, empresa.adminEmail, empresa.adminSenha);
+  await page.goto('/telas');
+  // Logomarca bem larga e fundo claro e movimentado: os casos que atrapalham.
+  const desenhar = (largura: number, altura: number, tipo: 'logo' | 'fundo') =>
+    page.evaluate(
+      ([l, a, t]) => {
+        const c = document.createElement('canvas');
+        c.width = l as number;
+        c.height = a as number;
+        const g = c.getContext('2d')!;
+        if (t === 'logo') {
+          g.fillStyle = '#ef4444';
+          g.fillRect(0, 0, c.width, c.height);
+          g.fillStyle = '#ffffff';
+          g.font = `bold ${c.height * 0.7}px sans-serif`;
+          g.textAlign = 'center';
+          g.fillText('MINHA LOJA', c.width / 2, c.height * 0.75);
+        } else {
+          for (let x = 0; x < c.width; x += 80) {
+            for (let y = 0; y < c.height; y += 80) {
+              g.fillStyle = (x + y) % 160 ? '#ffffff' : '#60a5fa';
+              g.fillRect(x, y, 80, 80);
+            }
+          }
+        }
+        return c.toDataURL('image/png').split(',')[1];
+      },
+      [largura, altura, tipo],
+    );
+  await page.getByRole('tab', { name: 'Conteúdo' }).click();
+  await page.getByRole('button', { name: 'Novo conteúdo' }).click();
+  await page.getByLabel('Nome do conteúdo').fill('Ofertas com marca');
+  await page.getByRole('combobox', { name: /^Consulta/ }).selectOption(consultaId);
+  await page.getByRole('combobox', { name: 'Coluna do nome' }).selectOption('descricao');
+  await page.getByRole('combobox', { name: 'Coluna do preço' }).selectOption('preco');
+  await page.getByLabel('Título').fill('Ofertas da semana');
+
+  await page.getByLabel('Arquivo: Logomarca').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from(await desenhar(900, 200, 'logo'), 'base64') });
+  const previa = page.getByLabel('Pré-visualização da tela');
+  await expect(previa.getByTestId('logo-tela')).toBeVisible();
+  await page.getByLabel('Arquivo: Imagem de fundo').setInputFiles({ name: 'fundo.png', mimeType: 'image/png', buffer: Buffer.from(await desenhar(1920, 1080, 'fundo'), 'base64') });
+  await expect(previa.getByTestId('fundo-tela')).toBeVisible();
+  await expect.poll(() => previa.getByTestId('fundo-tela').locator('img').evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(1920);
+  await page.getByRole('combobox', { name: 'Como a imagem de fundo aparece' }).selectOption('90');
+  await expect.poll(() => previa.getByTestId('veu-tela').evaluate((v) => getComputedStyle(v).opacity)).toBe('0.9');
+  await page.getByRole('combobox', { name: 'Como a imagem de fundo aparece' }).selectOption('75');
+  await page.screenshot({ path: 'test-results/marca-editor.png' });
+
+  // Cor média sobre imagem: quem edita fica sabendo antes de publicar.
+  await page.getByLabel('Cor de fundo').fill('#808080');
+  await expect(page.getByText(/o texto pode ficar difícil de ler/)).toBeVisible();
+  await page.getByLabel('Cor de fundo').fill('#0f172a');
+  await expect(page.getByText(/o texto pode ficar difícil de ler/)).toHaveCount(0);
+
+  await page.getByRole('checkbox', { name: /TV da marca/ }).check();
+  await page.getByRole('button', { name: 'Publicar' }).click();
+  // Sem agente neste teste a consulta falha, a tela diz por quê, e os dados entram direto no banco.
+  await expect(page.getByText(/Publicado, mas ainda não está na tela/)).toBeVisible();
+  const [{ id }] = await sql(`SELECT id FROM conteudos_tela WHERE empresa_id = $1 AND nome = 'Ofertas com marca'`, [empresa.id]);
+
+  // O pior caso: nome enorme e preço alto, em todos os produtos.
+  const itens = Array.from({ length: 12 }, (_, i) => ({ nome: `Produto ${i + 1} com um nome extremamente comprido que o ERP cortaria em algum lugar 5kg embalagem econômica`, preco: 'R$ 12.349,90', precoDe: 'R$ 15.999,90', detalhe: 'Unidade' }));
+  await sql(`UPDATE conteudos_tela SET itens = $2, quantidade_itens = $3, dados_em = (now() at time zone 'utc'), erro = NULL WHERE id = $1`, [id, JSON.stringify(itens), itens.length]);
+
+  const tv = await context.newPage();
+  await tv.addInitScript((t) => localStorage.setItem('etiquetas.tv.token', t), tela.token);
+  const problemas: string[] = [];
+  for (const modelo of ['GRADE_OFERTAS', 'DESTAQUE', 'LISTA_PRECOS']) {
+    await sql(`UPDATE conteudos_tela SET modelo = $2, atualizado_em = now() WHERE id = $1`, [id, modelo]);
+    for (const [largura, altura] of [[1920, 1080], [1080, 1920], [1280, 800], [960, 320], [128, 64]]) {
+      await tv.setViewportSize({ width: largura, height: altura });
+      await tv.evaluate(() => localStorage.removeItem('etiquetas.tv.programacao')).catch(() => undefined);
+      await tv.goto('/tv');
+      await expect(tv.getByTestId('cena-tela')).toBeVisible();
+      await tv.waitForTimeout(900);
+      const m = await tv.evaluate(() => {
+        const r = (s: string) => document.querySelector(`[data-testid="${s}"]`)?.getBoundingClientRect() ?? null;
+        const logo = r('logo-tela');
+        const titulo = document.querySelector('[data-testid="titulo-tela"] span')?.getBoundingClientRect() ?? null;
+        const primeira = r('celula-tela');
+        const img = document.querySelector<HTMLImageElement>('[data-testid="fundo-tela"] img');
+        const erros: string[] = [];
+        const janela = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+        if (logo && (logo.left < -1 || logo.top < -1 || logo.right > janela.right + 1 || logo.bottom > janela.bottom + 1)) erros.push('logomarca fora da tela');
+        if (logo && titulo && logo.right > titulo.left + 1) erros.push('logomarca sobre o título');
+        if (logo && primeira && logo.bottom > primeira.top + 1) erros.push('logomarca sobre os produtos');
+        if (titulo && (titulo.left < -1 || titulo.right > janela.right + 1)) erros.push('título fora da tela');
+        if (img && !img.naturalWidth) erros.push('fundo não abriu');
+        if (img && (img.getBoundingClientRect().width < innerWidth - 1 || img.getBoundingClientRect().height < innerHeight - 1)) erros.push('fundo sem cobrir a tela');
+        return { logo: !!logo, fundo: !!img, celulas: document.querySelectorAll('[data-testid="celula-tela"]').length, erros };
+      });
+      const pequena = Math.min(largura, altura) < 200;
+      const faixa = altura === 320;
+      if (m.logo !== (!pequena && !faixa)) problemas.push(`${modelo} ${largura}x${altura}: logomarca ${m.logo ? 'apareceu' : 'sumiu'}`);
+      if (m.fundo !== !pequena) problemas.push(`${modelo} ${largura}x${altura}: fundo ${m.fundo ? 'apareceu' : 'sumiu'}`);
+      if (m.celulas === 0) problemas.push(`${modelo} ${largura}x${altura}: sem células`);
+      for (const erro of m.erros) problemas.push(`${modelo} ${largura}x${altura}: ${erro}`);
+      await tv.screenshot({ path: `test-results/marca-${modelo}-${largura}x${altura}.png` });
+    }
+  }
+  expect(problemas).toEqual([]);
+
+  // A imagem some do servidor: a cena continua, só com a cor e o título.
+  await tv.setViewportSize({ width: 1280, height: 720 });
+  await sql(`UPDATE conteudos_tela SET modelo = 'DESTAQUE', atualizado_em = now() WHERE id = $1`, [id]);
+  await tv.route('**/api/tv/imagens/**', (r) => r.abort());
+  await tv.evaluate(async () => {
+    localStorage.removeItem('etiquetas.tv.programacao');
+    for (const k of await caches.keys().catch(() => [])) await caches.delete(k);
+  });
+  await tv.goto('/tv');
+  await expect(tv.getByTestId('cena-tela')).toBeVisible();
+  await expect(tv.getByTestId('logo-tela')).toHaveCount(0);
+  await expect(tv.getByTestId('fundo-tela')).toHaveCount(0);
+  await expect(tv.getByTestId('titulo-tela')).toBeVisible();
+  await expect(tv.getByTestId('preco-tela').first()).toBeVisible();
+});

@@ -1,14 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
+  aparenciaDoPrograma,
   cenasDosItens,
   colunasSugeridas,
   CONFIG_CONTEUDO_PADRAO,
   conteudoVigente,
+  CONTRASTE_MINIMO_SOBRE_FUNDO,
+  contrasteSobreImagem,
   corDoTextoSobre,
   dadosValidosAte,
+  formatoMostraFundo,
+  formatoMostraLogo,
   gradeDaCena,
   gradeParaItens,
   imagemCombinaComTela,
+  imagensUsadasPeloConteudo,
+  VEU_FUNDO_PADRAO,
+  VEUS_FUNDO_TELA,
   problemaNasImagensDoConteudo,
   itensDoConteudo,
   MAX_ITENS_CONTEUDO,
@@ -256,5 +264,50 @@ describe('fotos dos produtos', () => {
   it('sugere a coluna pelo nome', () => {
     expect(colunasSugeridas(['nome', 'preco', 'cod_barras']).colunaCodigo).toBe('cod_barras');
     expect(colunasSugeridas(['nome', 'preco']).colunaCodigo).toBeNull();
+  });
+});
+
+describe('logomarca e imagem de fundo', () => {
+  const ok = { ...CONFIG_CONTEUDO_PADRAO, colunaNome: 'nome', colunaPreco: 'preco' };
+
+  it('só aceita as forças de véu oferecidas', () => {
+    expect(problemaNaConfigConteudo({ ...ok, fundoVeu: 75 })).toBeNull();
+    expect(problemaNaConfigConteudo({ ...ok, fundoVeu: 10 })).toMatch(/imagem de fundo/);
+  });
+
+  it('conta como usadas só as imagens que o modelo mostra', () => {
+    const c = { imagens: [{ imagemId: 'banner', segundos: 8 }], logoImagemId: 'logo', fundoImagemId: 'fundo' };
+    expect(imagensUsadasPeloConteudo('DESTAQUE', c)).toEqual(['logo', 'fundo']);
+    expect(imagensUsadasPeloConteudo('IMAGENS', c)).toEqual(['banner']);
+    expect(imagensUsadasPeloConteudo('DESTAQUE', { logoImagemId: 'igual', fundoImagemId: 'igual' })).toEqual(['igual']);
+    expect(imagensUsadasPeloConteudo('DESTAQUE', {})).toEqual([]);
+  });
+
+  it('monta os endereços para a TV, com o véu padrão em conteúdo antigo', () => {
+    expect(aparenciaDoPrograma('DESTAQUE', {})).toEqual({});
+    expect(aparenciaDoPrograma('DESTAQUE', { logoImagemId: 'a', fundoImagemId: 'b' })).toEqual({ logo: '/api/tv/imagens/a', fundo: { url: '/api/tv/imagens/b', veu: VEU_FUNDO_PADRAO } });
+    expect(aparenciaDoPrograma('DESTAQUE', { fundoImagemId: 'b', fundoVeu: 90 }).fundo?.veu).toBe(90);
+    expect(aparenciaDoPrograma('IMAGENS', { logoImagemId: 'a', fundoImagemId: 'b' })).toEqual({});
+  });
+
+  it('as cores escuras e claras continuam legíveis sobre qualquer imagem, em todas as forças', () => {
+    for (const cor of ['#0f172a', '#000000', '#ffffff', '#f8fafc', '#7f1d1d']) {
+      for (const veu of VEUS_FUNDO_TELA) expect(contrasteSobreImagem(cor, veu), `${cor} com ${veu}%`).toBeGreaterThanOrEqual(CONTRASTE_MINIMO_SOBRE_FUNDO);
+    }
+  });
+
+  it('avisa da cor média, que perde leitura sobre imagem clara ou escura', () => {
+    expect(contrasteSobreImagem('#808080', 60)).toBeLessThan(CONTRASTE_MINIMO_SOBRE_FUNDO);
+    // Mais véu sempre ajuda.
+    expect(contrasteSobreImagem('#808080', 90)).toBeGreaterThan(contrasteSobreImagem('#808080', 60));
+  });
+
+  it('painel pequeno e faixa não têm logomarca; só o painel pequeno fica sem fundo', () => {
+    expect(formatoMostraLogo(1920, 1080)).toBe(true);
+    expect(formatoMostraLogo(1080, 1920)).toBe(true);
+    expect(formatoMostraLogo(960, 320)).toBe(false);
+    expect(formatoMostraLogo(128, 64)).toBe(false);
+    expect(formatoMostraFundo(960, 320)).toBe(true);
+    expect(formatoMostraFundo(128, 64)).toBe(false);
   });
 });

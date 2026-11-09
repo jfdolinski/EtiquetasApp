@@ -5,9 +5,11 @@ import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import {
   AJUSTES_IMAGEM_TELA,
+  aparenciaDoPrograma,
   caminhoImagemTela,
   conteudoVigente,
   dadosValidosAte,
+  imagensUsadasPeloConteudo,
   itensDoConteudo,
   LIMITE_LINHAS_CONTEUDO,
   linhasParaRegistros,
@@ -21,6 +23,8 @@ import {
   problemaNosPrazosConteudo,
   registroBanido,
   situacaoDoConteudo,
+  VEU_FUNDO_PADRAO,
+  VEUS_FUNDO_TELA,
   type CampoDinamico,
   type ConfigConteudoTela,
   type ConsultaParaConteudo,
@@ -105,6 +109,18 @@ class ConfigConteudoDto implements ConfigConteudoTela {
   @IsString()
   @MaxLength(200)
   colunaCodigo?: string | null;
+
+  @IsOptional()
+  @IsUUID('all', { message: 'Logomarca inválida.' })
+  logoImagemId?: string | null;
+
+  @IsOptional()
+  @IsUUID('all', { message: 'Imagem de fundo inválida.' })
+  fundoImagemId?: string | null;
+
+  @IsOptional()
+  @IsIn(VEUS_FUNDO_TELA, { message: 'Escolha como a imagem de fundo aparece.' })
+  fundoVeu?: number;
 }
 
 class EnviarImagemTelaDto {
@@ -341,18 +357,25 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
     throw e;
   }
 
+  /** O endereço da imagem é público: sem isto, o id de outra empresa viraria logomarca aqui. */
+  private async conferirImagens(empresaId: string, dto: SalvarConteudoDto) {
+    const ids = imagensUsadasPeloConteudo(dto.modelo, dto.config);
+    if (ids.length === 0) return;
+    const achadas = await this.prisma.imagemTela.count({ where: { empresaId, id: { in: ids } } });
+    if (achadas !== ids.length) throw new BadRequestException('Há imagens que não são desta empresa.');
+  }
+
   private async validar(empresaId: string, dto: SalvarConteudoDto) {
     if (!modeloUsaConsulta(dto.modelo)) {
       const problema = problemaNasImagensDoConteudo(dto.config) ?? problemaNaVigencia(vigencia(dto));
       if (problema) throw new BadRequestException(problema);
-      const ids = [...new Set(dto.config.imagens!.map((i) => i.imagemId))];
-      const achadas = await this.prisma.imagemTela.count({ where: { empresaId, id: { in: ids } } });
-      if (achadas !== ids.length) throw new BadRequestException('Há imagens que não são desta empresa.');
+      await this.conferirImagens(empresaId, dto);
       return;
     }
     if (!dto.consultaId) throw new BadRequestException('Escolha a consulta.');
     const problema = problemaNaConfigConteudo(dto.config) ?? problemaNosPrazosConteudo(dto.intervaloMinutos, dto.validadeMinutos) ?? problemaNaVigencia(vigencia(dto));
     if (problema) throw new BadRequestException(problema);
+    await this.conferirImagens(empresaId, dto);
     const consulta = await this.consultaUtil(empresaId, dto.consultaId);
     // Sem colunas lidas (agente desligado ao salvar a consulta) não dá para conferir: a atualização avisa.
     const colunas = ((consulta.campos ?? []) as unknown as CampoDinamico[]).map((c) => c.nome.toLowerCase());
@@ -369,7 +392,7 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
       nome: dto.nome.trim(),
       modelo: dto.modelo,
       consultaId: comConsulta ? dto.consultaId : null,
-      config: { ...dto.config, colunaPrecoDe: dto.config.colunaPrecoDe || null, colunaDetalhe: dto.config.colunaDetalhe || null, comFotos: !!dto.config.comFotos, colunaCodigo: dto.config.colunaCodigo || null } as unknown as Prisma.InputJsonValue,
+      config: { ...dto.config, colunaPrecoDe: dto.config.colunaPrecoDe || null, colunaDetalhe: dto.config.colunaDetalhe || null, comFotos: !!dto.config.comFotos, colunaCodigo: dto.config.colunaCodigo || null, logoImagemId: comConsulta ? dto.config.logoImagemId || null : null, fundoImagemId: comConsulta ? dto.config.fundoImagemId || null : null, fundoVeu: dto.config.fundoVeu ?? VEU_FUNDO_PADRAO } as unknown as Prisma.InputJsonValue,
       // Imagem não tem o que atualizar nem preço que fique velho.
       intervaloMinutos: comConsulta ? dto.intervaloMinutos : 0,
       validadeMinutos: comConsulta ? dto.validadeMinutos : 0,
@@ -437,10 +460,10 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
 
   /** Quantos conteúdos usam cada imagem: fica no JSON do conteúdo, sem chave estrangeira. */
   private async usosDeImagens(empresaId: string): Promise<Map<string, number>> {
-    const conteudos = await this.prisma.conteudoTela.findMany({ where: { empresaId, modelo: 'IMAGENS' }, select: { config: true } });
+    const conteudos = await this.prisma.conteudoTela.findMany({ where: { empresaId }, select: { modelo: true, config: true } });
     const usos = new Map<string, number>();
     for (const c of conteudos) {
-      for (const id of new Set(((c.config as unknown as ConfigConteudoTela).imagens ?? []).map((i) => i.imagemId))) usos.set(id, (usos.get(id) ?? 0) + 1);
+      for (const id of imagensUsadasPeloConteudo(c.modelo as ModeloConteudoTela, c.config as unknown as ConfigConteudoTela)) usos.set(id, (usos.get(id) ?? 0) + 1);
     }
     return usos;
   }
@@ -625,6 +648,7 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
           // O código só serve para achar a foto, e a foto só vale com a opção ligada: uma atualização que falhou pode ter deixado a antiga.
           itens: (c.itens as unknown as ItemConteudoTela[]).map(({ codigo: _codigo, foto, ...item }) => (foto && cfg.comFotos ? { ...item, foto } : item)),
           ...(c.modelo === 'IMAGENS' ? { imagens: (cfg.imagens ?? []).map((i) => ({ url: caminhoImagemTela(i.imagemId), segundos: i.segundos })) } : {}),
+          ...aparenciaDoPrograma(c.modelo as ModeloConteudoTela, cfg),
           dadosEm: c.dadosEm!.toISOString(),
           validoAte: dadosValidosAte(c.dadosEm!, c.validadeMinutos).toISOString(),
         };
