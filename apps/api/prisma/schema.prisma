@@ -18,23 +18,23 @@ enum StatusAssinatura {
 }
 
 model Empresa {
-  id               String           @id @default(uuid()) @db.Uuid
-  razaoSocial      String           @map("razao_social")
-  nomeFantasia     String?          @map("nome_fantasia")
+  id                String           @id @default(uuid()) @db.Uuid
+  razaoSocial       String           @map("razao_social")
+  nomeFantasia      String?          @map("nome_fantasia")
   /// Normalizado: 14 caracteres, sem máscara, maiúsculo (aceita CNPJ alfanumérico).
-  cnpj             String           @unique @db.VarChar(14)
-  codigoErp        String?          @map("codigo_erp")
-  plano            String           @default("padrao")
-  statusAssinatura StatusAssinatura @default(ATIVA) @map("status_assinatura")
-  ativa            Boolean          @default(true)
+  cnpj              String           @unique @db.VarChar(14)
+  codigoErp         String?          @map("codigo_erp")
+  plano             String           @default("padrao")
+  statusAssinatura  StatusAssinatura @default(ATIVA) @map("status_assinatura")
+  ativa             Boolean          @default(true)
   /// Veio do "Cadastre-se" com CNPJ novo: fica inativa até o super-admin aprovar.
-  aprovacaoPendente Boolean         @default(false) @map("aprovacao_pendente")
+  aprovacaoPendente Boolean          @default(false) @map("aprovacao_pendente")
   /// Situação na Receita lida no cadastro; nula quando a consulta estava fora do ar.
-  situacaoReceita  String?          @map("situacao_receita")
+  situacaoReceita   String?          @map("situacao_receita")
   /// ERP usado pela empresa; o template dele pode ser copiado para as consultas da empresa.
-  sistemaErpId     String?          @map("sistema_erp_id") @db.Uuid
-  criadoEm         DateTime         @default(now()) @map("criado_em")
-  atualizadoEm     DateTime         @updatedAt @map("atualizado_em")
+  sistemaErpId      String?          @map("sistema_erp_id") @db.Uuid
+  criadoEm          DateTime         @default(now()) @map("criado_em")
+  atualizadoEm      DateTime         @updatedAt @map("atualizado_em")
 
   usuarios           Usuario[]
   perfis             Perfil[]
@@ -42,11 +42,11 @@ model Empresa {
   agentes            Agente[]
   conexoes           ConexaoBanco[]
   consultas          ConsultaSql[]
-  perfisTela PerfilTela[]
-  telas Tela[]
-  conteudosTela ConteudoTela[]
-  imagensTela ImagemTela[]
-  fotosProdutoTela FotoProdutoTela[]
+  perfisTela         PerfilTela[]
+  telas              Tela[]
+  conteudosTela      ConteudoTela[]
+  imagensTela        ImagemTela[]
+  fotosProdutoTela   FotoProdutoTela[]
   produtosBanidos    ProdutoBanido[]
   modelos            ModeloEtiqueta[]
   impressoras        Impressora[]
@@ -62,28 +62,28 @@ model Empresa {
   regrasNotificacao  RegraNotificacao[]
   janelaNotificacao  JanelaNotificacao?
   notificacoes       Notificacao[]
-  dispositivos DispositivoMovel[]
-  posts        PostSocial[]
-  imagensPost  ImagemPost[]
-  marcaPost    MarcaPost?
+  dispositivos       DispositivoMovel[]
+  posts              PostSocial[]
+  imagensPost        ImagemPost[]
+  marcaPost          MarcaPost?
 
   @@map("empresas")
 }
 
 model Usuario {
-  id            String    @id @default(uuid()) @db.Uuid
+  id                     String    @id @default(uuid()) @db.Uuid
   /// Nulo apenas para super-admins da plataforma.
-  empresaId     String?   @map("empresa_id") @db.Uuid
-  perfilId      String?   @map("perfil_id") @db.Uuid
-  nome          String
+  empresaId              String?   @map("empresa_id") @db.Uuid
+  perfilId               String?   @map("perfil_id") @db.Uuid
+  nome                   String
   /// Sempre em minúsculas; único em toda a plataforma.
-  email         String    @unique
-  senhaHash     String    @map("senha_hash")
-  superAdmin    Boolean   @default(false) @map("super_admin")
-  ativo         Boolean   @default(true)
+  email                  String    @unique
+  senhaHash              String    @map("senha_hash")
+  superAdmin             Boolean   @default(false) @map("super_admin")
+  ativo                  Boolean   @default(true)
   /// Veio do "Cadastre-se" e aguarda aprovação (sempre com ativo = false).
-  cadastroPendente Boolean  @default(false) @map("cadastro_pendente")
-  ultimoLoginEm DateTime? @map("ultimo_login_em")
+  cadastroPendente       Boolean   @default(false) @map("cadastro_pendente")
+  ultimoLoginEm          DateTime? @map("ultimo_login_em")
   /// Verificação em duas etapas: ativa quando totpAtivoEm está preenchido.
   totpSegredoCifrado     String?   @map("totp_segredo_cifrado")
   totpAtivoEm            DateTime? @map("totp_ativo_em")
@@ -93,19 +93,19 @@ model Usuario {
   totpBloqueadoAte       DateTime? @map("totp_bloqueado_ate")
   /// SHA-256 dos códigos de recuperação ainda não usados.
   totpCodigosRecuperacao String[]  @default([]) @map("totp_codigos_recuperacao")
-  criadoEm      DateTime  @default(now()) @map("criado_em")
-  atualizadoEm  DateTime  @updatedAt @map("atualizado_em")
+  criadoEm               DateTime  @default(now()) @map("criado_em")
+  atualizadoEm           DateTime  @updatedAt @map("atualizado_em")
 
-  empresa      Empresa?              @relation(fields: [empresaId], references: [id], onDelete: Restrict)
-  perfil       Perfil?               @relation(fields: [perfilId], references: [id], onDelete: SetNull)
-  logs         LogAuditoria[]
-  trabalhos    TrabalhoImpressao[]
-  pagamentos   PagamentoAssinatura[]
-  agendamentos AgendamentoModelo[]
-  sessoes      SessaoUsuario[]
-  dispositivos DispositivoMovel[]
-  vinculosApp  CodigoVinculoApp[]
-  redefinicoes RedefinicaoSenha[]
+  empresa       Empresa?              @relation(fields: [empresaId], references: [id], onDelete: Restrict)
+  perfil        Perfil?               @relation(fields: [perfilId], references: [id], onDelete: SetNull)
+  logs          LogAuditoria[]
+  trabalhos     TrabalhoImpressao[]
+  pagamentos    PagamentoAssinatura[]
+  agendamentos  AgendamentoModelo[]
+  sessoes       SessaoUsuario[]
+  dispositivos  DispositivoMovel[]
+  vinculosApp   CodigoVinculoApp[]
+  redefinicoes  RedefinicaoSenha[]
   conteudosTela ConteudoTela[]
 
   @@index([empresaId])
@@ -383,10 +383,10 @@ model Agente {
 
 /// Banco do ERP do cliente, acessado pelo agente da mesma rede.
 model ConexaoBanco {
-  id           String    @id @default(uuid()) @db.Uuid
-  empresaId    String    @map("empresa_id") @db.Uuid
+  id           String      @id @default(uuid()) @db.Uuid
+  empresaId    String      @map("empresa_id") @db.Uuid
   /// Nulo no Google Drive: quem lê é a API.
-  agenteId     String?   @map("agente_id") @db.Uuid
+  agenteId     String?     @map("agente_id") @db.Uuid
   nome         String
   tipo         TipoConexao
   host         String
@@ -394,12 +394,12 @@ model ConexaoBanco {
   banco        String
   usuario      String
   /// AES-256-GCM com CHAVE_CRIPTOGRAFIA (ver src/cripto). Nulo = sem senha.
-  senhaCifrada String?   @map("senha_cifrada")
+  senhaCifrada String?     @map("senha_cifrada")
   /// OpcoesConexao de packages/shared (ssl, instancia, tempoLimiteSegundos).
-  opcoes       Json      @default("{}")
-  ativo        Boolean   @default(true)
-  criadoEm     DateTime  @default(now()) @map("criado_em")
-  atualizadoEm DateTime  @updatedAt @map("atualizado_em")
+  opcoes       Json        @default("{}")
+  ativo        Boolean     @default(true)
+  criadoEm     DateTime    @default(now()) @map("criado_em")
+  atualizadoEm DateTime    @updatedAt @map("atualizado_em")
 
   empresa   Empresa       @relation(fields: [empresaId], references: [id], onDelete: Cascade)
   agente    Agente?       @relation(fields: [agenteId], references: [id], onDelete: Restrict)
@@ -446,10 +446,10 @@ model ConsultaSql {
   criadoEm            DateTime           @default(now()) @map("criado_em")
   atualizadoEm        DateTime           @updatedAt @map("atualizado_em")
 
-  empresa  Empresa           @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  conexao  ConexaoBanco      @relation(fields: [conexaoId], references: [id], onDelete: Restrict)
-  template TemplateConsulta? @relation(fields: [templateConsultaId], references: [id], onDelete: SetNull)
-  modelos  ModeloEtiqueta[]
+  empresa       Empresa           @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  conexao       ConexaoBanco      @relation(fields: [conexaoId], references: [id], onDelete: Restrict)
+  template      TemplateConsulta? @relation(fields: [templateConsultaId], references: [id], onDelete: SetNull)
+  modelos       ModeloEtiqueta[]
   conteudosTela ConteudoTela[]
 
   @@unique([empresaId, nome])
@@ -981,10 +981,10 @@ model Tela {
   criadoEm         DateTime  @default(now()) @map("criado_em")
   atualizadoEm     DateTime  @updatedAt @map("atualizado_em")
 
-  empresa Empresa      @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  perfil  PerfilTela   @relation(fields: [perfilId], references: [id], onDelete: Restrict)
-  quedas  QuedaTela[]
-  pedidos PedidoVinculoTela[]
+  empresa   Empresa             @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  perfil    PerfilTela          @relation(fields: [perfilId], references: [id], onDelete: Restrict)
+  quedas    QuedaTela[]
+  pedidos   PedidoVinculoTela[]
   conteudos TelaConteudo[]
 
   @@index([empresaId])
@@ -1056,9 +1056,9 @@ model ConteudoTela {
   criadoEm             DateTime  @default(now()) @map("criado_em")
   atualizadoEm         DateTime  @updatedAt @map("atualizado_em")
 
-  empresa     Empresa      @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  consulta    ConsultaSql? @relation(fields: [consultaId], references: [id], onDelete: SetNull)
-  responsavel Usuario?     @relation(fields: [responsavelId], references: [id], onDelete: SetNull)
+  empresa     Empresa        @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  consulta    ConsultaSql?   @relation(fields: [consultaId], references: [id], onDelete: SetNull)
+  responsavel Usuario?       @relation(fields: [responsavelId], references: [id], onDelete: SetNull)
   telas       TelaConteudo[]
 
   @@unique([empresaId, nome])
@@ -1100,17 +1100,19 @@ model ImagemTela {
 /// Foto do catálogo guardada por produto: cada busca conta no consumo da empresa, e a TV não pode depender do catálogo no ar.
 model FotoProdutoTela {
   /// Muda quando a foto muda: o arquivo fica em cache para sempre.
-  id           String   @id @default(uuid()) @db.Uuid
-  empresaId    String   @map("empresa_id") @db.Uuid
+  id                String   @id @default(uuid()) @db.Uuid
+  empresaId         String   @map("empresa_id") @db.Uuid
   /// Código de barras na forma do catálogo (codigoParaCatalogo).
-  codigo       String
+  codigo            String
   /// Vazios: o catálogo não tem foto aproveitável, por enquanto.
-  mime         String?
-  conteudo     Bytes?
-  urlOrigem    String?  @map("url_origem")
-  medicamento  Boolean  @default(false)
+  mime              String?
+  conteudo          Bytes?
+  urlOrigem         String?  @map("url_origem")
+  medicamento       Boolean  @default(false)
+  /// Buscas seguidas sem achar foto: as primeiras voltam logo, porque o catálogo pode estar cadastrando o código agora.
+  tentativasSemFoto Int      @default(0) @map("tentativas_sem_foto")
   /// Só avança em código que algum conteúdo usa: parado há muito tempo, a faxina apaga.
-  verificadoEm DateTime @map("verificado_em")
+  verificadoEm      DateTime @map("verificado_em")
 
   empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
 

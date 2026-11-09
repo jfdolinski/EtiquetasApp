@@ -8,8 +8,18 @@ import { PrismaService } from '../prisma/prisma.service';
 const DIA_MS = 24 * 3_600_000;
 /** Cada busca conta no consumo da empresa no catálogo: quem tem foto é conferido por mês. */
 const REVER_COM_FOTO_MS = 30 * DIA_MS;
-/** Quem não tem foto pode ganhar uma: o próprio aviso de consulta cadastra o código novo por lá. */
-const REVER_SEM_FOTO_MS = DIA_MS;
+/**
+ * Quem não tem foto pode ganhar uma: o próprio aviso de consulta cadastra o código novo por lá, ao mesmo
+ * tempo que esta busca. Por isso as primeiras tentativas voltam logo, e só depois passam a uma por dia.
+ */
+const REVER_SEM_FOTO_MS = [10 * 60_000, 3_600_000, 6 * 3_600_000, DIA_MS];
+
+function esperaSemFoto(tentativas: number): number {
+  return REVER_SEM_FOTO_MS[Math.min(Math.max(tentativas - 1, 0), REVER_SEM_FOTO_MS.length - 1)];
+}
+
+/** A foto existe, mas não deu para trazer. Fica como sem foto, e quem está editando precisa saber. */
+class FotoNaoBaixada extends Error {}
 const SIMULTANEAS = 4;
 /** Uma TV barata abre poucas fotos muito pesadas ao mesmo tempo. */
 const TAMANHO_MAXIMO_FOTO = 5_000_000;
@@ -23,6 +33,7 @@ interface FotoGuardada {
   mime: string | null;
   urlOrigem: string | null;
   medicamento: boolean;
+  tentativasSemFoto: number;
   verificadoEm: Date;
 }
 
@@ -44,13 +55,13 @@ export class FotosProdutoTelaService {
   private async guardadas(empresaId: string, codigos: string[]): Promise<Map<string, FotoGuardada>> {
     const lista = await this.prisma.fotoProdutoTela.findMany({
       where: { empresaId, codigo: { in: codigos } },
-      select: { id: true, codigo: true, mime: true, urlOrigem: true, medicamento: true, verificadoEm: true },
+      select: { id: true, codigo: true, mime: true, urlOrigem: true, medicamento: true, tentativasSemFoto: true, verificadoEm: true },
     });
     return new Map(lista.map((f) => [f.codigo, f]));
   }
 
   /** Coloca nos itens as fotos já guardadas e diz quais códigos procurar no catálogo. */
-  async aplicar(empresaId: string, itens: ItemConteudoTela[], agora = new Date()) {
+  async aplicar(empresaId: string, itens: ItemConteudoTela[], agora = new Date(), reverSemFoto = false) {
     const codigoDe = (i: ItemConteudoTela) => codigoParaCatalogo(i.codigo);
     const codigos = [...new Set(itens.flatMap((i) => codigoDe(i) ?? []))];
     const guardadas = codigos.length ? await this.guardadas(empresaId, codigos) : new Map<string, FotoGuardada>();
@@ -62,7 +73,8 @@ export class FotosProdutoTelaService {
     const faltam = config().catalogoUrl
       ? codigos.filter((codigo) => {
           const g = guardadas.get(codigo);
-          return !g || agora.getTime() - g.verificadoEm.getTime() >= (g.mime ? REVER_COM_FOTO_MS : REVER_SEM_FOTO_MS);
+          if (!g || (reverSemFoto && !g.mime)) return true;
+          return agora.getTime() - g.verificadoEm.getTime() >= (g.mime ? REVER_COM_FOTO_MS : esperaSemFoto(g.tentativasSemFoto));
         })
       : [];
     return { itens: comFotos, faltam, guardadas };
@@ -74,6 +86,7 @@ export class FotosProdutoTelaService {
     for (const c of fila) this.buscando.add(`${empresaId}:${c}`);
     const guardadas = fila.length ? await this.guardadas(empresaId, fila).catch(() => new Map<string, FotoGuardada>()) : new Map<string, FotoGuardada>();
     let aviso: string | null = null;
+    let naoBaixadas = 0;
     let proximo = 0;
     const trabalhador = async () => {
       while (!aviso && proximo < fila.length) {
@@ -81,7 +94,8 @@ export class FotosProdutoTelaService {
         try {
           aviso = await this.buscarUma(empresaId, codigo, guardadas.get(codigo));
         } catch (e) {
-          this.log.warn(`Foto de ${codigo}: ${(e as Error).message}`);
+          naoBaixadas++;
+          if (!(e instanceof FotoNaoBaixada)) this.log.warn(`Foto de ${codigo}: ${(e as Error).message}`);
         } finally {
           this.buscando.delete(`${empresaId}:${codigo}`);
         }
@@ -90,7 +104,7 @@ export class FotosProdutoTelaService {
     await Promise.all(Array.from({ length: Math.min(SIMULTANEAS, fila.length) }, trabalhador));
     // Parou antes do fim: os que sobraram tentam na próxima atualização.
     for (const c of fila.slice(proximo)) this.buscando.delete(`${empresaId}:${c}`);
-    return aviso;
+    return aviso ?? (naoBaixadas ? `${naoBaixadas} foto(s) do catálogo não puderam ser trazidas. O sistema tenta de novo sozinho.` : null);
   }
 
   private async buscarUma(empresaId: string, codigo: string, atual: FotoGuardada | undefined): Promise<string | null> {
@@ -98,7 +112,7 @@ export class FotosProdutoTelaService {
     // Sem conferir de verdade, nada muda: a foto que já está guardada continua valendo.
     if (produto.aviso) return produto.aviso;
     const agora = new Date();
-    const comum = { medicamento: produto.medicamento, verificadoEm: agora };
+    const comum = { medicamento: produto.medicamento, verificadoEm: agora, tentativasSemFoto: 0 };
     // De IA não entra: num post sai com aviso na arte, e na vitrine pareceria a foto do produto.
     const escolhida = produto.imagens.find((i) => !i.ia);
     if (escolhida && atual?.mime && atual.urlOrigem === escolhida.url) {
@@ -111,13 +125,15 @@ export class FotosProdutoTelaService {
       await this.prisma.fotoProdutoTela.update({ where: { id: atual.id }, data: comum });
       return null;
     }
-    const dados = arquivo ? { mime: arquivo.tipo, conteudo: Uint8Array.from(arquivo.bytes), urlOrigem: escolhida!.url, ...comum } : { mime: null, conteudo: null, urlOrigem: null, ...comum };
+    const tentativas = (atual?.mime ? 0 : (atual?.tentativasSemFoto ?? 0)) + 1;
+    const dados = arquivo ? { mime: arquivo.tipo, conteudo: Uint8Array.from(arquivo.bytes), urlOrigem: escolhida!.url, ...comum } : { mime: null, conteudo: null, urlOrigem: null, ...comum, tentativasSemFoto: tentativas };
     await this.prisma.fotoProdutoTela.upsert({
       where: { empresaId_codigo: { empresaId, codigo } },
       create: { empresaId, codigo, ...dados },
       // Id novo com arquivo novo: o antigo fica em cache para sempre nas TVs.
       update: { ...dados, ...(arquivo ? { id: randomUUID() } : {}) },
     });
+    if (escolhida && !arquivo) throw new FotoNaoBaixada();
     return null;
   }
 
@@ -133,7 +149,8 @@ export class FotosProdutoTelaService {
 
   /** Quem edita quer ver o resultado: espera as primeiras e deixa as outras em segundo plano. */
   async paraPrevia(empresaId: string, itens: ItemConteudoTela[]): Promise<{ itens: ItemConteudoTela[]; fotos: ResumoFotosConteudo }> {
-    const inicio = await this.aplicar(empresaId, itens);
+    // Pediu para carregar agora: quem está sem foto é procurado de novo, sem esperar o prazo.
+    const inicio = await this.aplicar(empresaId, itens, new Date(), true);
     const agora = inicio.faltam.slice(0, MAX_NA_PREVIA);
     const depois = inicio.faltam.slice(MAX_NA_PREVIA);
     const aviso = agora.length ? await this.buscar(empresaId, agora) : null;

@@ -175,6 +175,7 @@ test('fotos: do catálogo à TV, com o agente respondendo, e cabem em todos os m
   const vermelha = Buffer.from(await fotoDeProduto(page, '#dc2626'), 'base64');
   const azul = Buffer.from(await fotoDeProduto(page, '#2563eb'), 'base64');
   const pedidos: string[] = [];
+  let fotoChegou = false;
   const catalogo = createServer((req, res) => {
     const url = req.url ?? '';
     pedidos.push(url);
@@ -189,6 +190,7 @@ test('fotos: do catálogo à TV, com o agente respondendo, e cabem em todos os m
     if (url === `/api/v1/barcodes/${EAN_FOTO}`) return json({ name: 'Arroz', images: [{ url: 'http://localhost:8097/files/provisoria.png', placeholder: true }, { url: 'http://localhost:8097/files/arroz.png' }] });
     if (url === `/api/v1/barcodes/${EAN_REMEDIO}`) return json({ name: 'Remédio', is_medicine: true, images: [{ url: 'http://localhost:8097/files/remedio.png' }] });
     if (url === `/api/v1/barcodes/${EAN_IA}`) return json({ name: 'Inventado', images: [{ url: 'http://localhost:8097/files/ia.png', ai_generated: true }] });
+    if (fotoChegou && url === `/api/v1/barcodes/${EAN_SEM}`) return json({ name: 'Cadastrado agora', images: [{ url: 'http://localhost:8097/files/novo.png' }] });
     return json({ error: 'não encontrado' }, 404);
   });
   await new Promise<void>((r) => catalogo.listen(8097, r));
@@ -224,6 +226,11 @@ test('fotos: do catálogo à TV, com o agente respondendo, e cabem em todos os m
     expect(pedidos.filter((p) => p.includes('/123'))).toEqual([]);
     expect(pedidos.filter((p) => p === `/api/v1/barcodes/${EAN_FOTO}`)).toHaveLength(1);
 
+    // O catálogo cadastrou o produto depois da primeira busca: carregar de novo acha a foto, sem esperar o prazo.
+    fotoChegou = true;
+    await page.getByRole('button', { name: 'Carregar dados reais' }).click();
+    await expect(page.getByText('10 produto(s) com foto e 2 sem.')).toBeVisible({ timeout: 30_000 });
+
     // Publica: a foto já guardada entra junto, e a TV recebe sem o código do produto.
     await page.getByRole('checkbox', { name: /TV das fotos/ }).check();
     await page.getByRole('button', { name: 'Publicar' }).click();
@@ -232,7 +239,7 @@ test('fotos: do catálogo à TV, com o agente respondendo, e cabem em todos os m
     const programacao = await pedir('POST', '/tv/programacao', { token: tela.token });
     expect(programacao.status).toBe(200);
     const recebidos = programacao.j.programas[0].itens as { foto?: string; codigo?: string }[];
-    expect(recebidos.filter((i) => i.foto)).toHaveLength(9);
+    expect(recebidos.filter((i) => i.foto)).toHaveLength(10);
     expect(recebidos.every((i) => i.codigo === undefined)).toBe(true);
     expect(recebidos[2].foto).toBeUndefined();
 

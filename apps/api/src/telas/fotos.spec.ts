@@ -44,12 +44,21 @@ describe('fotos já guardadas', () => {
     expect(faltam).toEqual([EAN]);
   });
 
-  it('confere de novo só depois do prazo: um mês com foto, um dia sem', async () => {
+  it('confere de novo só depois do prazo: um mês com foto; sem foto, cada vez mais espaçado', async () => {
+    const minutosAtras = (m: number) => new Date(AGORA.getTime() - m * 60_000);
     const casos: [Record<string, unknown>, boolean][] = [
-      [{ mime: 'image/png', verificadoEm: diasAtras(29) }, false],
-      [{ mime: 'image/png', verificadoEm: diasAtras(31) }, true],
-      [{ mime: null, verificadoEm: diasAtras(0.5) }, false],
-      [{ mime: null, verificadoEm: diasAtras(2) }, true],
+      [{ mime: 'image/png', tentativasSemFoto: 0, verificadoEm: diasAtras(29) }, false],
+      [{ mime: 'image/png', tentativasSemFoto: 0, verificadoEm: diasAtras(31) }, true],
+      // A primeira busca pode ter vindo antes de o catálogo cadastrar o código: volta logo.
+      [{ mime: null, tentativasSemFoto: 1, verificadoEm: minutosAtras(5) }, false],
+      [{ mime: null, tentativasSemFoto: 1, verificadoEm: minutosAtras(11) }, true],
+      // Quem já estava guardado antes desta regra também volta logo.
+      [{ mime: null, tentativasSemFoto: 0, verificadoEm: minutosAtras(11) }, true],
+      [{ mime: null, tentativasSemFoto: 2, verificadoEm: minutosAtras(30) }, false],
+      [{ mime: null, tentativasSemFoto: 2, verificadoEm: minutosAtras(61) }, true],
+      [{ mime: null, tentativasSemFoto: 3, verificadoEm: minutosAtras(61) }, false],
+      [{ mime: null, tentativasSemFoto: 9, verificadoEm: diasAtras(0.5) }, false],
+      [{ mime: null, tentativasSemFoto: 9, verificadoEm: diasAtras(2) }, true],
     ];
     for (const [guardada, procura] of casos) {
       const { s } = montar([{ id: ID, codigo: EAN, ...guardada }]);
@@ -58,6 +67,19 @@ describe('fotos já guardadas', () => {
       // Vencida para conferir, a foto continua valendo enquanto isso.
       expect(!!itens[0].foto).toBe(!!guardada.mime);
     }
+  });
+
+  it('ao carregar a pré-visualização, quem está sem foto é procurado na hora, e quem tem foto não', async () => {
+    const { s, catalogo, prisma } = montar([{ id: ID, codigo: EAN, mime: null, tentativasSemFoto: 9, verificadoEm: new Date() }, { id: '22222222-2222-4222-8222-222222222222', codigo: '7891000100110', mime: 'image/png', tentativasSemFoto: 0, verificadoEm: new Date() }]);
+    await s.paraPrevia('e1', [{ nome: 'A', preco: 'R$ 1,00', codigo: EAN }, { nome: 'B', preco: 'R$ 1,00', codigo: '7891000100110' }]);
+    expect(catalogo.produto).toHaveBeenCalledTimes(1);
+    expect(catalogo.produto).toHaveBeenCalledWith('e1', EAN);
+    expect(prisma.fotoProdutoTela.upsert).toHaveBeenCalled();
+  });
+
+  it('a atualização periódica não faz isso: respeita o prazo, para não gastar consumo', async () => {
+    const { s } = montar([{ id: ID, codigo: EAN, mime: null, tentativasSemFoto: 9, verificadoEm: new Date() }]);
+    expect((await s.aplicar('e1', [{ nome: 'A', preco: 'R$ 1,00', codigo: EAN }])).faltam).toEqual([]);
   });
 
   it('foto que deixou de existir sai do item', async () => {
@@ -74,6 +96,25 @@ describe('busca no catálogo', () => {
     expect(await s.buscar('e1', [EAN])).toBeNull();
     expect(catalogo.imagem).toHaveBeenCalledWith('e1', 'https://catalogo.exemplo/files/real.png');
     expect(prisma.fotoProdutoTela.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ empresaId: 'e1', codigo: EAN, mime: 'image/png', medicamento: true, urlOrigem: 'https://catalogo.exemplo/files/real.png' }) }));
+  });
+
+  it('conta as tentativas sem foto e zera quando a foto aparece', async () => {
+    const semFoto = montar([{ id: ID, codigo: EAN, mime: null, urlOrigem: null, tentativasSemFoto: 2, verificadoEm: diasAtras(1) }]);
+    semFoto.catalogo.produto.mockResolvedValueOnce(produto({ imagens: [] }));
+    await semFoto.s.buscar('e1', [EAN]);
+    expect(semFoto.prisma.fotoProdutoTela.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: expect.objectContaining({ tentativasSemFoto: 3 }), create: expect.objectContaining({ tentativasSemFoto: 3 }) }));
+    const achou = montar([{ id: ID, codigo: EAN, mime: null, urlOrigem: null, tentativasSemFoto: 2, verificadoEm: diasAtras(1) }]);
+    await achou.s.buscar('e1', [EAN]);
+    expect(achou.prisma.fotoProdutoTela.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: expect.objectContaining({ tentativasSemFoto: 0, mime: 'image/png' }) }));
+  });
+
+  it('foto que não baixa: avisa quem está editando, guarda a tentativa e segue com as outras', async () => {
+    const { s, prisma, catalogo } = montar();
+    catalogo.imagem.mockRejectedValueOnce(new Error('fora'));
+    const aviso = await s.buscar('e1', [EAN, '7891000100110']);
+    expect(aviso).toContain('1 foto(s) do catálogo não puderam ser trazidas');
+    expect(catalogo.produto).toHaveBeenCalledTimes(2);
+    expect(prisma.fotoProdutoTela.upsert).toHaveBeenCalledTimes(2);
   });
 
   it('só com foto de IA ou nenhum produto: registra que não tem, para não gastar consumo a cada ciclo', async () => {

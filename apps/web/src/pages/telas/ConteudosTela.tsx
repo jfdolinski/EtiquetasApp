@@ -296,7 +296,7 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
             />
             <span>
               <span className="font-medium text-slate-900">Mostrar a foto dos produtos</span>
-              <span className="mt-0.5 block text-xs text-slate-500">As fotos vêm do catálogo, pelo código de barras. Produto sem foto aparece só com o texto. Cada produto novo procurado conta no consumo da empresa no catálogo.</span>
+              <span className="mt-0.5 block text-xs text-slate-500">As fotos vêm do catálogo, pelo código de barras. Produto sem foto aparece só com o texto, e o sistema volta a procurar sozinho. Cada busca conta no consumo da empresa no catálogo.</span>
             </span>
           </label>
           {f.config.comFotos && (
