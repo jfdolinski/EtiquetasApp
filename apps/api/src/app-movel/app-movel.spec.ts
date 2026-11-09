@@ -124,6 +124,7 @@ describe('faxina', () => {
       codigoVinculoApp: conta(),
       pedidoVinculoTela: conta(),
       quedaTela: conta(),
+      fotoProdutoTela: conta(),
     };
     const s = new ManutencaoService(prisma as unknown as PrismaService);
     const r = await s.executar(new Date('2026-11-02T00:00:00Z'));

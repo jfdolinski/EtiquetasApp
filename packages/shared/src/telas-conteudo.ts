@@ -50,6 +50,9 @@ export interface ConfigConteudoTela {
   /** Só no modelo de imagens: o que passa, e em que ordem. */
   imagens?: ImagemNoConteudo[];
   ajuste?: AjusteImagemTela;
+  /** Mostra a foto do catálogo de cada produto, achada pelo código de barras. */
+  comFotos?: boolean;
+  colunaCodigo?: string | null;
 }
 
 export const LIMITES_CONTEUDO_TELA = {
@@ -92,6 +95,7 @@ export function problemaNaConfigConteudo(c: ConfigConteudoTela): string | null {
   const [min, max] = LIMITES_CONTEUDO_TELA.segundosPorCena;
   if (!Number.isInteger(c.segundosPorCena) || c.segundosPorCena < min || c.segundosPorCena > max) return `O tempo de cada cena precisa ficar entre ${min} e ${max} segundos.`;
   if (!COR.test(c.corFundo) || !COR.test(c.corDestaque)) return 'Cor inválida.';
+  if (c.comFotos && !c.colunaCodigo?.trim()) return 'Escolha a coluna do código de barras, usada para achar as fotos.';
   return null;
 }
 
@@ -127,6 +131,10 @@ export interface ItemConteudoTela {
   preco: string;
   precoDe?: string;
   detalhe?: string;
+  /** Código de barras da linha, só para achar a foto: não vai para a TV. */
+  codigo?: string;
+  /** Endereço da foto guardada. */
+  foto?: string;
 }
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -158,7 +166,7 @@ export interface ResultadoItens {
   cortados: number;
 }
 
-export function itensDoConteudo(registros: Registro[], c: Pick<ConfigConteudoTela, 'colunaNome' | 'colunaPreco' | 'colunaPrecoDe' | 'colunaDetalhe'>): ResultadoItens {
+export function itensDoConteudo(registros: Registro[], c: Pick<ConfigConteudoTela, 'colunaNome' | 'colunaPreco' | 'colunaPrecoDe' | 'colunaDetalhe' | 'comFotos' | 'colunaCodigo'>): ResultadoItens {
   const itens: ItemConteudoTela[] = [];
   let descartados = 0;
   let cortados = 0;
@@ -181,13 +189,17 @@ export function itensDoConteudo(registros: Registro[], c: Pick<ConfigConteudoTel
       const texto = dataIsoDe(detalhe) ? textoNaTela(detalhe) : String(detalhe).trim();
       if (texto) item.detalhe = texto;
     }
+    if (c.comFotos) {
+      const codigo = valorDaColuna(r, c.colunaCodigo ?? null);
+      if (codigo !== null && codigo !== undefined && codigo !== '') item.codigo = String(codigo).trim();
+    }
     itens.push(item);
   }
   return { itens, descartados, cortados };
 }
 
 /** Sugestão ao escolher a consulta: os nomes que o sistema já reconhece em outras telas. */
-export function colunasSugeridas(colunas: string[]): Pick<ConfigConteudoTela, 'colunaNome' | 'colunaPreco' | 'colunaPrecoDe'> {
+export function colunasSugeridas(colunas: string[]): Pick<ConfigConteudoTela, 'colunaNome' | 'colunaPreco' | 'colunaPrecoDe' | 'colunaCodigo'> {
   const achar = (...regras: RegExp[]) => {
     for (const r of regras) {
       const c = colunas.find((x) => r.test(x));
@@ -199,6 +211,7 @@ export function colunasSugeridas(colunas: string[]): Pick<ConfigConteudoTela, 'c
     colunaNome: achar(/^(descricao|descrição|nome|produto)$/i, /descri|nome|produto/i) ?? '',
     colunaPreco: achar(/^(preco|preço|preco_?(venda|por|oferta)|valor|venda)$/i, /^(pre[cç]o|prc|vlr|valor)(?!.*(custo|compra|de$))/i) ?? '',
     colunaPrecoDe: achar(/^pre[cç]o_?(de|antigo|normal|anterior)$/i),
+    colunaCodigo: achar(/ean|gtin|barra|codbar/i),
   };
 }
 
@@ -370,6 +383,8 @@ export interface ImagemTelaResumo {
 
 /** Pública de propósito: `<img>` não manda token, a TV não tem login e o endereço leva um id impossível de adivinhar. */
 export const caminhoImagemTela = (id: string) => `/api/tv/imagens/${id}`;
+/** Pública pelo mesmo motivo. O id muda quando a foto muda: o arquivo fica em cache para sempre. */
+export const caminhoFotoProdutoTela = (id: string) => `/api/tv/fotos/${id}`;
 
 /** A imagem horizontal em tela vertical sobra ou corta: vale avisar quem está montando. */
 export function imagemCombinaComTela(imagem: { largura: number | null; altura: number | null }, tela: { largura: number; altura: number }): boolean {
@@ -390,6 +405,19 @@ export interface PreviaConteudoResposta extends ResultadoItens {
   colunas: string[];
   /** Produtos banidos deixados de fora. */
   banidos: number;
+  /** Só com fotos ligadas. */
+  fotos?: ResumoFotosConteudo;
+}
+
+export interface ResumoFotosConteudo {
+  com: number;
+  sem: number;
+  /** Ainda procurando no catálogo: chegam depois, sem fazer nada. */
+  pendentes: number;
+  /** O catálogo diz que é medicamento: a propaganda tem regras próprias. */
+  medicamentos: number;
+  /** Por que o catálogo não respondeu. */
+  aviso: string | null;
 }
 
 /** O que a TV exibe. O `validoAte` faz a própria TV tirar o preço velho, mesmo sem internet. */

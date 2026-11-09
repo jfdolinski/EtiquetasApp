@@ -79,7 +79,7 @@ describe('itens do conteúdo', () => {
 
 describe('colunas sugeridas', () => {
   it('reconhece os nomes comuns e não toma custo por preço', () => {
-    expect(colunasSugeridas(['codigo', 'descricao', 'preco_custo', 'preco', 'preco_de'])).toEqual({ colunaNome: 'descricao', colunaPreco: 'preco', colunaPrecoDe: 'preco_de' });
+    expect(colunasSugeridas(['codigo', 'descricao', 'preco_custo', 'preco', 'preco_de'])).toEqual({ colunaNome: 'descricao', colunaPreco: 'preco', colunaPrecoDe: 'preco_de', colunaCodigo: null });
     expect(colunasSugeridas(['ean', 'preco_custo']).colunaPreco).toBe('');
   });
 });
@@ -229,5 +229,32 @@ describe('imagens', () => {
 
   it('cada imagem é uma cena', () => {
     expect(gradeDaCena('IMAGENS', 1920, 1080)).toEqual({ colunas: 1, linhas: 1 });
+  });
+});
+
+describe('fotos dos produtos', () => {
+  const COLUNAS = { colunaNome: 'nome', colunaPreco: 'preco', colunaPrecoDe: null, colunaDetalhe: null };
+  const LINHA = { nome: 'Arroz', preco: 10, ean: 7891000100103 };
+
+  it('só leva o código quando as fotos estão ligadas', () => {
+    expect(itensDoConteudo([LINHA], COLUNAS).itens[0].codigo).toBeUndefined();
+    expect(itensDoConteudo([LINHA], { ...COLUNAS, comFotos: true, colunaCodigo: 'EAN' }).itens[0].codigo).toBe('7891000100103');
+  });
+
+  it('linha sem código continua na tela, só sem foto', () => {
+    const { itens } = itensDoConteudo([{ ...LINHA, ean: null }], { ...COLUNAS, comFotos: true, colunaCodigo: 'ean' });
+    expect(itens).toHaveLength(1);
+    expect(itens[0].codigo).toBeUndefined();
+  });
+
+  it('pede a coluna do código só com as fotos ligadas', () => {
+    expect(problemaNaConfigConteudo({ ...CONFIG_CONTEUDO_PADRAO, colunaNome: 'nome', colunaPreco: 'preco' })).toBeNull();
+    expect(problemaNaConfigConteudo({ ...CONFIG_CONTEUDO_PADRAO, colunaNome: 'nome', colunaPreco: 'preco', comFotos: true })).toContain('código de barras');
+    expect(problemaNaConfigConteudo({ ...CONFIG_CONTEUDO_PADRAO, colunaNome: 'nome', colunaPreco: 'preco', comFotos: true, colunaCodigo: 'ean' })).toBeNull();
+  });
+
+  it('sugere a coluna pelo nome', () => {
+    expect(colunasSugeridas(['nome', 'preco', 'cod_barras']).colunaCodigo).toBe('cod_barras');
+    expect(colunasSugeridas(['nome', 'preco']).colunaCodigo).toBeNull();
   });
 });

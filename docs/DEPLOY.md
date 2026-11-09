@@ -149,7 +149,7 @@ Cada conexão usa uma conta de serviço do Google, com acesso somente de leitura
 |---|---|
 | `SMTP_HOST`, `SMTP_PORTA`, `SMTP_USUARIO`, `SMTP_SENHA`, `SMTP_REMETENTE` | Envio de e-mail: senha esquecida, avisos de cobrança e notificações |
 | `URL_PUBLICA` | Endereço do site nos links dos e-mails. Sem ele não há "Esqueci minha senha" |
-| `CATALOGO_URL` | Endereço do sistema de catálogo, fonte das imagens dos posts. Sem ele, os posts usam só imagem própria |
+| `CATALOGO_URL` | Endereço do sistema de catálogo, fonte das imagens dos posts e das fotos dos produtos nas telas. Sem ele, os posts usam só imagem própria e as telas mostram os produtos sem foto |
 | `FCM_CONTA_SERVICO` | Avisos no celular com o app fechado: JSON da conta de serviço do Firebase, em base64 |
 | `RETENCAO_CONTEUDO_DIAS`, `RETENCAO_AUDITORIA_DIAS` | Faxina diária; padrão 90 e 730 dias |
 

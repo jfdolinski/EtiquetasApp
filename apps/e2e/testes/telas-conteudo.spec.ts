@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
 import { expect, test, type Page } from '@playwright/test';
-import { criarEmpresa, pedir, sql, superToken, type EmpresaTeste } from './apoio';
+import { API, criarEmpresa, pedir, sql, superToken, type EmpresaTeste } from './apoio';
 
 let tokenSuper: string;
 let e: EmpresaTeste;
@@ -118,6 +119,215 @@ test('a TV exibe o conteúdo e tira do ar quando os dados vencem', async ({ page
   await expect(cena).toHaveCount(0);
   await page.unroute('**/api/tv/**');
   expect(erros.filter((t) => !/net::ERR_FAILED|Failed to load resource/.test(t))).toEqual([]);
+});
+
+/** Uma foto de verdade, para o olho conferir o encaixe: mais alta que larga, como a maioria das embalagens. */
+function fotoDeProduto(page: Page, cor: string) {
+  return page.evaluate((c) => {
+    const t = document.createElement('canvas');
+    t.width = 400;
+    t.height = 600;
+    const g = t.getContext('2d')!;
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, 400, 600);
+    g.fillStyle = c;
+    g.fillRect(60, 40, 280, 520);
+    return t.toDataURL('image/png').split(',')[1];
+  }, cor);
+}
+
+/**
+ * Um agente de verdade para a API, ativado e conectado pelo protocolo, mas que responde às consultas com
+ * linhas prontas: neste computador de desenvolvimento roda o agente de produção, e nada de banco é preciso aqui.
+ */
+async function agenteSimulado(empresa: EmpresaTeste, linhas: unknown[][]) {
+  const agente = await pedir('POST', '/agentes', { token: empresa.adminToken, corpo: { nome: `Agente ${randomUUID().slice(0, 6)}` } });
+  expect(agente.status).toBe(201);
+  const agenteId = agente.j.agente.id as string;
+  const ativado = await pedir('POST', '/agente/ativar', { corpo: { cnpj: agente.j.cnpj, codigo: agente.j.codigo, hostname: 'E2E' }, ip: '10.95.' + Math.floor(Math.random() * 250) + '.1' });
+  expect(ativado.status).toBe(200);
+  const Conector = WebSocket as unknown as new (url: string, opcoes: { headers: Record<string, string> }) => WebSocket;
+  const ws = new Conector(`${API.replace(/^http/, 'ws')}/agente/conectar`, { headers: { authorization: `Bearer ${ativado.j.token}` } });
+  ws.addEventListener('message', (ev) => {
+    const m = JSON.parse(String(ev.data)) as { tipo: string; id?: string };
+    if (m.tipo !== 'consultar' || !m.id) return;
+    ws.send(JSON.stringify({ tipo: 'resposta', id: m.id, dados: { ok: true, resultado: { colunas: COLUNAS.map((nome) => ({ nome, tipo: 'text' })), linhas, truncado: false, duracaoMs: 1 } } }));
+  });
+  await new Promise<void>((resolver, rejeitar) => {
+    ws.addEventListener('open', () => resolver());
+    ws.addEventListener('error', () => rejeitar(new Error('agente simulado não conectou')));
+  });
+  ws.send(JSON.stringify({ tipo: 'ola', dados: { versao: 'e2e', protocolo: 1, hostname: 'E2E', sistemaOperacional: 'e2e' } }));
+  const conexao = await pedir('POST', '/conexoes', { token: empresa.adminToken, corpo: { agenteId, nome: `Conexão ${agenteId.slice(0, 6)}`, tipo: 'POSTGRES', host: 'localhost', porta: 5432, banco: 'erp', usuario: 'leitor', senha: 'x' } });
+  expect(conexao.status).toBe(201);
+  const consulta = randomUUID();
+  await sql(`INSERT INTO consultas_sql (id, empresa_id, conexao_id, nome, finalidade, sql, campos, atualizado_em) VALUES ($1, $2, $3, $4, 'OUTRA', 'SELECT 1', $5, now())`, [consulta, empresa.id, conexao.j.id, `Consulta ${consulta.slice(0, 6)}`, JSON.stringify(COLUNAS.map((nome) => ({ nome })))]);
+  return { consulta, nomeConsulta: `Consulta ${consulta.slice(0, 6)}`, fechar: () => ws.close() };
+}
+
+test('fotos: do catálogo à TV, com o agente respondendo, e cabem em todos os modelos e formatos', async ({ page }) => {
+  test.setTimeout(240_000);
+  const EAN_FOTO = '7891000100103';
+  const EAN_REMEDIO = '7891000100110';
+  const EAN_IA = '7891000100127';
+  const EAN_SEM = '7891000100134';
+  await page.goto('/tv');
+  const vermelha = Buffer.from(await fotoDeProduto(page, '#dc2626'), 'base64');
+  const azul = Buffer.from(await fotoDeProduto(page, '#2563eb'), 'base64');
+  const pedidos: string[] = [];
+  const catalogo = createServer((req, res) => {
+    const url = req.url ?? '';
+    pedidos.push(url);
+    const json = (corpo: unknown, status = 200) => {
+      res.writeHead(status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(corpo));
+    };
+    if (url.startsWith('/files/')) {
+      res.writeHead(200, { 'content-type': 'image/png' });
+      return res.end(url.includes('remedio') ? azul : vermelha);
+    }
+    if (url === `/api/v1/barcodes/${EAN_FOTO}`) return json({ name: 'Arroz', images: [{ url: 'http://localhost:8097/files/provisoria.png', placeholder: true }, { url: 'http://localhost:8097/files/arroz.png' }] });
+    if (url === `/api/v1/barcodes/${EAN_REMEDIO}`) return json({ name: 'Remédio', is_medicine: true, images: [{ url: 'http://localhost:8097/files/remedio.png' }] });
+    if (url === `/api/v1/barcodes/${EAN_IA}`) return json({ name: 'Inventado', images: [{ url: 'http://localhost:8097/files/ia.png', ai_generated: true }] });
+    return json({ error: 'não encontrado' }, 404);
+  });
+  await new Promise<void>((r) => catalogo.listen(8097, r));
+  const f = await criarEmpresa(await superToken());
+  const nome = 'Produto com um nome extremamente comprido que o ERP cortaria em algum lugar 5kg embalagem econômica';
+  // Código interno ("123"), e o mesmo EAN com zeros à esquerda, como alguns ERPs guardam.
+  const codigos = [EAN_FOTO, EAN_REMEDIO, EAN_IA, EAN_SEM, '123', `0${EAN_FOTO}`, EAN_FOTO, EAN_REMEDIO, EAN_FOTO, EAN_REMEDIO, EAN_FOTO, EAN_FOTO];
+  const agente = await agenteSimulado(f, codigos.map((codigo, i) => [codigo, `${i + 1} ${nome}`, '12349.90', '15999.90']));
+  try {
+    const tela = await telaVinculada(f, 'TV das fotos');
+
+    // No editor: liga as fotos, a coluna do código vem sugerida, e a pré-visualização mostra o resultado.
+    await page.setViewportSize({ width: 1400, height: 1000 });
+    await entrar(page, f.adminEmail, f.adminSenha);
+    await page.goto('/telas');
+    await page.getByRole('tab', { name: 'Conteúdo' }).click();
+    await page.getByRole('button', { name: 'Novo conteúdo' }).click();
+    await page.getByLabel('Nome do conteúdo').fill('Ofertas com foto');
+    await page.getByRole('combobox', { name: /^Consulta/ }).selectOption({ label: agente.nomeConsulta });
+    await page.getByRole('checkbox', { name: /Mostrar a foto dos produtos/ }).check();
+    await expect(page.getByLabel('Coluna do código de barras')).toHaveValue('ean');
+    await expect(page.getByText('Clique em “Carregar dados reais” para ver as fotos.')).toBeVisible();
+    await page.getByRole('button', { name: 'Carregar dados reais' }).click();
+    // Arroz em 6 linhas (uma com zeros à esquerda) e remédio em 3; o de IA, o sem foto e o interno ficam só com texto.
+    await expect(page.getByText('9 produto(s) com foto e 3 sem.')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('3 produto(s) são medicamentos: confira as regras da Anvisa para propaganda antes de publicar.')).toBeVisible();
+    const previa = page.getByLabel('Pré-visualização da tela');
+    await expect.poll(() => previa.locator('[data-testid="foto-produto"] img').first().evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(400);
+    await page.screenshot({ path: 'test-results/tela-editor-fotos.png' });
+
+    // Nem provisória nem de IA; código interno nem chega a perguntar; o mesmo produto, uma vez só.
+    expect(pedidos.filter((p) => p.startsWith('/files/')).sort()).toEqual(['/files/arroz.png', '/files/remedio.png']);
+    expect(pedidos.filter((p) => p.includes('/123'))).toEqual([]);
+    expect(pedidos.filter((p) => p === `/api/v1/barcodes/${EAN_FOTO}`)).toHaveLength(1);
+
+    // Publica: a foto já guardada entra junto, e a TV recebe sem o código do produto.
+    await page.getByRole('checkbox', { name: /TV das fotos/ }).check();
+    await page.getByRole('button', { name: 'Publicar' }).click();
+    const linha = page.getByRole('row', { name: /Ofertas com foto/ });
+    await expect(linha.getByText('No ar')).toBeVisible({ timeout: 30_000 });
+    const programacao = await pedir('POST', '/tv/programacao', { token: tela.token });
+    expect(programacao.status).toBe(200);
+    const recebidos = programacao.j.programas[0].itens as { foto?: string; codigo?: string }[];
+    expect(recebidos.filter((i) => i.foto)).toHaveLength(9);
+    expect(recebidos.every((i) => i.codigo === undefined)).toBe(true);
+    expect(recebidos[2].foto).toBeUndefined();
+
+    // Atualizar de novo não gasta consumo do catálogo: já está guardado, com ou sem foto.
+    const antes = pedidos.length;
+    const [{ id: conteudoId }] = await sql<{ id: string }>(`SELECT id FROM conteudos_tela WHERE empresa_id = $1`, [f.id]);
+    expect((await pedir('POST', `/telas/conteudos/${conteudoId}/atualizar`, { token: f.adminToken })).j.situacao).toBe('NO_AR');
+    expect(pedidos.length).toBe(antes);
+
+    // O arquivo é público, com o tipo certo e cache longo. Id desconhecido não abre nada.
+    const arquivo = await fetch(new URL(recebidos[0].foto!, API).toString());
+    expect(arquivo.status).toBe(200);
+    expect(arquivo.headers.get('content-type')).toBe('image/png');
+    expect(arquivo.headers.get('cache-control')).toContain('immutable');
+    expect((await fetch(`${API}/tv/fotos/${randomUUID()}`)).status).toBe(404);
+
+    // Na TV, em cada modelo e formato.
+    const tv = await page.context().newPage();
+    await tv.addInitScript((t) => localStorage.setItem('etiquetas.tv.token', t), tela.token);
+    const problemas: string[] = [];
+    for (const modelo of ['GRADE_OFERTAS', 'DESTAQUE', 'LISTA_PRECOS']) {
+      await sql(`UPDATE conteudos_tela SET modelo = $2, atualizado_em = now() WHERE id = $1`, [conteudoId, modelo]);
+      for (const [largura, altura] of [[1920, 1080], [1080, 1920], [1280, 800], [960, 320], [128, 64]]) {
+        await tv.setViewportSize({ width: largura, height: altura });
+        await tv.goto('/tv');
+        await tv.evaluate(() => localStorage.removeItem('etiquetas.tv.programacao'));
+        await tv.goto('/tv');
+        await expect(tv.getByTestId('cena-tela')).toBeVisible();
+        await tv.waitForTimeout(900);
+        const medidas = await tv.evaluate(() => {
+          const dentro = (a: DOMRect, b: DOMRect) => a.left >= b.left - 1 && a.right <= b.right + 1 && a.top >= b.top - 1 && a.bottom <= b.bottom + 1;
+          const cobre = (a: DOMRect, b: DOMRect) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+          const erros: string[] = [];
+          const celulas = [...document.querySelectorAll('[data-testid="celula-tela"]')];
+          for (const celula of celulas) {
+            const r = celula.getBoundingClientRect();
+            const preco = celula.querySelector('[data-testid="preco-tela"]');
+            const foto = celula.querySelector('[data-testid="foto-produto"]');
+            if (!preco) erros.push('sem preço');
+            else {
+              const p = preco.getBoundingClientRect();
+              // O pulso da animação aumenta o preço em 5%: mede o tamanho sem ele.
+              const semPulso = new DOMRect(p.x + p.width * 0.03, p.y + p.height * 0.03, p.width * 0.94, p.height * 0.94);
+              if (!dentro(semPulso, r)) erros.push('preço cortado');
+              if (foto && cobre(semPulso, foto.getBoundingClientRect())) erros.push('foto sobre o preço');
+            }
+            if (foto && !dentro(foto.getBoundingClientRect(), r)) erros.push('foto cortada');
+            const nomeProduto = celula.querySelector('[data-testid="nome-tela"]');
+            if (foto && nomeProduto && nomeProduto.getBoundingClientRect().width < r.width * 0.3) erros.push('nome espremido');
+          }
+          for (const t of document.querySelectorAll<HTMLElement>('[data-testid="texto-celula"]')) {
+            const bloco = t.getBoundingClientRect();
+            for (const filho of t.children) if (filho.getBoundingClientRect().bottom > bloco.bottom + 1) erros.push('texto invadindo o preço');
+          }
+          // Com ou sem foto, a mesma letra: preço de tamanhos diferentes na mesma cena parece oferta maior.
+          const tamanhos = [...document.querySelectorAll<HTMLElement>('[data-testid="celula-tela"] [data-testid="preco-tela"]')].map((p) => parseFloat(getComputedStyle(p).fontSize));
+          if (tamanhos.length > 1 && Math.max(...tamanhos) > Math.min(...tamanhos) * 1.02) erros.push('preços de tamanhos diferentes');
+          return { celulas: celulas.length, fotos: document.querySelectorAll('[data-testid="foto-produto"] img').length, erros };
+        });
+        if (medidas.celulas === 0) problemas.push(`${modelo} ${largura}x${altura}: sem células`);
+        // Painel pequeno se lê de longe: nome e preço, sem foto.
+        if (largura > 200 && medidas.fotos === 0) problemas.push(`${modelo} ${largura}x${altura}: sem foto`);
+        if (largura <= 200 && medidas.fotos > 0) problemas.push(`${modelo} ${largura}x${altura}: foto em painel pequeno`);
+        for (const m of new Set(medidas.erros)) problemas.push(`${modelo} ${largura}x${altura}: ${m}`);
+        await tv.screenshot({ path: `test-results/fotos-${modelo}-${largura}x${altura}.png` });
+      }
+    }
+    expect(problemas).toEqual([]);
+
+    // Foto que não abre: o cartão volta a mostrar só o texto, sem quadro quebrado.
+    await tv.setViewportSize({ width: 1280, height: 720 });
+    await sql(`UPDATE conteudos_tela SET modelo = 'GRADE_OFERTAS', atualizado_em = now() WHERE id = $1`, [conteudoId]);
+    await tv.route('**/api/tv/fotos/**', (r) => r.fulfill({ status: 404 }));
+    await tv.evaluate(() => localStorage.removeItem('etiquetas.tv.programacao'));
+    await tv.goto('/tv');
+    await expect(tv.getByTestId('cena-tela')).toBeVisible();
+    await expect(tv.getByTestId('foto-produto')).toHaveCount(0);
+    await expect(tv.getByTestId('preco-tela').first()).toBeVisible();
+    await tv.close();
+
+    // Desligou a opção: a TV deixa de receber as fotos.
+    const atual = (await pedir('GET', '/telas/conteudos', { token: f.adminToken })).j[0];
+    expect((await pedir('PUT', `/telas/conteudos/${conteudoId}`, { token: f.adminToken, corpo: { ...corpoConteudo('Ofertas com foto', agente.consulta), config: { ...atual.config, comFotos: false } } })).status).toBe(200);
+    expect(((await pedir('POST', '/tv/programacao', { token: tela.token })).j.programas[0].itens as { foto?: string }[]).some((i) => i.foto)).toBe(false);
+
+    // Coluna do código é obrigatória com as fotos ligadas; e a foto de uma empresa não se confunde com a de outra.
+    const semColuna = await pedir('PUT', `/telas/conteudos/${conteudoId}`, { token: f.adminToken, corpo: { ...corpoConteudo('Ofertas com foto', agente.consulta), config: { ...atual.config, comFotos: true, colunaCodigo: null } } });
+    expect(semColuna.status).toBe(400);
+    expect(semColuna.j.message).toContain('código de barras');
+    const [{ total }] = await sql<{ total: string }>(`SELECT count(*) AS total FROM fotos_produto_tela WHERE empresa_id = $1`, [e.id]);
+    expect(Number(total)).toBe(0);
+  } finally {
+    agente.fechar();
+    await new Promise((r) => catalogo.close(r));
+  }
 });
 
 // Cada TV tem a sua fonte de sistema, e algumas são bem mais largas: o desenho precisa aguentar as duas.

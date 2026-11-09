@@ -46,6 +46,7 @@ model Empresa {
   telas Tela[]
   conteudosTela ConteudoTela[]
   imagensTela ImagemTela[]
+  fotosProdutoTela FotoProdutoTela[]
   produtosBanidos    ProdutoBanido[]
   modelos            ModeloEtiqueta[]
   impressoras        Impressora[]
@@ -1094,4 +1095,26 @@ model ImagemTela {
 
   @@index([empresaId, criadoEm])
   @@map("imagens_tela")
+}
+
+/// Foto do catálogo guardada por produto: cada busca conta no consumo da empresa, e a TV não pode depender do catálogo no ar.
+model FotoProdutoTela {
+  /// Muda quando a foto muda: o arquivo fica em cache para sempre.
+  id           String   @id @default(uuid()) @db.Uuid
+  empresaId    String   @map("empresa_id") @db.Uuid
+  /// Código de barras na forma do catálogo (codigoParaCatalogo).
+  codigo       String
+  /// Vazios: o catálogo não tem foto aproveitável, por enquanto.
+  mime         String?
+  conteudo     Bytes?
+  urlOrigem    String?  @map("url_origem")
+  medicamento  Boolean  @default(false)
+  /// Só avança em código que algum conteúdo usa: parado há muito tempo, a faxina apaga.
+  verificadoEm DateTime @map("verificado_em")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@unique([empresaId, codigo])
+  @@index([verificadoEm])
+  @@map("fotos_produto_tela")
 }

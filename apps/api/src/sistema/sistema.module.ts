@@ -14,6 +14,7 @@ const DIA_MS = 86_400_000;
 const LOTE_CONTEUDO = 200;
 const RETENCAO_ERROS_DIAS = 30;
 const RETENCAO_LISTAS_DIAS = 180;
+const RETENCAO_FOTOS_TELA_DIAS = 60;
 /** Sessões e links vencidos não servem para nada depois de um tempo. */
 const RETENCAO_VENCIDOS_DIAS = 30;
 
@@ -95,6 +96,8 @@ export class ManutencaoService implements OnApplicationBootstrap, OnModuleDestro
       await this.prisma.codigoVinculoApp.deleteMany({ where: { expiraEm: { lt: antes(RETENCAO_VENCIDOS_DIAS) } } });
       await this.prisma.pedidoVinculoTela.deleteMany({ where: { expiraEm: { lt: antes(RETENCAO_VENCIDOS_DIAS) } } });
       await this.prisma.quedaTela.deleteMany({ where: { fim: { lt: antes(RETENCAO_LISTAS_DIAS) } } });
+      // Foto em uso é conferida todo mês: parada há dois meses, nenhum conteúdo a pede mais.
+      await this.prisma.fotoProdutoTela.deleteMany({ where: { verificadoEm: { lt: antes(RETENCAO_FOTOS_TELA_DIAS) } } });
       this.log.log(`Faxina: ${r.conteudos} conteúdo(s), ${r.auditoria} registro(s) de auditoria, ${r.listas} lista(s).`);
     } catch (e) {
       r.erro = (e as Error).message;

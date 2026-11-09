@@ -46,6 +46,7 @@ import { BanidosModule } from '../banidos/banidos.module';
 import { ConsultasModule } from '../consultas/consultas.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConteudosTelaController, ConteudosTelaService } from './conteudos';
+import { FotosProdutoTelaService } from './fotos';
 import { horaLocal } from './hora';
 
 const VALIDADE_PEDIDO_MS = 10 * 60_000;
@@ -321,6 +322,7 @@ export class TelasService {
     private readonly parametros: ParametrosTelasService,
     private readonly cobranca: MensagensCobrancaService,
     private readonly conteudos: ConteudosTelaService,
+    private readonly fotos: FotosProdutoTelaService,
   ) {}
 
   // Perfis ---------------------------------------------------------------------------------
@@ -535,6 +537,7 @@ export class TvController {
   constructor(
     private readonly telas: TelasService,
     private readonly conteudos: ConteudosTelaService,
+    private readonly fotos: FotosProdutoTelaService,
   ) {}
 
   /**
@@ -550,6 +553,17 @@ export class TvController {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     res.send(Buffer.from(i.conteudo));
+  }
+
+  @Get('fotos/:id')
+  @Publico()
+  @SkipThrottle()
+  async foto(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
+    const f = await this.fotos.arquivo(id);
+    res.setHeader('Content-Type', f.mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(f.conteudo);
   }
 
   @Post('pedidos')
@@ -691,5 +705,5 @@ export class TelasController {
 }
 
 // O controlador de conteúdos vem antes: `telas/conteudos` não pode cair nas rotas de `telas/:id`.
-@Module({ imports: [ConsultasModule, BanidosModule], controllers: [TvController, ConteudosTelaController, TelasController], providers: [TelasService, ParametrosTelasService, ConteudosTelaService] })
+@Module({ imports: [ConsultasModule, BanidosModule], controllers: [TvController, ConteudosTelaController, TelasController], providers: [TelasService, ParametrosTelasService, ConteudosTelaService, FotosProdutoTelaService] })
 export class TelasModule {}

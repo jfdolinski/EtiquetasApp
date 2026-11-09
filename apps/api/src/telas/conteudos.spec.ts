@@ -5,6 +5,7 @@ import type { BanidosService } from '../banidos/banidos.service';
 import type { ConsultasService } from '../consultas/consultas.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import { ConteudosTelaService } from './conteudos';
+import type { FotosProdutoTelaService } from './fotos';
 
 process.env.JWT_SECRET = 'x'.repeat(32);
 process.env.DATABASE_URL = 'postgresql://teste';
@@ -29,8 +30,12 @@ function montar(conteudo: Record<string, unknown> = {}) {
   };
   const consultas = { executar: jest.fn(async () => RESULTADO) };
   const banidos = { conjunto: jest.fn(async () => new Set(['791'])) };
-  const s = new ConteudosTelaService(prisma as unknown as PrismaService, { registrar: jest.fn() } as unknown as AuditoriaService, consultas as unknown as ConsultasService, banidos as unknown as BanidosService);
-  return { s, prisma, consultas };
+  const fotos = {
+    aplicar: jest.fn(async (_e: string, itens: { nome: string }[]) => ({ itens, faltam: [] as string[] })),
+    buscar: jest.fn(async () => null),
+  };
+  const s = new ConteudosTelaService(prisma as unknown as PrismaService, { registrar: jest.fn() } as unknown as AuditoriaService, consultas as unknown as ConsultasService, banidos as unknown as BanidosService, fotos as unknown as FotosProdutoTelaService);
+  return { s, prisma, consultas, fotos };
 }
 
 describe('cópia dos dados', () => {
@@ -66,6 +71,75 @@ describe('cópia dos dados', () => {
       await s.atualizarDados('x');
       expect(consultas.executar).not.toHaveBeenCalled();
       expect(prisma.conteudoTela.updateMany).toHaveBeenCalled();
+    }
+  });
+});
+
+describe('fotos dos produtos', () => {
+  const COM_FOTOS = { ...CONFIG, comFotos: true, colunaCodigo: 'ean' };
+  const FOTO = '/api/tv/fotos/1';
+
+  it('sem a opção, nem olha as fotos', async () => {
+    const { s, fotos } = montar();
+    await s.atualizarDados('x');
+    expect(fotos.aplicar).not.toHaveBeenCalled();
+  });
+
+  it('o preço não espera a foto: grava os dados antes de procurar no catálogo', async () => {
+    const { s, prisma, fotos } = montar({ config: COM_FOTOS });
+    fotos.aplicar.mockImplementationOnce(async (_e, itens) => ({ itens, faltam: ['789'] }));
+    let gravouAntes = false;
+    fotos.buscar.mockImplementationOnce(async () => {
+      gravouAntes = prisma.conteudoTela.update.mock.calls.length === 1;
+      return null;
+    });
+    await s.atualizarDados('x');
+    expect(prisma.conteudoTela.update).toHaveBeenCalledTimes(1);
+    expect(fotos.aplicar).toHaveBeenCalledWith('e1', [expect.objectContaining({ nome: 'Arroz', codigo: '789' }), expect.objectContaining({ nome: 'Feijão', codigo: '790' })]);
+    await new Promise((r) => setImmediate(r));
+    expect(gravouAntes).toBe(true);
+  });
+
+  it('fotos que chegaram entram nos mesmos dados, sem renovar a validade do preço', async () => {
+    const { s, prisma, fotos } = montar();
+    const dadosEm = new Date('2026-11-08T12:00:00Z');
+    (prisma.conteudoTela.findUnique as jest.Mock).mockResolvedValueOnce({ itens: [{ nome: 'Arroz', preco: 'R$ 10,00', codigo: '789' }], dadosEm });
+    fotos.aplicar.mockResolvedValueOnce({ itens: [{ nome: 'Arroz', preco: 'R$ 10,00', codigo: '789', foto: FOTO }] as never, faltam: [] });
+    await s.completarFotos('x', 'e1', ['789'], dadosEm);
+    expect(prisma.conteudoTela.updateMany).toHaveBeenCalledWith({ where: { id: 'x', dadosEm }, data: { itens: [expect.objectContaining({ foto: FOTO })] } });
+  });
+
+  it('nada novo: não escreve, senão toda TV buscaria de novo à toa', async () => {
+    const { s, prisma } = montar();
+    const dadosEm = new Date('2026-11-08T12:00:00Z');
+    (prisma.conteudoTela.findUnique as jest.Mock).mockResolvedValueOnce({ itens: [{ nome: 'Arroz', preco: 'R$ 10,00' }], dadosEm });
+    await s.completarFotos('x', 'e1', ['789'], dadosEm);
+    expect(prisma.conteudoTela.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('vieram dados mais novos enquanto procurava: não volta preço antigo', async () => {
+    const { s, prisma, fotos } = montar();
+    (prisma.conteudoTela.findUnique as jest.Mock).mockResolvedValueOnce({ itens: [], dadosEm: new Date('2026-11-08T12:15:00Z') });
+    await s.completarFotos('x', 'e1', ['789'], new Date('2026-11-08T12:00:00Z'));
+    expect(fotos.aplicar).not.toHaveBeenCalled();
+    expect(prisma.conteudoTela.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('falha na busca não derruba nada', async () => {
+    const { s, fotos } = montar();
+    fotos.buscar.mockRejectedValueOnce(new Error('fora') as never);
+    await expect(s.completarFotos('x', 'e1', ['789'], new Date())).resolves.toBeUndefined();
+  });
+
+  it('a TV recebe a foto, sem o código; com a opção desligada, sem a foto', async () => {
+    const dadosEm = new Date();
+    const conteudo = { id: 'x', nome: 'N', modelo: 'GRADE_OFERTAS', atualizadoEm: dadosEm, dadosEm, validadeMinutos: 60, horarioInicio: null, horarioFim: null, dataInicio: null, dataFim: null, itens: [{ nome: 'Arroz', preco: 'R$ 10,00', codigo: '789', foto: FOTO }] };
+    for (const [config, foto] of [[COM_FOTOS, FOTO], [CONFIG, undefined]] as const) {
+      const { s, prisma } = montar();
+      prisma.conteudoTela.findMany.mockResolvedValue([{ ...conteudo, config }]);
+      const { programas } = await s.programacaoDaTela('e1', 't1');
+      expect(programas[0].itens[0].codigo).toBeUndefined();
+      expect(programas[0].itens[0].foto).toBe(foto);
     }
   });
 });

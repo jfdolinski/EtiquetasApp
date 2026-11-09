@@ -17,7 +17,8 @@ function entrada(nivel: NivelEfetivo, indice: number): CSSProperties {
   return { animation: `tvSobe .55s ease-out ${indice * 90}ms both` };
 }
 
-const linhas = (n: number): CSSProperties => ({ display: '-webkit-box', WebkitLineClamp: n, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' });
+/** A folga dos lados é para as reticências: em texto centralizado, o navegador as deixa um pouco fora da caixa. */
+const linhas = (n: number): CSSProperties => ({ display: '-webkit-box', WebkitLineClamp: n, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere', paddingInline: '.25em', boxSizing: 'border-box' });
 
 /**
  * Texto em uma linha que diminui até caber. Mede de verdade, porque cada TV tem a sua fonte de sistema,
@@ -56,6 +57,22 @@ function PrecoDe({ item, tamanho, maxLargura }: { item: ItemConteudoTela; tamanh
   );
 }
 
+/** Foto que não abre some e o cartão volta ao desenho só com texto: nunca um quadro quebrado na vitrine. */
+function useFoto(item: ItemConteudoTela) {
+  const [falhou, setFalhou] = useState(false);
+  return { url: falhou ? undefined : item.foto, aoFalhar: () => setFalhou(true) };
+}
+
+/** Sobre branco: a maioria das fotos de produto tem fundo branco, e num fundo escuro ficaria um recorte. */
+function FotoProduto({ url, largura, altura, aoFalhar }: { url: string; largura: number; altura: number; aoFalhar: () => void }) {
+  const menor = Math.min(largura, altura);
+  return (
+    <div data-testid="foto-produto" style={{ width: largura, height: altura, flexShrink: 0, boxSizing: 'border-box', padding: menor * 0.04, background: '#ffffff', borderRadius: menor * 0.08, overflow: 'hidden' }}>
+      <img src={url} alt="" onError={aoFalhar} style={{ display: 'block', width: '100%', height: '100%', objectFit: 'contain' }} />
+    </div>
+  );
+}
+
 interface Celula {
   item: ItemConteudoTela;
   indice: number;
@@ -63,32 +80,51 @@ interface Celula {
   altura: number;
   corDestaque: string;
   nivel: NivelEfetivo;
+  /** Algum produto da cena tem foto: todos usam as mesmas letras, senão o preço de quem não tem foto parece maior. */
+  fotosNaCena: boolean;
 }
 
-function CartaoGrade({ item, indice, largura, altura, corDestaque, nivel }: Celula) {
-  const nome = Math.min(altura * 0.115, largura * 0.075);
-  const preco = Math.min(altura * 0.2, largura * 0.125);
-  const util = (largura - 2 * Math.min(largura, altura) * 0.07) * 0.95;
+function CartaoGrade({ item, indice, largura, altura, corDestaque, nivel, fotosNaCena }: Celula) {
+  const foto = useFoto(item);
+  const margem = Math.min(largura, altura) * 0.07;
+  // Cartão largo: foto ao lado. Cartão alto ou quadrado: foto em cima, e o texto fica com o resto.
+  const largo = largura / altura >= 1.25;
+  const aoLado = !!foto.url && largo;
+  const ladoSeTiver = largo ? Math.min(altura - 2 * margem, largura * 0.38) : altura * 0.42;
+  const ladoFoto = foto.url ? ladoSeTiver : 0;
+  const vao = foto.url ? margem * 0.6 : 0;
+  const larguraTexto = largura - 2 * margem - (aoLado ? ladoFoto + vao : 0);
+  const alturaTexto = altura - 2 * margem - (foto.url && !aoLado ? ladoFoto + vao : 0);
+  // As letras saem do espaço que sobraria com foto, mesmo no cartão sem foto da mesma cena.
+  const larguraBase = largura - 2 * margem - (largo ? ladoSeTiver + margem * 0.6 : 0);
+  const alturaBase = altura - 2 * margem - (largo ? 0 : ladoSeTiver + margem * 0.6);
+  const nome = !fotosNaCena ? Math.min(altura * 0.115, largura * 0.075) : largo ? Math.min(alturaBase * 0.13, larguraBase * 0.12) : Math.min(alturaBase * 0.16, larguraBase * 0.087);
+  const preco = !fotosNaCena ? Math.min(altura * 0.2, largura * 0.125) : largo ? Math.min(alturaBase * 0.23, larguraBase * 0.2) : Math.min(alturaBase * 0.27, larguraBase * 0.145);
+  const util = (fotosNaCena ? larguraBase : larguraTexto) * 0.95;
   // O nome usa as linhas que sobram: em cartão alto (TV na vertical) cabe bem mais que em um largo.
   const blocoPreco = preco * 1.31 + nome * 1.4;
   const blocoDetalhe = item.detalhe ? nome * 1.1 : 0;
-  const sobra = altura - 2 * Math.min(largura, altura) * 0.07 - blocoPreco - blocoDetalhe;
+  const sobra = alturaTexto - blocoPreco - blocoDetalhe;
   const linhasDoNome = Math.max(1, Math.min(6, Math.floor(sobra / (nome * 1.15))));
   return (
-    <div data-testid="celula-tela" style={{ width: largura, height: altura, boxSizing: 'border-box', padding: Math.min(largura, altura) * 0.07, borderRadius: Math.min(largura, altura) * 0.05, background: 'rgba(127,127,127,.16)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', textAlign: 'center', overflow: 'hidden', ...entrada(nivel, indice) }}>
-      <div data-testid="texto-celula" style={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden' }}>
-        <div style={{ ...linhas(linhasDoNome), fontSize: nome, fontWeight: 600, lineHeight: 1.15 }}>{item.nome}</div>
-        {item.detalhe && <div style={{ ...linhas(1), fontSize: nome * 0.72, opacity: 0.75, marginTop: nome * 0.25 }}>{item.detalhe}</div>}
-      </div>
-      <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: nome * 0.2, marginTop: nome * 0.2 }}>
-        <PrecoDe item={item} tamanho={nome * 0.8} maxLargura={util} />
-        <Preco item={item} tamanho={preco} maxLargura={util} cor={corDestaque} nivel={nivel} indice={indice} />
+    <div data-testid="celula-tela" style={{ width: largura, height: altura, boxSizing: 'border-box', padding: margem, borderRadius: Math.min(largura, altura) * 0.05, background: 'rgba(127,127,127,.16)', display: 'flex', flexDirection: aoLado ? 'row' : 'column', alignItems: 'center', gap: vao, textAlign: 'center', overflow: 'hidden', ...entrada(nivel, indice) }}>
+      {foto.url && <FotoProduto url={foto.url} largura={aoLado ? ladoFoto : Math.min(larguraTexto, ladoFoto * 1.6)} altura={ladoFoto} aoFalhar={foto.aoFalhar} />}
+      <div style={{ width: larguraTexto, height: alturaTexto, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden' }}>
+        <div data-testid="texto-celula" style={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden' }}>
+          <div style={{ ...linhas(linhasDoNome), fontSize: nome, fontWeight: 600, lineHeight: 1.15 }}>{item.nome}</div>
+          {item.detalhe && <div style={{ ...linhas(1), fontSize: nome * 0.72, opacity: 0.75, marginTop: nome * 0.25 }}>{item.detalhe}</div>}
+        </div>
+        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: nome * 0.2, marginTop: nome * 0.2 }}>
+          <PrecoDe item={item} tamanho={nome * 0.8} maxLargura={util} />
+          <Preco item={item} tamanho={preco} maxLargura={util} cor={corDestaque} nivel={nivel} indice={indice} />
+        </div>
       </div>
     </div>
   );
 }
 
 function CartaoDestaque({ item, indice, largura, altura, corDestaque, nivel, faixa }: Celula & { faixa: boolean }) {
+  const foto = useFoto(item);
   const animacao: CSSProperties = nivel === 'COMPLETO' ? { animation: 'tvZoom .6s ease-out both' } : {};
   // Lado a lado não cabe: nome em uma linha e o preço embaixo, que é o que importa de longe.
   if (faixa && largura < 400) {
@@ -104,12 +140,54 @@ function CartaoDestaque({ item, indice, largura, altura, corDestaque, nivel, fai
   if (faixa) {
     const nome = Math.min(altura * 0.32, largura * 0.05);
     const preco = Math.min(altura * 0.6, largura * 0.09);
+    // Faixa baixa não tem como mostrar produto reconhecível: nome e preço leem melhor sozinhos.
+    if (foto.url && altura >= 100) {
+      // Foto, nome e preço na mesma fileira espremem o nome: o preço vai para baixo dele.
+      const lado = altura * 0.92;
+      const vao = largura * 0.02;
+      const larguraTexto = largura - lado - vao;
+      const nomeAqui = Math.min(altura * 0.17, larguraTexto * 0.055);
+      const precoAqui = Math.min(altura * 0.36, larguraTexto * 0.11);
+      return (
+        <div data-testid="celula-tela" style={{ width: largura, height: altura, display: 'flex', alignItems: 'center', gap: vao, overflow: 'hidden', ...animacao }}>
+          <FotoProduto url={foto.url} largura={lado} altura={lado} aoFalhar={foto.aoFalhar} />
+          <div style={{ width: larguraTexto, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: altura * 0.04, textAlign: 'center' }}>
+            <div data-testid="nome-tela" style={{ ...linhas(2), maxWidth: larguraTexto, fontSize: nomeAqui, fontWeight: 700, lineHeight: 1.1 }}>{item.nome}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: nomeAqui * 0.6 }}>
+              <PrecoDe item={item} tamanho={nomeAqui * 0.7} maxLargura={larguraTexto * 0.3} />
+              <Preco item={item} tamanho={precoAqui} maxLargura={larguraTexto * 0.65} cor={corDestaque} nivel={nivel} indice={indice} />
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div data-testid="celula-tela" style={{ width: largura, height: altura, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: largura * 0.02, overflow: 'hidden', ...animacao }}>
         <div style={{ ...linhas(2), fontSize: nome, fontWeight: 700, lineHeight: 1.1, textAlign: 'left', minWidth: 0 }}>{item.nome}</div>
         <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: nome * 0.1 }}>
           <PrecoDe item={item} tamanho={nome * 0.6} maxLargura={largura * 0.5} />
           <Preco item={item} tamanho={preco} maxLargura={largura * 0.5} cor={corDestaque} nivel={nivel} indice={indice} />
+        </div>
+      </div>
+    );
+  }
+  if (foto.url) {
+    const deitada = largura >= altura;
+    const larguraFoto = deitada ? Math.min(altura * 0.92, largura * 0.46) : largura * 0.86;
+    const alturaFoto = deitada ? larguraFoto : altura * 0.45;
+    const vao = Math.min(largura, altura) * 0.04;
+    const larguraTexto = deitada ? largura - larguraFoto - vao : largura;
+    const alturaTexto = deitada ? altura : altura - alturaFoto - vao;
+    const nome = Math.min(alturaTexto * (deitada ? 0.1 : 0.14), larguraTexto * 0.085);
+    const preco = Math.min(alturaTexto * (deitada ? 0.22 : 0.3), larguraTexto * 0.17);
+    return (
+      <div data-testid="celula-tela" style={{ width: largura, height: altura, display: 'flex', flexDirection: deitada ? 'row' : 'column', alignItems: 'center', justifyContent: 'center', gap: vao, textAlign: 'center', overflow: 'hidden', ...animacao }}>
+        <FotoProduto url={foto.url} largura={larguraFoto} altura={alturaFoto} aoFalhar={foto.aoFalhar} />
+        <div style={{ width: larguraTexto, height: alturaTexto, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: alturaTexto * 0.04, overflow: 'hidden' }}>
+          <div data-testid="nome-tela" style={{ ...linhas(3), fontSize: nome, fontWeight: 700, lineHeight: 1.12, maxWidth: larguraTexto * 0.95 }}>{item.nome}</div>
+          {item.detalhe && <div style={{ ...linhas(1), fontSize: nome * 0.55, opacity: 0.75 }}>{item.detalhe}</div>}
+          <PrecoDe item={item} tamanho={nome * 0.7} maxLargura={larguraTexto * 0.92} />
+          <Preco item={item} tamanho={preco} maxLargura={larguraTexto * 0.92} cor={corDestaque} nivel={nivel} indice={indice} />
         </div>
       </div>
     );
@@ -126,10 +204,14 @@ function CartaoDestaque({ item, indice, largura, altura, corDestaque, nivel, fai
   );
 }
 
-function LinhaLista({ item, indice, largura, altura, corDestaque, nivel }: Celula) {
+function LinhaLista({ item, indice, largura, altura, corDestaque, nivel, fotosNaCena }: Celula) {
+  const foto = useFoto(item);
   const fonte = Math.min(altura * 0.46, largura * 0.055);
   return (
     <div data-testid="celula-tela" style={{ width: largura, height: altura, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: largura * 0.02, borderBottom: '1px solid rgba(127,127,127,.35)', overflow: 'hidden', ...entrada(nivel, indice) }}>
+      {foto.url && altura >= 40 && <FotoProduto url={foto.url} largura={altura * 0.86} altura={altura * 0.86} aoFalhar={foto.aoFalhar} />}
+      {/* Reserva o lugar, para os nomes começarem todos na mesma coluna. */}
+      {!foto.url && fotosNaCena && altura >= 40 && <div style={{ width: altura * 0.86, flexShrink: 0 }} />}
       <div style={{ minWidth: 0, flex: 1, textAlign: 'left', fontSize: fonte, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {item.nome}
         {item.detalhe && <span style={{ opacity: 0.7, fontSize: fonte * 0.72 }}> · {item.detalhe}</span>}
@@ -196,7 +278,7 @@ function CenaProdutos({ programa, itens, grade: gradeCheia, largura, altura, mar
       )}
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${grade.colunas}, ${celL}px)`, gridAutoRows: `${celA}px`, gap: espaco, justifyContent: 'center' }}>
         {itens.map((item, i) => {
-          const comum = { item, indice: i, largura: celL, altura: celA, corDestaque: config.corDestaque, nivel };
+          const comum = { item, indice: i, largura: celL, altura: celA, corDestaque: config.corDestaque, nivel, fotosNaCena: itens.some((x) => x.foto) };
           // Painel bem pequeno mostra um produto por vez, seja qual for o modelo.
           if (modelo === 'DESTAQUE' || (pequena && grade.colunas === 1)) return <CartaoDestaque key={i} {...comum} faixa={faixa || pequena} />;
           if (modelo === 'LISTA_PRECOS') return <LinhaLista key={i} {...comum} />;
@@ -259,6 +341,7 @@ export function ExibicaoTela({ programas, largura, altura, margemPct, nivel, fus
   // Baixa a próxima imagem antes da hora, para a troca não mostrar a tela vazia.
   useEffect(() => {
     if (proxima?.tipo === 'imagem') new Image().src = proxima.url;
+    if (proxima?.tipo === 'produtos') for (const i of proxima.itens) if (i.foto) new Image().src = i.foto;
   }, [proxima]);
 
   useEffect(() => {

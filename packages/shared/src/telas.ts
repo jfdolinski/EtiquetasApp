@@ -321,4 +321,4 @@ export interface ParametrosTelasResposta {
 
 export const INTERVALO_AVISO_TELA_S = 30;
 export const INTERVALO_PEDIDO_TELA_S = 3;
-export const VERSAO_PLAYER_TELA = '2';
+export const VERSAO_PLAYER_TELA = '3';

@@ -176,7 +176,7 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
     mutationFn: (dados: Formulario) =>
       api<PreviaConteudoResposta>('/telas/conteudos/previa', {
         metodo: 'POST',
-        corpo: { consultaId: dados.consultaId, colunaNome: dados.config.colunaNome || undefined, colunaPreco: dados.config.colunaPreco || undefined, colunaPrecoDe: dados.config.colunaPrecoDe, colunaDetalhe: dados.config.colunaDetalhe },
+        corpo: { consultaId: dados.consultaId, colunaNome: dados.config.colunaNome || undefined, colunaPreco: dados.config.colunaPreco || undefined, colunaPrecoDe: dados.config.colunaPrecoDe, colunaDetalhe: dados.config.colunaDetalhe, comFotos: !!dados.config.comFotos, colunaCodigo: dados.config.colunaCodigo || undefined },
       }),
   });
   const colunas = previa.data?.colunas.length ? previa.data.colunas : (consulta?.colunas ?? []);
@@ -186,7 +186,7 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
     previa.reset();
     const c = consultas.find((x) => x.id === id);
     const s = colunasSugeridas(c?.colunas ?? []);
-    setF((x) => ({ ...x, consultaId: id, config: { ...x.config, colunaNome: s.colunaNome, colunaPreco: s.colunaPreco, colunaPrecoDe: s.colunaPrecoDe, colunaDetalhe: null } }));
+    setF((x) => ({ ...x, consultaId: id, config: { ...x.config, colunaNome: s.colunaNome, colunaPreco: s.colunaPreco, colunaPrecoDe: s.colunaPrecoDe, colunaDetalhe: null, colunaCodigo: s.colunaCodigo } }));
   };
 
   const comConsulta = modeloUsaConsulta(f.modelo);
@@ -286,6 +286,25 @@ function EditorConteudo({ conteudo, telas, aoFechar, aoSalvar }: { conteudo: Con
           <SelecaoColuna rotulo="Preço anterior (opcional)" valor={f.config.colunaPrecoDe ?? ''} colunas={colunas} opcional aoMudar={(v) => ajustar({ colunaPrecoDe: v || null })} />
           <SelecaoColuna rotulo="Detalhe (opcional)" valor={f.config.colunaDetalhe ?? ''} colunas={colunas} opcional aoMudar={(v) => ajustar({ colunaDetalhe: v || null })} />
         </div>
+        <div className="rounded-md border border-slate-200 p-3">
+          <label className="flex items-start gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={!!f.config.comFotos}
+              onChange={(e) => ajustar({ comFotos: e.target.checked, colunaCodigo: f.config.colunaCodigo || colunasSugeridas(colunas).colunaCodigo })}
+            />
+            <span>
+              <span className="font-medium text-slate-900">Mostrar a foto dos produtos</span>
+              <span className="mt-0.5 block text-xs text-slate-500">As fotos vêm do catálogo, pelo código de barras. Produto sem foto aparece só com o texto. Cada produto novo procurado conta no consumo da empresa no catálogo.</span>
+            </span>
+          </label>
+          {f.config.comFotos && (
+            <div className="mt-3">
+              <SelecaoColuna rotulo="Coluna do código de barras" valor={f.config.colunaCodigo ?? ''} colunas={colunas} aoMudar={(v) => ajustar({ colunaCodigo: v || null })} />
+            </div>
+          )}
+        </div>
         {f.consultaId && colunas.length === 0 && <p className="text-xs text-amber-700">As colunas desta consulta ainda não foram lidas. Clique em “Carregar dados reais” na pré-visualização.</p>}
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -380,7 +399,8 @@ function PreVisualizacao({ f, comConsulta, perfis, previa, carregando, erro, aoC
       nome: f.nome,
       modelo: f.modelo,
       config: { titulo: f.config.titulo, rodape: f.config.rodape, segundosPorCena: Math.max(LIMITES_CONTEUDO_TELA.segundosPorCena[0], f.config.segundosPorCena || 8), corFundo: f.config.corFundo, corDestaque: f.config.corDestaque, ajuste: f.config.ajuste },
-      itens: !comConsulta ? [] : reais ? previa.itens : ITENS_DE_EXEMPLO,
+      // Desligou as fotos depois de carregar: a pré-visualização não espera outra consulta para mostrar sem elas.
+      itens: !comConsulta ? [] : reais ? (f.config.comFotos ? previa.itens : previa.itens.map(({ foto: _foto, ...item }) => item)) : ITENS_DE_EXEMPLO,
       ...(comConsulta ? {} : { imagens: (f.config.imagens ?? []).map((i) => ({ url: caminhoImagemTela(i.imagemId), segundos: Math.max(LIMITES_CONTEUDO_TELA.segundosPorCena[0], i.segundos || 8) })) }),
       dadosEm: new Date().toISOString(),
       validoAte: new Date(Date.now() + 3_600_000).toISOString(),
@@ -420,6 +440,14 @@ function PreVisualizacao({ f, comConsulta, perfis, previa, carregando, erro, aoC
           {previa && previa.descartados > 0 && <p className="text-amber-700">{previa.descartados} linha(s) ficaram de fora por falta de nome ou de preço válido.</p>}
           {previa && previa.cortados > 0 && <p className="text-amber-700">{previa.cortados} produto(s) acima do limite de 200 ficaram de fora. Filtre a consulta.</p>}
           {previa && previa.banidos > 0 && <p>{previa.banidos} produto(s) banido(s) não aparecem.</p>}
+          {f.config.comFotos && !previa?.fotos && <p>Clique em “Carregar dados reais” para ver as fotos.</p>}
+          {f.config.comFotos && previa?.fotos && (
+            <p>
+              {previa.fotos.com} produto(s) com foto e {previa.fotos.sem} sem.{previa.fotos.pendentes > 0 ? ` Procurando mais ${previa.fotos.pendentes} no catálogo: elas chegam à tela sozinhas.` : ''}
+            </p>
+          )}
+          {f.config.comFotos && previa?.fotos?.aviso && <p className="text-amber-700">{previa.fotos.aviso}</p>}
+          {f.config.comFotos && !!previa?.fotos?.medicamentos && <p className="text-amber-700">{previa.fotos.medicamentos} produto(s) são medicamentos: confira as regras da Anvisa para propaganda antes de publicar.</p>}
           {previa && previa.itens.length === 0 && f.config.colunaNome && f.config.colunaPreco && <p className="text-amber-700">Nenhum produto aproveitável com essas colunas.</p>}
           {previa && !(f.config.colunaNome && f.config.colunaPreco) && <p className="text-amber-700">Escolha as colunas do nome e do preço e carregue de novo.</p>}
         </div>

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Injectable, Logger, NotFoundException, OnApplicationBootstrap, OnModuleDestroy, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import {
   AJUSTES_IMAGEM_TELA,
   caminhoImagemTela,
@@ -45,6 +45,7 @@ import { agoraNoFuso, ConsultasService } from '../consultas/consultas.service';
 import { pedeParametros } from '../impressao/agendamentos.service';
 import { tipoDaImagem } from '../posts/catalogo.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { FotosProdutoTelaService } from './fotos';
 import { horaLocal } from './hora';
 
 const INTERVALO_VERIFICACAO_MS = 30_000;
@@ -95,6 +96,15 @@ class ConfigConteudoDto implements ConfigConteudoTela {
   @IsOptional()
   @IsIn(AJUSTES_IMAGEM_TELA, { message: 'Ajuste de imagem desconhecido.' })
   ajuste?: AjusteImagemTela;
+
+  @IsOptional()
+  @IsBoolean()
+  comFotos?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  colunaCodigo?: string | null;
 }
 
 class EnviarImagemTelaDto {
@@ -184,6 +194,15 @@ class PreviaConteudoDto {
   @IsString()
   @MaxLength(200)
   colunaDetalhe?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  comFotos?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  colunaCodigo?: string | null;
 }
 
 class PublicarConteudoDto {
@@ -243,6 +262,7 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
     private readonly auditoria: AuditoriaService,
     private readonly consultas: ConsultasService,
     private readonly banidos: BanidosService,
+    private readonly fotos: FotosProdutoTelaService,
   ) {}
 
   onApplicationBootstrap() {
@@ -337,7 +357,7 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
     // Sem colunas lidas (agente desligado ao salvar a consulta) não dá para conferir: a atualização avisa.
     const colunas = ((consulta.campos ?? []) as unknown as CampoDinamico[]).map((c) => c.nome.toLowerCase());
     if (colunas.length) {
-      for (const coluna of [dto.config.colunaNome, dto.config.colunaPreco, dto.config.colunaPrecoDe, dto.config.colunaDetalhe]) {
+      for (const coluna of [dto.config.colunaNome, dto.config.colunaPreco, dto.config.colunaPrecoDe, dto.config.colunaDetalhe, dto.config.comFotos ? dto.config.colunaCodigo : null]) {
         if (coluna && !colunas.includes(coluna.toLowerCase())) throw new BadRequestException(`A consulta não tem a coluna “${coluna}”.`);
       }
     }
@@ -349,7 +369,7 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
       nome: dto.nome.trim(),
       modelo: dto.modelo,
       consultaId: comConsulta ? dto.consultaId : null,
-      config: { ...dto.config, colunaPrecoDe: dto.config.colunaPrecoDe || null, colunaDetalhe: dto.config.colunaDetalhe || null } as unknown as Prisma.InputJsonValue,
+      config: { ...dto.config, colunaPrecoDe: dto.config.colunaPrecoDe || null, colunaDetalhe: dto.config.colunaDetalhe || null, comFotos: !!dto.config.comFotos, colunaCodigo: dto.config.colunaCodigo || null } as unknown as Prisma.InputJsonValue,
       // Imagem não tem o que atualizar nem preço que fique velho.
       intervaloMinutos: comConsulta ? dto.intervaloMinutos : 0,
       validadeMinutos: comConsulta ? dto.validadeMinutos : 0,
@@ -397,9 +417,12 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
     const colunas = r.colunas.map((c) => c.nome);
     const itens =
       dto.colunaNome && dto.colunaPreco
-        ? itensDoConteudo(registros, { colunaNome: dto.colunaNome, colunaPreco: dto.colunaPreco, colunaPrecoDe: dto.colunaPrecoDe ?? null, colunaDetalhe: dto.colunaDetalhe ?? null })
+        ? itensDoConteudo(registros, { colunaNome: dto.colunaNome, colunaPreco: dto.colunaPreco, colunaPrecoDe: dto.colunaPrecoDe ?? null, colunaDetalhe: dto.colunaDetalhe ?? null, comFotos: dto.comFotos, colunaCodigo: dto.colunaCodigo ?? null })
         : { itens: [], descartados: 0, cortados: 0 };
-    return { ...itens, colunas, banidos: todos.length - registros.length };
+    const banidosFora = todos.length - registros.length;
+    if (!dto.comFotos || !dto.colunaCodigo) return { ...itens, colunas, banidos: banidosFora };
+    const { itens: comFotos, fotos } = await this.fotos.paraPrevia(empresaId, itens.itens);
+    return { ...itens, itens: comFotos, colunas, banidos: banidosFora, fotos };
   }
 
   // Imagens --------------------------------------------------------------------------------
@@ -543,12 +566,33 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
       const r = await this.consultas.executar(c.empresaId, c.consultaId, c.responsavelId, {}, LIMITE_LINHAS_CONTEUDO);
       const banidos = await this.banidos.conjunto(c.empresaId);
       const registros = linhasParaRegistros(r.colunas, r.linhas).filter((x) => !registroBanido(x, banidos));
-      const { itens } = itensDoConteudo(registros, c.config as unknown as ConfigConteudoTela);
+      const cfg = c.config as unknown as ConfigConteudoTela;
+      const { itens } = itensDoConteudo(registros, cfg);
       // Sem nada aproveitável não é "dados novos": apagar a tela por um erro de coluna seria pior que esperar a validade.
       if (itens.length === 0) throw new Error('A consulta não trouxe nenhum produto com nome e preço.');
-      await this.prisma.conteudoTela.update({ where: { id }, data: { itens: itens as unknown as Prisma.InputJsonValue, quantidadeItens: itens.length, dadosEm: new Date(), erro: null } });
+      // O preço nunca espera a foto: entra com as já guardadas, e as outras chegam depois.
+      const { itens: comFotos, faltam } = cfg.comFotos ? await this.fotos.aplicar(c.empresaId, itens) : { itens, faltam: [] as string[] };
+      const dadosEm = new Date();
+      await this.prisma.conteudoTela.update({ where: { id }, data: { itens: comFotos as unknown as Prisma.InputJsonValue, quantidadeItens: itens.length, dadosEm, erro: null } });
+      if (faltam.length) void this.completarFotos(id, c.empresaId, faltam, dadosEm);
     } catch (e) {
       await this.prisma.conteudoTela.updateMany({ where: { id }, data: { erro: (e as Error).message.slice(0, 500) } }).catch(() => undefined);
+    }
+  }
+
+  /** Em segundo plano. Só toca nos dados que começou a completar: se já vieram outros, eles usam as fotos da próxima vez. */
+  async completarFotos(id: string, empresaId: string, codigos: string[], dadosEm: Date): Promise<void> {
+    try {
+      await this.fotos.buscar(empresaId, codigos);
+      const atual = await this.prisma.conteudoTela.findUnique({ where: { id }, select: { itens: true, dadosEm: true } });
+      if (!atual || atual.dadosEm?.getTime() !== dadosEm.getTime()) return;
+      const antes = atual.itens as unknown as ItemConteudoTela[];
+      const { itens } = await this.fotos.aplicar(empresaId, antes);
+      if (itens.every((item, i) => item.foto === antes[i].foto)) return;
+      // Sem mexer em `dadosEm`: a foto não torna o preço mais novo. A edição muda a versão, e a TV busca de novo.
+      await this.prisma.conteudoTela.updateMany({ where: { id, dadosEm }, data: { itens: itens as unknown as Prisma.InputJsonValue } });
+    } catch (e) {
+      this.log.warn(`Fotos do conteúdo ${id}: ${(e as Error).message}`);
     }
   }
 
@@ -578,7 +622,8 @@ export class ConteudosTelaService implements OnApplicationBootstrap, OnModuleDes
           nome: c.nome,
           modelo: c.modelo as ModeloConteudoTela,
           config: { titulo: cfg.titulo, rodape: cfg.rodape, segundosPorCena: cfg.segundosPorCena, corFundo: cfg.corFundo, corDestaque: cfg.corDestaque, ajuste: cfg.ajuste },
-          itens: c.itens as unknown as ItemConteudoTela[],
+          // O código só serve para achar a foto, e a foto só vale com a opção ligada: uma atualização que falhou pode ter deixado a antiga.
+          itens: (c.itens as unknown as ItemConteudoTela[]).map(({ codigo: _codigo, foto, ...item }) => (foto && cfg.comFotos ? { ...item, foto } : item)),
           ...(c.modelo === 'IMAGENS' ? { imagens: (cfg.imagens ?? []).map((i) => ({ url: caminhoImagemTela(i.imagemId), segundos: i.segundos })) } : {}),
           dadosEm: c.dadosEm!.toISOString(),
           validoAte: dadosValidosAte(c.dadosEm!, c.validadeMinutos).toISOString(),
