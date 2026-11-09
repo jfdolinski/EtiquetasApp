@@ -13,6 +13,7 @@ import {
   resolucaoConfere,
   resolucaoValida,
   situacaoDaTela,
+  telaAcesaDe,
 } from './telas';
 
 describe('formato e resolução', () => {
@@ -104,6 +105,10 @@ describe('parâmetros', () => {
     expect(problemaNosParametros({ fatiaAnunciosPct: 90 })).toContain('entre 0 e 50');
     expect(problemaNosParametros({ fatiaAnunciosPct: 1.5 })).toContain('entre 0 e 50');
     expect(problemaNosParametros({ aprovacaoObrigatoria: 'sim' })).toContain('inválido');
+    expect(telaAcesaDe(true, true)).toBe('PEDIDO_ACEITO');
+    expect(telaAcesaDe(true, false)).toBe('PEDIDO_ACEITO');
+    expect(telaAcesaDe(false, true)).toBe('SO_VIDEO');
+    expect(telaAcesaDe(false, false)).toBe('RECUSADO');
     expect(problemaNosParametros({ outro: 1 })).toContain('desconhecido');
   });
 

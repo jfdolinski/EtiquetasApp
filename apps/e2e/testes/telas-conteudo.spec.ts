@@ -901,6 +901,55 @@ test('aprovação pelo site: envia, recusa com motivo, corrige e aprova, e a TV 
   await page.screenshot({ path: 'test-results/aprovacao-mudanca.png' });
 });
 
+test('mantém a TV acordada: vídeo tocando, sem erro, e o site mostra o que o navegador deixou', async ({ browser }) => {
+  // Cada caso espera um aviso de verdade, que sai a cada 30 s.
+  test.setTimeout(180_000);
+  const empresa = await criarEmpresa(tokenSuper);
+  const situacaoNoSite = async (id: string) => ((await pedir('GET', '/telas', { token: empresa.adminToken })).j as { id: string; telaAcesa: string | null }[]).find((t) => t.id === id)?.telaAcesa;
+
+  async function abrir(nome: string, preparar: string) {
+    const tela = await telaVinculada(empresa, nome);
+    const contexto = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const tv = await contexto.newPage();
+    const erros: string[] = [];
+    tv.on('console', (m) => m.type() === 'error' && erros.push(m.text()));
+    await tv.addInitScript((t) => localStorage.setItem('etiquetas.tv.token', t), tela.token);
+    await tv.addInitScript(preparar);
+    await tv.goto('/tv');
+    return { tela, tv, contexto, erros };
+  }
+
+  // Sem o pedido oficial, como em muitas TVs: o vídeo segura sozinho, e tocando de verdade.
+  const soVideo = await abrir('TV só vídeo', `Object.defineProperty(Navigator.prototype, 'wakeLock', { get: () => undefined });`);
+  const video = soVideo.tv.getByTestId('video-acordada');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => !v.paused && v.readyState >= 2 && !!v.currentSrc)).toBe(true);
+  const antes = await video.evaluate((v: HTMLVideoElement) => v.currentTime);
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).not.toBe(antes);
+  expect(await video.evaluate((v: HTMLVideoElement) => [v.muted, v.loop, Math.round(v.getBoundingClientRect().width)])).toEqual([true, true, 2]);
+  // O primeiro aviso sai antes de o vídeo abrir e não acusa nada: quem conta é o seguinte.
+  expect(await situacaoNoSite(soVideo.tela.id)).toBeNull();
+  await expect.poll(() => situacaoNoSite(soVideo.tela.id), { timeout: 40_000 }).toBe('SO_VIDEO');
+  expect(soVideo.erros).toEqual([]);
+  await soVideo.contexto.close();
+
+  // Com o pedido aceito.
+  const aceito = await abrir('TV aceita', `Object.defineProperty(Navigator.prototype, 'wakeLock', { get: () => ({ request: async () => Object.assign(new EventTarget(), { release: async () => undefined }) }) });`);
+  await expect.poll(() => situacaoNoSite(aceito.tela.id), { timeout: 40_000 }).toBe('PEDIDO_ACEITO');
+  await aceito.contexto.close();
+
+  // Sem nenhum dos dois: o site avisa, e a página segue funcionando.
+  const nada = await abrir('TV recusa', `Object.defineProperty(Navigator.prototype, 'wakeLock', { get: () => ({ request: () => Promise.reject(new Error('negado')) }) }); HTMLMediaElement.prototype.play = () => Promise.reject(new Error('negado')); Object.defineProperty(HTMLMediaElement.prototype, 'paused', { get: () => true });`);
+  await expect.poll(() => situacaoNoSite(nada.tela.id), { timeout: 40_000 }).toBe('RECUSADO');
+  await nada.contexto.close();
+
+  // Player antigo não informa: fica vazio, sem erro.
+  const antiga = await telaVinculada(empresa, 'TV antiga');
+  expect((await pedir('POST', '/tv/aviso', { token: antiga.token, corpo: { ...RESOLUCAO, versao: '4' } })).status).toBe(200);
+  expect(await situacaoNoSite(antiga.id)).toBeNull();
+  // Valor inventado não entra.
+  expect((await pedir('POST', '/tv/aviso', { token: antiga.token, corpo: { ...RESOLUCAO, telaAcesa: 'qualquer' } })).status).toBe(400);
+});
+
 test('logomarca e fundo: regras da API, isolamento, em uso e o que a TV recebe', async () => {
   const empresa = await criarEmpresa(tokenSuper);
   const outra = await criarEmpresa(tokenSuper);

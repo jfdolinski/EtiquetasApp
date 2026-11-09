@@ -271,6 +271,8 @@ export interface TelaResumo {
   versaoPlayer: string | null;
   /** A página está em segundo plano no aparelho. */
   emSegundoPlano: boolean;
+  /** Vazio: player antigo, que ainda não informa. */
+  telaAcesa: SituacaoTelaAcesa | null;
   horarioInicio: string | null;
   horarioFim: string | null;
   resolucaoConfere: boolean;
@@ -323,4 +325,16 @@ export interface ParametrosTelasResposta {
 
 export const INTERVALO_AVISO_TELA_S = 30;
 export const INTERVALO_PEDIDO_TELA_S = 3;
-export const VERSAO_PLAYER_TELA = '4';
+export const VERSAO_PLAYER_TELA = '5';
+
+export const SITUACOES_TELA_ACESA = ['PEDIDO_ACEITO', 'SO_VIDEO', 'RECUSADO'] as const;
+export type SituacaoTelaAcesa = (typeof SITUACOES_TELA_ACESA)[number];
+
+/** Nenhuma delas é garantia: o desligamento automático do menu da TV vale por cima de qualquer página. */
+export const ROTULO_TELA_ACESA: Record<SituacaoTelaAcesa, string> = {
+  PEDIDO_ACEITO: 'O navegador aceitou manter a tela acesa',
+  SO_VIDEO: 'Mantendo acesa só com vídeo: depende da TV',
+  RECUSADO: 'O navegador não deixa manter acesa: ajuste o menu da TV',
+};
+
+export const telaAcesaDe = (pedidoAceito: boolean, videoTocando: boolean): SituacaoTelaAcesa => (pedidoAceito ? 'PEDIDO_ACEITO' : videoTocando ? 'SO_VIDEO' : 'RECUSADO');

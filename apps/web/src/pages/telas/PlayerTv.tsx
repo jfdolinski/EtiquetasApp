@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import {
   codigoParaLer,
   INTERVALO_AVISO_TELA_S,
@@ -6,6 +6,7 @@ import {
   linkDoVinculoDaTela,
   nivelEfetivo,
   programasValidos,
+  telaAcesaDe,
   VERSAO_PLAYER_TELA,
   type PedidoTelaCriado,
   type ProgramacaoTela,
@@ -112,22 +113,63 @@ async function enviar<T>(caminho: string, corpo: unknown, token?: string): Promi
   return { status: r.status, dados: (await r.json().catch(() => null)) as T | null };
 }
 
-/** Mantém a tela acesa onde o navegador deixa; onde não deixa, a TV segue a própria configuração. */
-function useTelaAcesa() {
+interface TravaDeTela extends EventTarget {
+  release: () => Promise<void>;
+}
+
+/** Fora do React porque o aviso ao servidor, bem mais abaixo na árvore, conta o que está valendo. */
+const manterAcesa: { trava: TravaDeTela | null; pedindo: boolean; video: HTMLVideoElement | null } = { trava: null, pedindo: false, video: null };
+
+const ABERTA_EM = Date.now();
+/** O primeiro aviso sai antes de o vídeo abrir: acusaria um problema que não existe. */
+const situacaoDaTelaAcesa = () => (Date.now() - ABERTA_EM < 10_000 ? undefined : telaAcesaDe(!!manterAcesa.trava, !!manterAcesa.video && !manterAcesa.video.paused && manterAcesa.video.readyState >= 2));
+
+const REPETIR_TELA_ACESA_MS = 30_000;
+
+/**
+ * Mantém a tela acesa onde o navegador deixa, de dois jeitos: o pedido oficial e, para quem não tem ou
+ * perde esse pedido, um vídeo mudo em repetição, porque muitas TVs não dormem com vídeo tocando. Nenhum
+ * dos dois vence o desligamento automático do menu da TV. Cada um é pedido de novo sozinho: alguns
+ * navegadores só aceitam depois de um botão do controle, e o pedido oficial cai quando a página some.
+ */
+function useTelaAcesa(video: RefObject<HTMLVideoElement | null>) {
   useEffect(() => {
-    let trava: { release: () => Promise<void> } | null = null;
-    const pedir = () => {
-      const wakeLock = (navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock;
-      void wakeLock?.request('screen').then((t) => (trava = t)).catch(() => undefined);
+    manterAcesa.video = video.current;
+    const tentar = () => {
+      if (document.visibilityState !== 'visible') return;
+      const wakeLock = (navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<TravaDeTela> } }).wakeLock;
+      if (wakeLock && !manterAcesa.trava && !manterAcesa.pedindo) {
+        manterAcesa.pedindo = true;
+        void wakeLock
+          .request('screen')
+          .then((t) => {
+            manterAcesa.trava = t;
+            t.addEventListener('release', () => {
+              if (manterAcesa.trava === t) manterAcesa.trava = null;
+            });
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            manterAcesa.pedindo = false;
+          });
+      }
+      if (video.current?.paused) void video.current.play()?.catch(() => undefined);
     };
-    pedir();
-    const aoVoltar = () => document.visibilityState === 'visible' && pedir();
-    document.addEventListener('visibilitychange', aoVoltar);
+    tentar();
+    const relogio = setInterval(tentar, REPETIR_TELA_ACESA_MS);
+    document.addEventListener('visibilitychange', tentar);
+    window.addEventListener('keydown', tentar);
+    window.addEventListener('pointerdown', tentar);
     return () => {
-      document.removeEventListener('visibilitychange', aoVoltar);
-      void trava?.release().catch(() => undefined);
+      clearInterval(relogio);
+      document.removeEventListener('visibilitychange', tentar);
+      window.removeEventListener('keydown', tentar);
+      window.removeEventListener('pointerdown', tentar);
+      void manterAcesa.trava?.release().catch(() => undefined);
+      manterAcesa.trava = null;
+      manterAcesa.video = null;
     };
-  }, []);
+  }, [video]);
 }
 
 /** Voltar precisa continuar saindo da tela cheia: Esc, voltar, e os códigos de voltar da LG (461) e da Samsung (10009). */
@@ -190,7 +232,8 @@ function useTelaCheia(): boolean {
 /** O link único: sem vínculo, mostra o QR; vinculada, avisa o servidor e mostra o conteúdo. */
 export function PlayerTv() {
   const [token, setToken] = useState(lerToken);
-  useTelaAcesa();
+  const videoAcordada = useRef<HTMLVideoElement>(null);
+  useTelaAcesa(videoAcordada);
   const dicaTelaCheia = useTelaCheia();
 
   const vincular = useCallback((t: string | null) => {
@@ -201,6 +244,11 @@ export function PlayerTv() {
 
   return (
     <div className="flex h-screen w-screen cursor-none flex-col items-center justify-center overflow-hidden bg-slate-950 p-[2vmin] text-center text-white">
+      {/* Quase invisível, em vez de escondido: alguns navegadores pausam o vídeo que não aparece. MP4 é o que as TVs sempre tocam. */}
+      <video ref={videoAcordada} data-testid="video-acordada" aria-hidden="true" muted loop autoPlay playsInline disablePictureInPicture style={{ position: 'fixed', left: 0, top: 0, width: 2, height: 2, opacity: 0.01, pointerEvents: 'none' }}>
+        <source src="/tv-acordada.mp4" type="video/mp4" />
+        <source src="/tv-acordada.webm" type="video/webm" />
+      </video>
       {token ? <TelaVinculada token={token} aoPerder={() => vincular(null)} /> : <PedidoDeVinculo aoVincular={vincular} />}
       {dicaTelaCheia && Math.min(window.innerWidth, window.innerHeight) >= MENOR_LADO_PARA_QR && (
         <p role="status" className="fixed bottom-[3vmin] left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/80 px-[3vmin] py-[1.2vmin] text-[2.6vmin] text-white">
@@ -315,7 +363,7 @@ function TelaVinculada({ token, aoPerder }: { token: string; aoPerder: () => voi
     }
     async function avisar() {
       try {
-        const r = await enviar<RespostaAvisoTela & { message?: string }>('aviso', { ...medidas(), versao: VERSAO_PLAYER_TELA, segundoPlano: document.visibilityState !== 'visible' }, token);
+        const r = await enviar<RespostaAvisoTela & { message?: string }>('aviso', { ...medidas(), versao: VERSAO_PLAYER_TELA, segundoPlano: document.visibilityState !== 'visible', telaAcesa: situacaoDaTelaAcesa() }, token);
         if (!ativo) return;
         // Desvinculada: volta ao QR. Sem internet ou servidor fora, continua como está.
         if (r.status === 401) return aoPerder();

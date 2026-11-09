@@ -18,6 +18,8 @@ import {
   problemaNosPrazos,
   RESOLUCAO_MAXIMA,
   RESOLUCAO_MINIMA,
+  SITUACOES_TELA_ACESA,
+  type SituacaoTelaAcesa,
   resolucaoConfere,
   resolucaoValida,
   situacaoDaTela,
@@ -103,6 +105,10 @@ class AvisoTelaDto extends ResolucaoDto {
   @IsOptional()
   @IsBoolean()
   segundoPlano?: boolean;
+
+  @IsOptional()
+  @IsIn(SITUACOES_TELA_ACESA)
+  telaAcesa?: SituacaoTelaAcesa;
 }
 
 class PerfilTelaDto {
@@ -218,6 +224,7 @@ const SELECAO_TELA = {
   navegador: true,
   versaoPlayer: true,
   emSegundoPlano: true,
+  telaAcesa: true,
   horarioInicio: true,
   horarioFim: true,
   perfil: { select: { id: true, nome: true, tipo: true, largura: true, altura: true } },
@@ -239,6 +246,7 @@ function resumir(t: TelaSelecionada, quedas: number, agora: Date, hora: string, 
     navegador: t.navegador,
     versaoPlayer: t.versaoPlayer,
     emSegundoPlano: t.emSegundoPlano,
+    telaAcesa: t.telaAcesa as SituacaoTelaAcesa | null,
     horarioInicio: t.horarioInicio,
     horarioFim: t.horarioFim,
     resolucaoConfere: resolucaoConfere(t.perfil, { largura: t.larguraDetectada, altura: t.alturaDetectada }),
@@ -520,7 +528,7 @@ export class TelasService {
     await this.prisma.$transaction([
       this.prisma.tela.update({
         where: { id: tela.id },
-        data: { ultimoContatoEm: agora, larguraDetectada: dto.largura, alturaDetectada: dto.altura, escalaDetectada: dto.escala ?? null, navegador: dto.navegador ?? null, versaoPlayer: dto.versao ?? null, emSegundoPlano: dto.segundoPlano ?? false, ...(tela.comando ? { comando: null } : {}) },
+        data: { ultimoContatoEm: agora, larguraDetectada: dto.largura, alturaDetectada: dto.altura, escalaDetectada: dto.escala ?? null, navegador: dto.navegador ?? null, versaoPlayer: dto.versao ?? null, emSegundoPlano: dto.segundoPlano ?? false, telaAcesa: dto.telaAcesa ?? null, ...(tela.comando ? { comando: null } : {}) },
       }),
       ...(contaComoQueda ? [this.prisma.quedaTela.create({ data: { empresaId: tela.empresaId, telaId: tela.id, inicio: tela.ultimoContatoEm!, fim: agora } })] : []),
     ]);

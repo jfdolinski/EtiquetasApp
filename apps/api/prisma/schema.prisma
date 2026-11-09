@@ -973,6 +973,8 @@ model Tela {
   navegador        String?
   versaoPlayer     String?   @map("versao_player")
   emSegundoPlano   Boolean   @default(false) @map("em_segundo_plano")
+  /// SituacaoTelaAcesa: o que o player conseguiu para a TV não dormir.
+  telaAcesa        String?   @map("tela_acesa")
   /// HH:MM no fuso do sistema; fora dele, ficar sem aviso não é problema.
   horarioInicio    String?   @map("horario_inicio")
   horarioFim       String?   @map("horario_fim")

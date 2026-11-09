@@ -23,6 +23,7 @@ import {
   type TelaResumo,
   type TipoEquipamento,
   REGRAS_DE_APROVACAO,
+  ROTULO_TELA_ACESA,
   type ConteudoParaAprovar,
 } from '@etiquetas/shared';
 import { api } from '../../api';
@@ -132,6 +133,7 @@ function Equipamentos() {
             <td className="px-4 py-2.5">
               <Selo cor={COR_SITUACAO[t.situacao]}>{ROTULO_SITUACAO_TELA[t.situacao]}</Selo>
               {t.emSegundoPlano && t.situacao === 'ONLINE' && <div className="mt-1 text-xs text-amber-700">Página em segundo plano</div>}
+              {t.telaAcesa && <div data-testid="tela-acesa" className={`mt-1 max-w-56 text-xs ${t.telaAcesa === 'PEDIDO_ACEITO' ? 'text-slate-500' : 'text-amber-700'}`}>{ROTULO_TELA_ACESA[t.telaAcesa]}</div>}
             </td>
             <td className="whitespace-nowrap px-4 py-2.5 text-slate-500">{formatarData(t.ultimoContatoEm)}</td>
             <td className="px-4 py-2.5 text-slate-600">
