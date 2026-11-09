@@ -85,6 +85,8 @@ export interface UsuarioResumo {
   /** Veio do "Cadastre-se" e aguarda aprovação. */
   cadastroPendente: boolean;
   perfil: { id: string; nome: string } | null;
+  /** Código do atendente no ERP (folha de lançamento dos pedidos). */
+  codigoErp: string | null;
   ultimoLoginEm: string | null;
   criadoEm: string;
 }

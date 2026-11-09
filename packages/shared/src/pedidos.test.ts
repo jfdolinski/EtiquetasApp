@@ -307,7 +307,7 @@ describe('pedido do cliente', () => {
 
   it('aceita o pedido completo e calcula os totais e o troco', () => {
     expect(problemaNoPedido(p, itens, ctx)).toBeNull();
-    expect(totaisDoPedido(itens, 500, 10000)).toEqual({ subtotalCentavos: 4980, taxaCentavos: 500, totalCentavos: 5480, trocoCentavos: 4520 });
+    expect(totaisDoPedido(itens, 500, 10000)).toEqual({ subtotalCentavos: 4980, taxaCentavos: 500, descontoCentavos: 0, totalCentavos: 5480, trocoCentavos: 4520 });
     expect(totaisDoPedido(itens, 0, null).trocoCentavos).toBeNull();
   });
 

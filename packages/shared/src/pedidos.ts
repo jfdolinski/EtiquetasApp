@@ -6,6 +6,7 @@
 import type { Registro } from './etiquetas/tipos';
 import { somarDias, textoNaTela } from './etiquetas/valores';
 import { numeroDe } from './avulsa';
+import type { PropostaPublica } from './pedidos-painel';
 
 // Entrega e pagamento ------------------------------------------------------------------------
 
@@ -126,6 +127,8 @@ export interface ConfigPedidos extends ColunasCatalogo {
   enderecoRetirada: string;
   /** Só com a entrega agendada: até quantos dias à frente e o tamanho de cada faixa de horário. */
   agendamento: ConfigAgendamento;
+  /** Térmica ESC/POS que recebe a folha de lançamento. Nula: a folha só aparece na tela. */
+  impressoraFolhaId: string | null;
 }
 
 export interface ConfigAgendamento {
@@ -168,6 +171,7 @@ export const CONFIG_PEDIDOS_PADRAO: ConfigPedidos = {
   mensagem: '',
   enderecoRetirada: '',
   agendamento: AGENDAMENTO_PADRAO,
+  impressoraFolhaId: null,
 };
 
 const valorValido = (v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= LIMITES_PEDIDOS.valorMaximoCentavos;
@@ -619,14 +623,17 @@ export interface ContextoPedido {
 export interface TotaisPedido {
   subtotalCentavos: number;
   taxaCentavos: number;
+  /** Só a loja dá, numa alteração que o cliente aceitou. */
+  descontoCentavos: number;
   totalCentavos: number;
+  /** Nulo sem troco, ou quando o valor informado não cobre mais o total. */
   trocoCentavos: number | null;
 }
 
-export function totaisDoPedido(itens: { quantidade: number; precoCentavos: number }[], taxaCentavos: number, trocoParaCentavos: number | null): TotaisPedido {
+export function totaisDoPedido(itens: { quantidade: number; precoCentavos: number }[], taxaCentavos: number, trocoParaCentavos: number | null, descontoCentavos = 0): TotaisPedido {
   const subtotalCentavos = subtotalDe(itens);
-  const totalCentavos = subtotalCentavos + taxaCentavos;
-  return { subtotalCentavos, taxaCentavos, totalCentavos, trocoCentavos: trocoParaCentavos === null ? null : trocoPara(totalCentavos, trocoParaCentavos) };
+  const totalCentavos = Math.max(0, subtotalCentavos + taxaCentavos - descontoCentavos);
+  return { subtotalCentavos, taxaCentavos, descontoCentavos, totalCentavos, trocoCentavos: trocoParaCentavos === null ? null : trocoPara(totalCentavos, trocoParaCentavos) };
 }
 
 /** Confere o pedido já com os itens do catálogo (`conferirCarrinho` sem mudanças). Devolve a mensagem para o cliente. */
@@ -697,6 +704,9 @@ export interface PedidoPublico {
   observacao: string;
   itens: ItemConferido[];
   totais: TotaisPedido;
+  /** Uma alteração da loja esperando o cliente aceitar ou recusar. */
+  proposta: PropostaPublica | null;
+  motivoCancelamento: string | null;
 }
 
 /** Resposta de quem envia: o número e o código do acompanhamento, que só ele recebe. */

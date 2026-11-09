@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class CriarUsuarioDto {
   @IsString()
@@ -16,6 +16,13 @@ export class CriarUsuarioDto {
 
   @IsUUID('all', { message: 'Selecione um perfil.' })
   perfilId: string;
+
+  /** Código do atendente no ERP, para a folha de lançamento dos pedidos. Vazio apaga. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  @Matches(/^[ -~]*$/, { message: 'O código no ERP aceita só letras sem acento, números e sinais simples.' })
+  codigoErp?: string;
 }
 
 export class AtualizarUsuarioDto {
@@ -43,6 +50,13 @@ export class AtualizarUsuarioDto {
   @IsOptional()
   @IsBoolean()
   ativo?: boolean;
+
+  /** Código do atendente no ERP, para a folha de lançamento dos pedidos. Vazio apaga. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  @Matches(/^[ -~]*$/, { message: 'O código no ERP aceita só letras sem acento, números e sinais simples.' })
+  codigoErp?: string;
 }
 
 export class AprovarCadastroDto {

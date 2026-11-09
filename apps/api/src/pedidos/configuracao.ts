@@ -97,6 +97,7 @@ function configLimpa(c: Partial<ConfigPedidos>): ConfigPedidos {
     mensagem: texto(c.mensagem, 1000),
     enderecoRetirada: texto(c.enderecoRetirada, 1000),
     agendamento: { dias: c.agendamento?.dias ?? AGENDAMENTO_PADRAO.dias, duracaoMinutos: c.agendamento?.duracaoMinutos ?? AGENDAMENTO_PADRAO.duracaoMinutos },
+    impressoraFolhaId: typeof c.impressoraFolhaId === 'string' && c.impressoraFolhaId ? c.impressoraFolhaId : null,
   };
 }
 
@@ -168,6 +169,11 @@ export class ConfiguracaoPedidosService implements OnApplicationBootstrap, OnMod
     return lista.map((c) => ({ id: c.id, nome: c.nome, colunas: ((c.campos ?? []) as unknown as CampoDinamico[]).map((x) => x.nome), pedeParametro: pedeParametros(c as never) }));
   }
 
+  /** Só as térmicas de cupom: a folha é ESC/POS. */
+  impressorasDaFolha(empresaId: string) {
+    return this.prisma.impressora.findMany({ where: { empresaId, ativo: true, linguagem: 'ESCPOS' }, orderBy: { nome: 'asc' }, select: { id: true, nome: true } });
+  }
+
   private async consultaUtil(empresaId: string, consultaId: string) {
     const consulta = await this.prisma.consultaSql.findFirst({ where: { id: consultaId, empresaId, ativo: true }, select: { id: true, sql: true, campos: true, conexao: { select: { tipo: true } } } });
     if (!consulta) throw new BadRequestException('Consulta não encontrada ou desativada.');
@@ -186,6 +192,11 @@ export class ConfiguracaoPedidosService implements OnApplicationBootstrap, OnMod
       for (const col of [config.colunaCodigo, config.colunaNome, config.colunaPreco, config.colunaPrecoDe, config.colunaUnidade, config.colunaCategoria, config.colunaEstoque, config.colunaCodigoBarras]) {
         if (col && !colunas.includes(col.toLowerCase())) throw new BadRequestException(`A consulta não tem a coluna “${col}”.`);
       }
+    }
+    // A impressora é da empresa e fala ESC/POS: a folha é um cupom de térmica.
+    if (config.impressoraFolhaId) {
+      const ok = await this.prisma.impressora.count({ where: { id: config.impressoraFolhaId, empresaId, ativo: true, linguagem: 'ESCPOS' } });
+      if (!ok) throw new BadRequestException('A impressora da folha precisa ser uma térmica ESC/POS ativa desta empresa.');
     }
     const horario = horarioLimpo(dto.horario);
     const dados = {
@@ -324,6 +335,12 @@ export class ConfiguracaoPedidosController {
   @RequerPermissao('pedido.configurar')
   consultas(@EmpresaAtual() empresaId: string) {
     return this.servico.consultasDisponiveis(empresaId);
+  }
+
+  @Get('impressoras')
+  @RequerPermissao('pedido.configurar')
+  impressoras(@EmpresaAtual() empresaId: string) {
+    return this.servico.impressorasDaFolha(empresaId);
   }
 
   @Put()

@@ -12,6 +12,6 @@ import { TrabalhosService } from './trabalhos.service';
   imports: [AgentesModule, ConsultasModule, BanidosModule],
   controllers: [ListasController, AvulsaController, TrabalhosController, AgendamentosController],
   providers: [ListasService, TrabalhosService, DespachoService, AgendamentosService],
-  exports: [ListasService],
+  exports: [ListasService, TrabalhosService],
 })
 export class ImpressaoModule {}

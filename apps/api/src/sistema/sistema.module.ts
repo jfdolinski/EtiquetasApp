@@ -1,5 +1,6 @@
 import { ArgumentsHost, Catch, Controller, Get, HttpException, Injectable, Logger, Module, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { APP_FILTER, BaseExceptionFilter } from '@nestjs/core';
+import { Prisma } from '@prisma/client';
 import type { Request } from 'express';
 import type { SaudeSistema } from '@etiquetas/shared';
 import { AgentesModule } from '../agentes/agentes.module';
@@ -15,6 +16,8 @@ const LOTE_CONTEUDO = 200;
 const RETENCAO_ERROS_DIAS = 30;
 const RETENCAO_LISTAS_DIAS = 180;
 const RETENCAO_FOTOS_TELA_DIAS = 60;
+/** Pedido terminado há mais que isto perde os dados pessoais do cliente. */
+const RETENCAO_DADOS_PEDIDO_DIAS = 180;
 /** Sessões e links vencidos não servem para nada depois de um tempo. */
 const RETENCAO_VENCIDOS_DIAS = 30;
 
@@ -98,6 +101,11 @@ export class ManutencaoService implements OnApplicationBootstrap, OnModuleDestro
       await this.prisma.quedaTela.deleteMany({ where: { fim: { lt: antes(RETENCAO_LISTAS_DIAS) } } });
       // Foto em uso é conferida todo mês: parada há dois meses, nenhum conteúdo a pede mais.
       await this.prisma.fotoProdutoTela.deleteMany({ where: { verificadoEm: { lt: antes(RETENCAO_FOTOS_TELA_DIAS) } } });
+      // Pedido terminado guarda número e valores; nome, telefone, endereço e observação do cliente saem (LGPD).
+      await this.prisma.pedido.updateMany({
+        where: { situacao: { in: ['CONCLUIDO', 'CANCELADO'] }, atualizadoEm: { lt: antes(RETENCAO_DADOS_PEDIDO_DIAS) }, clienteTelefone: { not: '' } },
+        data: { clienteNome: 'Dados apagados', clienteTelefone: '', endereco: Prisma.DbNull, observacao: '' },
+      });
       this.log.log(`Faxina: ${r.conteudos} conteúdo(s), ${r.auditoria} registro(s) de auditoria, ${r.listas} lista(s).`);
     } catch (e) {
       r.erro = (e as Error).message;

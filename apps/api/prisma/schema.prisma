@@ -97,6 +97,8 @@ model Usuario {
   totpBloqueadoAte       DateTime? @map("totp_bloqueado_ate")
   /// SHA-256 dos códigos de recuperação ainda não usados.
   totpCodigosRecuperacao String[]  @default([]) @map("totp_codigos_recuperacao")
+  /// Código do atendente no ERP: vai em código de barras na folha de lançamento dos pedidos.
+  codigoErp              String?   @map("codigo_erp")
   criadoEm               DateTime  @default(now()) @map("criado_em")
   atualizadoEm           DateTime  @updatedAt @map("atualizado_em")
 
@@ -112,6 +114,7 @@ model Usuario {
   redefinicoes         RedefinicaoSenha[]
   conteudosTela        ConteudoTela[]
   configuracoesPedidos ConfiguracaoPedidos[]
+  pedidosAceitos       Pedido[]
 
   @@index([empresaId])
   @@map("usuarios")
@@ -595,6 +598,8 @@ enum OrigemTrabalho {
   LISTA
   AVULSA
   AGENDAMENTO
+  /// Folha de lançamento de um pedido feito pelo link da empresa.
+  PEDIDO
 }
 
 /// Trabalho de impressão: conteúdo já gerado na linguagem da impressora, entregue pelo agente.
@@ -1172,40 +1177,55 @@ model ConfiguracaoPedidos {
 
 /// Pedido feito pelo link da empresa. Preços e totais são os conferidos no servidor na hora de gravar.
 model Pedido {
-  id                String   @id @default(uuid()) @db.Uuid
-  empresaId         String   @map("empresa_id") @db.Uuid
+  id                 String    @id @default(uuid()) @db.Uuid
+  empresaId          String    @map("empresa_id") @db.Uuid
   /// Sequencial por empresa.
-  numero            Int
+  numero             Int
   /// SHA-256 do código do link de acompanhamento: o banco sozinho não abre o pedido.
-  codigoHash        String   @unique @map("codigo_hash")
+  codigoHash         String    @unique @map("codigo_hash")
   /// O mesmo código cifrado, para a loja mandar o link de novo ao cliente.
-  codigoCifrado     String   @map("codigo_cifrado")
+  codigoCifrado      String    @map("codigo_cifrado")
   /// SituacaoPedido de packages/shared.
-  situacao          String   @default("NOVO")
-  clienteNome       String   @map("cliente_nome")
+  situacao           String    @default("NOVO")
+  clienteNome        String    @map("cliente_nome")
   /// Só os 11 dígitos.
-  clienteTelefone   String   @map("cliente_telefone")
+  clienteTelefone    String    @map("cliente_telefone")
   /// EnderecoPedido; nulo na retirada.
-  endereco          Json?
-  modalidade        String
+  endereco           Json?
+  modalidade         String
   /// FaixaAgendamento; só na agendada.
-  agendamento       Json?
-  pagamento         String
-  trocoParaCentavos Int?     @map("troco_para_centavos")
-  observacao        String   @default("")
+  agendamento        Json?
+  pagamento          String
+  trocoParaCentavos  Int?      @map("troco_para_centavos")
+  observacao         String    @default("")
   /// ItemConferido[].
-  itens             Json
-  subtotalCentavos  Int      @map("subtotal_centavos")
-  taxaCentavos      Int      @map("taxa_centavos")
-  totalCentavos     Int      @map("total_centavos")
+  itens              Json
+  subtotalCentavos   Int       @map("subtotal_centavos")
+  taxaCentavos       Int       @map("taxa_centavos")
+  /// Dado pela loja numa alteração aceita pelo cliente.
+  descontoCentavos   Int       @default(0) @map("desconto_centavos")
+  totalCentavos      Int       @map("total_centavos")
+  /// Quem aceitou: o código dele no ERP vai na folha de lançamento.
+  aceitoPorId        String?   @map("aceito_por_id") @db.Uuid
+  aceitoEm           DateTime? @map("aceito_em")
+  /// PropostaPedido + autor, esperando o cliente. A data é a versão: resposta a outra versão é recusada.
+  proposta           Json?
+  propostaEm         DateTime? @map("proposta_em")
+  /// A última resposta do cliente: { aceita, em }.
+  respostaProposta   Json?     @map("resposta_proposta")
+  motivoCancelamento String?   @map("motivo_cancelamento")
+  /// EventoPedido[]: o que aconteceu, para o painel.
+  historico          Json      @default("[]")
   /// SHA-256 do IP de quem enviou, só para limitar pedidos seguidos.
-  origemHash        String   @map("origem_hash")
-  criadoEm          DateTime @default(now()) @map("criado_em")
-  atualizadoEm      DateTime @updatedAt @map("atualizado_em")
+  origemHash         String    @map("origem_hash")
+  criadoEm           DateTime  @default(now()) @map("criado_em")
+  atualizadoEm       DateTime  @updatedAt @map("atualizado_em")
 
-  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  empresa   Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  aceitoPor Usuario? @relation(fields: [aceitoPorId], references: [id], onDelete: SetNull)
 
   @@unique([empresaId, numero])
+  @@index([empresaId, situacao])
   @@index([empresaId, criadoEm])
   @@index([empresaId, origemHash, criadoEm])
   @@map("pedidos")

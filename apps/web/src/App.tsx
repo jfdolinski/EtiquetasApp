@@ -109,7 +109,7 @@ export function App() {
         <Route path="posts" element={<Protegida permissao="post.ver"><Posts /></Protegida>} />
         <Route path="posts/novo" element={<Protegida permissao="post.editar"><Suspense fallback={<div className="text-sm text-slate-500">Carregando editor…</div>}><EditorPost /></Suspense></Protegida>} />
         <Route path="posts/:id" element={<Protegida permissao="post.ver"><Suspense fallback={<div className="text-sm text-slate-500">Carregando editor…</div>}><EditorPost /></Suspense></Protegida>} />
-        <Route path="pedidos" element={<Protegida permissao="pedido.configurar"><Pedidos /></Protegida>} />
+        <Route path="pedidos" element={<Protegida permissao="pedido.ver"><Pedidos /></Protegida>} />
         <Route path="telas" element={<Protegida permissao="tela.ver"><Telas /></Protegida>} />
         <Route path="telas/vincular" element={<Protegida permissao="tela.editar"><VincularTela /></Protegida>} />
         <Route path="impressoras" element={<Protegida permissao="impressora.ver"><Impressoras /></Protegida>} />

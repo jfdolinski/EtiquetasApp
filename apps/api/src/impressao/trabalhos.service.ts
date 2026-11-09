@@ -144,6 +144,38 @@ export class TrabalhosService {
     return { trabalhos, avisos };
   }
 
+  /**
+   * Trabalho com o conteúdo já pronto, fora do modelo de etiqueta (a folha de lançamento dos pedidos).
+   * Mesma fila, mesmo despacho e mesmo cuidado de nunca reimprimir sozinho.
+   */
+  async criarPronto(
+    empresaId: string,
+    usuarioId: string,
+    t: { impressora: { id: string; nome: string; linguagem: LinguagemImpressora }; nome: string; conteudo: Uint8Array; origem: OrigemTrabalho; quantidade: number; codigosProdutos?: string[]; detalhes?: Record<string, unknown> },
+  ): Promise<TrabalhoResumo> {
+    const trabalho = await this.prisma.$transaction(async (tx) => {
+      const criado = await tx.trabalhoImpressao.create({
+        data: {
+          empresaId,
+          impressoraId: t.impressora.id,
+          impressoraNome: t.impressora.nome,
+          modeloNome: t.nome,
+          linguagem: t.impressora.linguagem,
+          origem: t.origem,
+          quantidadeEtiquetas: t.quantidade,
+          conteudo: Uint8Array.from(t.conteudo),
+          codigosProdutos: t.codigosProdutos ?? [],
+          criadoPorId: usuarioId,
+        },
+        select: SELECAO_TRABALHO,
+      });
+      await this.auditoria.registrar({ empresaId, usuarioId, acao: 'impressao.criar', entidade: 'TrabalhoImpressao', entidadeId: criado.id, detalhes: { origem: t.origem, modelo: t.nome, impressora: t.impressora.nome, ...t.detalhes } }, tx);
+      return criado;
+    });
+    this.despacho.despachar(trabalho.id);
+    return resumoTrabalho(trabalho);
+  }
+
   async listar(empresaId: string, limite = 100): Promise<TrabalhoResumo[]> {
     const lista = await this.prisma.trabalhoImpressao.findMany({
       where: { empresaId },

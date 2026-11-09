@@ -15,6 +15,7 @@ const SELECAO = {
   cadastroPendente: true,
   ultimoLoginEm: true,
   criadoEm: true,
+  codigoErp: true,
   perfil: { select: { id: true, nome: true } },
 } satisfies Prisma.UsuarioSelect;
 
@@ -56,6 +57,7 @@ export class UsuariosService {
           perfilId: dto.perfilId,
           nome: dto.nome.trim(),
           email,
+          codigoErp: dto.codigoErp?.trim() || null,
           senhaHash: await gerarHashSenha(dto.senha),
         },
         select: SELECAO,
@@ -94,6 +96,7 @@ export class UsuariosService {
           email,
           perfilId: dto.perfilId,
           ativo: dto.ativo,
+          codigoErp: dto.codigoErp === undefined ? undefined : dto.codigoErp.trim() || null,
           senhaHash: dto.senha ? await gerarHashSenha(dto.senha) : undefined,
         },
         select: SELECAO,

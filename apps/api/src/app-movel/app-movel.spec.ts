@@ -125,6 +125,7 @@ describe('faxina', () => {
       pedidoVinculoTela: conta(),
       quedaTela: conta(),
       fotoProdutoTela: conta(),
+      pedido: { updateMany: jest.fn(async () => ({ count: 1 })) },
     };
     const s = new ManutencaoService(prisma as unknown as PrismaService);
     const r = await s.executar(new Date('2026-11-02T00:00:00Z'));
@@ -133,6 +134,11 @@ describe('faxina', () => {
     expect(s.ultima).toBe(r);
     expect(prisma.trabalhoImpressao.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ conteudoApagadoEm: null, status: { in: ['CONCLUIDO', 'CANCELADO', 'ERRO'] } }) }));
     expect(prisma.logAuditoria.deleteMany.mock.calls[0]).toBeDefined();
+    // Pedido terminado há 180 dias perde os dados pessoais do cliente; o número e os valores ficam.
+    expect(prisma.pedido.updateMany).toHaveBeenCalledWith({
+      where: { situacao: { in: ['CONCLUIDO', 'CANCELADO'] }, atualizadoEm: { lt: new Date('2026-05-06T00:00:00Z') }, clienteTelefone: { not: '' } },
+      data: expect.objectContaining({ clienteNome: 'Dados apagados', clienteTelefone: '', observacao: '' }),
+    });
   });
 
   it('um erro no banco fica registrado, sem derrubar nada', async () => {

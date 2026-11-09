@@ -43,6 +43,15 @@ export const EVENTOS_NOTIFICACAO = [
     repetirPadrao: 120,
   },
   {
+    codigo: 'pedido_novo',
+    titulo: 'Pedido novo',
+    descricao: 'Um cliente fez um pedido pelo link e ninguém aceitou há mais tempo que o limite (0 avisa assim que chega).',
+    unidade: 'minutos',
+    limitePadrao: 0,
+    nivel: 'info',
+    repetirPadrao: 15,
+  },
+  {
     codigo: 'tela_aprovacao',
     titulo: 'Conteúdo esperando aprovação',
     descricao: 'Um conteúdo das telas foi enviado para aprovação e ninguém decidiu há mais tempo que o limite.',

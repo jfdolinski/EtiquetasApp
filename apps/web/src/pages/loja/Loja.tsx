@@ -687,6 +687,8 @@ const RELER_ACOMPANHAMENTO_MS = 30_000;
 function Acompanhamento({ codigo }: { codigo: string }) {
   const [pedido, setPedido] = useState<PedidoPublico | null>(null);
   const [erro, setErro] = useState<ErroLoja | null>(null);
+  const [respondendo, setRespondendo] = useState(false);
+  const [erroResposta, setErroResposta] = useState<string | null>(null);
   useEffect(() => {
     let vivo = true;
     const ler_ = () =>
@@ -707,6 +709,20 @@ function Acompanhamento({ codigo }: { codigo: string }) {
 
   if (!pedido) return erro ? <Aviso titulo="Pedido não encontrado">{erro.message}</Aviso> : <Aviso titulo="Carregando o pedido…" />;
   const atual = PASSOS.indexOf(pedido.situacao);
+  const responder = async (aceita: boolean) => {
+    if (!pedido.proposta) return;
+    setRespondendo(true);
+    setErroResposta(null);
+    try {
+      setPedido(await pedir<PedidoPublico>(`pedido/${codigo}/resposta`, { versao: pedido.proposta.versao, aceita }));
+    } catch (e) {
+      setErroResposta((e as Error).message);
+      // A loja pode ter mudado a proposta: mostra a de agora.
+      setPedido(await pedir<PedidoPublico>(`pedido/${codigo}`).catch(() => pedido));
+    } finally {
+      setRespondendo(false);
+    }
+  };
   return (
     <div className="min-h-screen bg-slate-50 pb-10 text-slate-900">
       <header className="bg-white px-4 py-4 shadow-sm">
@@ -716,6 +732,28 @@ function Acompanhamento({ codigo }: { codigo: string }) {
         </div>
       </header>
       <main className="mx-auto max-w-2xl space-y-4 px-4 pt-4">
+        {pedido.proposta && (
+          <section className="space-y-3 rounded-lg border-2 border-amber-400 bg-amber-50 p-4" data-testid="proposta-cliente">
+            <h2 className="text-base font-semibold text-amber-950">A loja precisa mudar o seu pedido</h2>
+            {pedido.proposta.mensagem && <p className="text-sm text-amber-950">“{pedido.proposta.mensagem}”</p>}
+            <ul className="list-disc pl-5 text-sm text-amber-950">
+              {pedido.proposta.diferencas.map((d) => (
+                <li key={d}>{d}</li>
+              ))}
+            </ul>
+            <p className="text-sm text-amber-950">
+              Total: <span className="line-through">{formatarCentavos(pedido.totais.totalCentavos)}</span> → <strong>{formatarCentavos(pedido.proposta.totais.totalCentavos)}</strong>
+            </p>
+            {pedido.trocoParaCentavos !== null && pedido.proposta.totais.trocoCentavos === null && <p className="text-sm text-amber-900">O troco para {formatarCentavos(pedido.trocoParaCentavos)} não cobre o novo total: combine com a loja.</p>}
+            {erroResposta && <p role="alert" className="text-sm text-red-800">{erroResposta}</p>}
+            <div className="flex gap-2">
+              <button type="button" disabled={respondendo} onClick={() => void responder(true)} className="flex-1 rounded-full bg-blue-600 py-2.5 text-sm font-semibold text-white disabled:bg-slate-300">Aceitar</button>
+              <button type="button" disabled={respondendo} onClick={() => void responder(false)} className="flex-1 rounded-full bg-white py-2.5 text-sm font-semibold text-slate-800 ring-1 ring-slate-300 disabled:text-slate-400">Recusar</button>
+            </div>
+            <p className="text-xs text-amber-900">Recusando, o pedido fica como estava e a loja entra em contato.</p>
+          </section>
+        )}
+        {pedido.motivoCancelamento && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">Motivo: {pedido.motivoCancelamento}</p>}
         <Bloco titulo="Situação">
           {pedido.situacao === 'CANCELADO' ? (
             <p className="rounded-md bg-red-50 px-3 py-2 text-sm font-medium text-red-800" data-testid="situacao-pedido">Cancelado</p>
@@ -748,6 +786,7 @@ function Acompanhamento({ codigo }: { codigo: string }) {
           <dl className="space-y-1 border-t border-slate-200 pt-2 text-sm">
             <Linha rotulo="Produtos" valor={formatarCentavos(pedido.totais.subtotalCentavos)} />
             <Linha rotulo="Entrega" valor={pedido.totais.taxaCentavos ? formatarCentavos(pedido.totais.taxaCentavos) : 'Grátis'} />
+            {pedido.totais.descontoCentavos > 0 && <Linha rotulo="Desconto" valor={`-${formatarCentavos(pedido.totais.descontoCentavos)}`} />}
             <Linha rotulo="Total" valor={formatarCentavos(pedido.totais.totalCentavos)} forte />
           </dl>
         </Bloco>

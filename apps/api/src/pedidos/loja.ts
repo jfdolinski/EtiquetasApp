@@ -3,9 +3,15 @@ import { BadRequestException, Body, ConflictException, Controller, Get, HttpExce
 import { Prisma } from '@prisma/client';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
-import { IsArray, IsInt, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsInt, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import {
   categoriasDoCatalogo,
+  diferencasDaPropostaPedido,
+  itensDaProposta,
+  totaisDaProposta,
+  type EventoPedido,
+  type PropostaPedido,
+  type PropostaPublica,
   CONFIG_PEDIDOS_PADRAO,
   conferirCarrinho,
   faixasDeAgendamento,
@@ -43,6 +49,7 @@ import { cifrar, sha256 } from '../cripto';
 import { PrismaService } from '../prisma/prisma.service';
 import { horaLocal } from '../telas/hora';
 import { CepService } from './cep';
+import { estadoDe } from './painel';
 
 /** Um mesmo aparelho, numa mesma loja, por hora: acima disso é brincadeira ou robô. */
 export const MAX_PEDIDOS_POR_ORIGEM_HORA = 10;
@@ -82,6 +89,14 @@ class NovoPedidoDto implements NovoPedido {
   @IsString()
   @MaxLength(2000)
   observacao: string;
+}
+
+class RespostaPropostaDto {
+  @IsDateString({}, { message: 'Abra o pedido de novo.' })
+  versao: string;
+
+  @IsBoolean()
+  aceita: boolean;
 }
 
 const t = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -236,15 +251,69 @@ export class LojaService {
       nome: p.clienteNome,
       telefone: p.clienteTelefone,
       modalidade: p.modalidade as ModalidadeEntrega,
-      endereco: (p.endereco as unknown as EnderecoPedido | null) ?? null,
+      endereco: p.modalidade === 'RETIRADA' ? null : ((p.endereco as unknown as EnderecoPedido | null) ?? null),
       enderecoRetirada: p.modalidade === 'RETIRADA' ? (cfg?.enderecoRetirada ?? null) : null,
       agendamento: (p.agendamento as unknown as FaixaAgendamento | null) ?? null,
       pagamento: p.pagamento as FormaPagamento,
       trocoParaCentavos: p.trocoParaCentavos,
       observacao: p.observacao,
       itens,
-      totais: totaisDoPedido(itens, p.taxaCentavos, p.trocoParaCentavos),
+      totais: totaisDoPedido(itens, p.taxaCentavos, p.trocoParaCentavos, p.descontoCentavos),
+      proposta: this.propostaPublica(p),
+      motivoCancelamento: p.motivoCancelamento,
     };
+  }
+
+  private propostaPublica(p: { proposta: Prisma.JsonValue; propostaEm: Date | null; itens: Prisma.JsonValue; modalidade: string; taxaCentavos: number; descontoCentavos: number; agendamento: Prisma.JsonValue; endereco: Prisma.JsonValue; trocoParaCentavos: number | null }): PropostaPublica | null {
+    if (!p.proposta || !p.propostaEm) return null;
+    const proposta = p.proposta as unknown as PropostaPedido;
+    const estado = estadoDe(p as never);
+    return {
+      versao: p.propostaEm.toISOString(),
+      mensagem: proposta.mensagem,
+      diferencas: diferencasDaPropostaPedido(estado, proposta),
+      itens: itensDaProposta(estado.itens, proposta),
+      modalidade: proposta.modalidade,
+      agendamento: proposta.agendamento,
+      totais: totaisDaProposta(estado, proposta),
+    };
+  }
+
+  /**
+   * O cliente responde à alteração que a loja propôs. A versão é a data da proposta: se a loja mandou
+   * outra no meio do caminho, a resposta não vale para ela.
+   */
+  async responder(codigo: string, versao: string, aceita: boolean): Promise<PedidoPublico> {
+    const p = CODIGO.test(codigo) ? await this.prisma.pedido.findUnique({ where: { codigoHash: sha256(codigo) } }) : null;
+    if (!p) throw new NotFoundException('Pedido não encontrado. Confira o link.');
+    if (!p.proposta || !p.propostaEm) throw new BadRequestException('Não há alteração esperando a sua resposta.');
+    if (p.propostaEm.toISOString() !== versao) throw new ConflictException('A loja mudou a alteração enquanto você decidia. Confira de novo.');
+    const proposta = p.proposta as unknown as PropostaPedido;
+    const estado = estadoDe(p as never);
+    const historico = [...((p.historico as unknown as EventoPedido[]) ?? []), { em: new Date().toISOString(), texto: aceita ? 'O cliente aceitou a alteração' : 'O cliente recusou a alteração', por: null }];
+    const resposta = { aceita, em: new Date().toISOString() };
+    const mudar = aceita
+      ? (() => {
+          const itens = itensDaProposta(estado.itens, proposta);
+          const totais = totaisDaProposta(estado, proposta);
+          return {
+            itens: itens as unknown as Prisma.InputJsonValue,
+            modalidade: proposta.modalidade,
+            agendamento: proposta.modalidade === 'AGENDADA' ? (proposta.agendamento as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+            subtotalCentavos: totais.subtotalCentavos,
+            taxaCentavos: totais.taxaCentavos,
+            descontoCentavos: totais.descontoCentavos,
+            totalCentavos: totais.totalCentavos,
+          };
+        })()
+      : {};
+    const { count } = await this.prisma.pedido.updateMany({
+      where: { id: p.id, propostaEm: p.propostaEm },
+      data: { ...mudar, proposta: Prisma.DbNull, propostaEm: null, respostaProposta: resposta, historico: historico as unknown as Prisma.InputJsonValue },
+    });
+    if (count === 0) throw new ConflictException('A loja mudou a alteração enquanto você decidia. Confira de novo.');
+    await this.auditoria.registrar({ empresaId: p.empresaId, usuarioId: null, acao: aceita ? 'pedido.proposta_aceita' : 'pedido.proposta_recusada', entidade: 'Pedido', entidadeId: p.id, detalhes: { numero: p.numero } });
+    return this.acompanhar(codigo);
   }
 }
 
@@ -258,6 +327,13 @@ export class LojaController {
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   acompanhar(@Param('codigo') codigo: string) {
     return this.loja.acompanhar(codigo);
+  }
+
+  @Post('pedido/:codigo/resposta')
+  @Publico()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  responder(@Param('codigo') codigo: string, @Body() dto: RespostaPropostaDto) {
+    return this.loja.responder(codigo, dto.versao, dto.aceita);
   }
 
   @Get(':codigo')

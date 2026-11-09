@@ -23,7 +23,7 @@ const MENU: ItemMenu[] = [
   { para: '/banidos', rotulo: 'Produtos banidos', permissao: 'produto_banido.ver' },
   { para: '/posts', rotulo: 'Posts', permissao: 'post.ver' },
   { para: '/telas', rotulo: 'Telas', permissao: 'tela.ver' },
-  { para: '/pedidos', rotulo: 'Pedidos', permissao: 'pedido.configurar' },
+  { para: '/pedidos', rotulo: 'Pedidos', permissao: 'pedido.ver' },
   { para: '/empresas', rotulo: 'Empresas', superAdmin: true },
   { para: '/erps', rotulo: 'Sistemas ERP', superAdmin: true },
   { para: '/cobranca', rotulo: 'Cobrança', superAdmin: true },

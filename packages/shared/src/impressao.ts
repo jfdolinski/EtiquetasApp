@@ -43,7 +43,7 @@ export function quantidadeDoRegistro(registro: Registro): number {
 
 export type StatusItemLista = 'PENDENTE' | 'NA_FILA' | 'IMPRESSO' | 'DESCARTADO';
 export type StatusTrabalho = 'PENDENTE' | 'ENVIANDO' | 'CONCLUIDO' | 'ERRO' | 'CANCELADO';
-export type OrigemTrabalho = 'LISTA' | 'AVULSA' | 'AGENDAMENTO';
+export type OrigemTrabalho = 'LISTA' | 'AVULSA' | 'AGENDAMENTO' | 'PEDIDO';
 
 export const ROTULO_STATUS_TRABALHO: Record<StatusTrabalho, string> = {
   PENDENTE: 'Aguardando',

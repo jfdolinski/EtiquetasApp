@@ -7,7 +7,7 @@ import { useAuth } from '../auth';
 import { Alerta, Cabecalho, Selo, Tabela, formatarData } from '../components/ui';
 
 const ROTULO_PERIODO: Record<number, string> = { 1: 'Hoje', 7: '7 dias', 30: '30 dias' };
-const ROTULO_ORIGEM: Record<string, string> = { LISTA: 'Lista do dia', AVULSA: 'Avulsa', AGENDAMENTO: 'Agendamento' };
+const ROTULO_ORIGEM: Record<string, string> = { LISTA: 'Lista do dia', AVULSA: 'Avulsa', AGENDAMENTO: 'Agendamento', PEDIDO: 'Pedido' };
 const ROTULO_CONEXAO: Record<string, string> = { POSTGRES: 'PostgreSQL', MYSQL: 'MySQL', SQLSERVER: 'SQL Server', PASTA: 'Pasta de planilhas', GOOGLE_DRIVE: 'Google Drive' };
 
 const numero = (n: number) => n.toLocaleString('pt-BR');

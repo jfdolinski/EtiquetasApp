@@ -116,6 +116,7 @@ function FormUsuario({ usuario, aoConcluir }: { usuario: UsuarioResumo | null; a
     email: usuario?.email ?? '',
     senha: '',
     perfilId: usuario?.perfil?.id ?? '',
+    codigoErp: usuario?.codigoErp ?? '',
     ativo: usuario?.ativo ?? true,
   });
   const { data: perfis = [] } = useQuery({
@@ -125,10 +126,10 @@ function FormUsuario({ usuario, aoConcluir }: { usuario: UsuarioResumo | null; a
 
   const mutacao = useMutation({
     mutationFn: () => {
-      if (!usuario) return api('/usuarios', { metodo: 'POST', corpo: { nome: f.nome, email: f.email, senha: f.senha, perfilId: f.perfilId } });
+      if (!usuario) return api('/usuarios', { metodo: 'POST', corpo: { nome: f.nome, email: f.email, senha: f.senha, perfilId: f.perfilId, codigoErp: f.codigoErp } });
       return api(`/usuarios/${usuario.id}`, {
         metodo: 'PATCH',
-        corpo: { nome: f.nome, email: f.email, perfilId: f.perfilId || undefined, ativo: f.ativo, senha: f.senha || undefined },
+        corpo: { nome: f.nome, email: f.email, perfilId: f.perfilId || undefined, ativo: f.ativo, senha: f.senha || undefined, codigoErp: f.codigoErp },
       });
     },
     onSuccess: () => {
@@ -149,6 +150,7 @@ function FormUsuario({ usuario, aoConcluir }: { usuario: UsuarioResumo | null; a
       {mutacao.error && <Alerta>{mutacao.error.message}</Alerta>}
       <Campo rotulo="Nome" required value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} />
       <Campo rotulo="E-mail" type="email" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
+      <Campo rotulo="Código no ERP (opcional)" maxLength={30} value={f.codigoErp} onChange={(e) => setF({ ...f, codigoErp: e.target.value })} ajuda="O código de atendente ou vendedor no sistema da loja. Sai em código de barras na folha de lançamento dos pedidos." />
       <Selecao rotulo="Perfil" required value={f.perfilId} onChange={(e) => setF({ ...f, perfilId: e.target.value })}>
         <option value="">Selecione…</option>
         {perfis.map((p) => (

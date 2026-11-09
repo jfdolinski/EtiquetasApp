@@ -37,6 +37,7 @@ function montar(opcoes: { abertas?: Aberta[]; regra?: Record<string, unknown>; u
     trabalhoImpressao: { findFirst: jest.fn(async () => ({ criadoEm: opcoes.ultimoTrabalho ?? new Date('2026-10-30T13:00:00Z'), modeloNome: 'Gôndola' })) },
     agente: { findMany: jest.fn(async () => [{ id: 'a1' }, { id: 'a2' }]) },
     empresa: { findUnique: jest.fn(async () => ({ criadoEm: new Date('2026-01-01') })) },
+    pedido: { findMany: jest.fn(async (_a?: unknown) => [{ id: 'p1', numero: 7, clienteNome: 'Maria', totalCentavos: 6329, criadoEm: new Date(AGORA.getTime() - 2 * 60_000) }]) },
   };
   const online = new Set(opcoes.online ?? ['a1']);
   const gateway = {
@@ -65,6 +66,15 @@ const aberta = (extra: Record<string, unknown> = {}): Aberta => ({
 });
 
 describe('avaliação das regras', () => {
+  it('pedido novo sem ninguém aceitar vira aviso, um por pedido, procurando só na empresa', async () => {
+    const { servico, criadas, prisma } = montar({ regra: { evento: 'pedido_novo', limite: 0 } });
+    await servico.avaliarEmpresa(EMPRESA, AGORA);
+    expect(prisma.pedido.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { empresaId: EMPRESA, situacao: 'NOVO', criadoEm: { lte: AGORA } } }));
+    expect(criadas).toHaveLength(1);
+    expect(criadas[0]).toMatchObject({ evento: 'pedido_novo', chave: 'pedido:p1', titulo: 'Pedido nº 7' });
+    expect(String(criadas[0].mensagem)).toBe('Maria fez um pedido de R$ 63,29 há 2 minutos. Aceite em Pedidos.');
+  });
+
   it('problema novo cria a notificação e avisa quem está online', async () => {
     const { servico, criadas, entregas } = montar();
     await servico.avaliarEmpresa(EMPRESA, AGORA);

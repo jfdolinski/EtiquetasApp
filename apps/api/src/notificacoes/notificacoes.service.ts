@@ -8,6 +8,7 @@ import {
   JANELA_PADRAO,
   regrasComPadrao,
   dentroDoHorarioDaTela,
+  formatarCentavos,
   textoDuracao,
   type ConfiguracaoNotificacoes,
   type EventoNotificacao,
@@ -280,6 +281,15 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
             titulo: 'Tela fora do ar',
             mensagem: `A tela “${t.nome}”${t.local ? ` (${t.local})` : ''} está sem aviso há ${textoDuracao(agora.getTime() - t.ultimoContatoEm!.getTime())}.`,
           }));
+      }
+      case 'pedido_novo': {
+        // O problema é o pedido sem ninguém aceitar: some sozinho quando alguém aceita ou cancela.
+        const pedidos = await this.prisma.pedido.findMany({ where: { empresaId, situacao: 'NOVO', criadoEm: { lte: atras(regra.limite * 60_000) } }, orderBy: { criadoEm: 'asc' }, take: 50, select: { id: true, numero: true, clienteNome: true, totalCentavos: true, criadoEm: true } });
+        return pedidos.map((p) => ({
+          chave: `pedido:${p.id}`,
+          titulo: `Pedido nº ${p.numero}`,
+          mensagem: `${p.clienteNome} fez um pedido de ${formatarCentavos(p.totalCentavos)} há ${textoDuracao(agora.getTime() - p.criadoEm.getTime())}. Aceite em Pedidos.`,
+        }));
       }
       case 'tela_aprovacao': {
         const pedidos = await this.prisma.conteudoTela.findMany({ where: { empresaId, aprovacaoSituacao: 'PENDENTE', aprovacaoPedidaEm: { lte: atras(regra.limite * 60_000) } }, select: { id: true, nome: true, aprovacaoPedidaEm: true } });

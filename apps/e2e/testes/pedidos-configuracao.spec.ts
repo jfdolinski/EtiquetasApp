@@ -62,6 +62,7 @@ test('configura pela tela: colunas sugeridas, entrega, mínimo, horário, link e
   await page.setViewportSize({ width: 1400, height: 1000 });
   await entrar(page, e.adminEmail, e.adminSenha);
   await page.getByRole('link', { name: 'Pedidos' }).click();
+  await page.getByRole('tab', { name: 'Configuração' }).click();
   await expect(page.getByText('O link é criado quando você salva a configuração pela primeira vez.')).toBeVisible();
 
   await page.getByRole('combobox', { name: /^Consulta/ }).selectOption({ label: nomeConsulta });
@@ -110,6 +111,7 @@ test('configura pela tela: colunas sugeridas, entrega, mínimo, horário, link e
   // Com produtos guardados (o que a atualização faria com o agente), o catálogo fica no ar.
   await sql(`UPDATE configuracoes_pedidos SET itens = $2, quantidade_itens = 1, dados_em = now() at time zone 'utc', erro = NULL WHERE empresa_id = $1`, [e.id, JSON.stringify(ITENS)]);
   await page.reload();
+  await page.getByRole('tab', { name: 'Configuração' }).click();
   await expect(page.getByText('No ar', { exact: true })).toBeVisible();
   await expect(page.getByText('1 produtos no catálogo')).toBeVisible();
 

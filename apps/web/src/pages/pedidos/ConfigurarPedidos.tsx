@@ -62,6 +62,7 @@ interface Formulario {
   horario: HorarioFuncionamento;
   agDias: string;
   agDuracao: number;
+  impressoraFolhaId: string;
 }
 
 const reais = (c: number) => (c / 100).toFixed(2).replace('.', ',');
@@ -82,6 +83,7 @@ function formularioDe(c: ConfiguracaoPedidosResumo): Formulario {
     horario: c.horario,
     agDias: String(k.agendamento?.dias ?? 7),
     agDuracao: k.agendamento?.duracaoMinutos ?? 120,
+    impressoraFolhaId: k.impressoraFolhaId ?? '',
   };
 }
 
@@ -97,6 +99,7 @@ function corpoDe(f: Formulario): SalvarConfiguracaoPedidos {
     mensagem: f.mensagem,
     enderecoRetirada: f.enderecoRetirada,
     agendamento: { dias: Number(f.agDias), duracaoMinutos: f.agDuracao },
+    impressoraFolhaId: f.impressoraFolhaId || null,
   };
   return { ativo: f.ativo, consultaId: f.consultaId, config, intervaloMinutos: Number(f.intervalo), validadeMinutos: Number(f.validade), horario: f.horario };
 }
@@ -106,6 +109,7 @@ export function ConfigurarPedidos() {
   const cliente = useQueryClient();
   const chave = ['pedidos-configuracao', empresaId];
   const { data: atual, error } = useQuery({ queryKey: chave, queryFn: () => api<ConfiguracaoPedidosResumo>('/pedidos/configuracao') });
+  const { data: impressoras = [] } = useQuery({ queryKey: ['pedidos-impressoras', empresaId], queryFn: () => api<{ id: string; nome: string }[]>('/pedidos/configuracao/impressoras') });
   const { data: consultas = [] } = useQuery({ queryKey: ['pedidos-consultas', empresaId], queryFn: () => api<ConsultaParaPedidos[]>('/pedidos/configuracao/consultas') });
   const [f, setF] = useState<Formulario | null>(null);
   const [mensagem, setMensagem] = useState<string | null>(null);
@@ -248,6 +252,17 @@ export function ConfigurarPedidos() {
           <p className="text-xs text-slate-500">Fora do horário, o catálogo fica só para olhar, e só a entrega agendada continua aceitando pedidos.</p>
           <EditorHorario horario={f.horario} aoMudar={(horario) => mudar({ horario })} />
           {semHorario && <p className="text-xs text-amber-700">Sem horário cadastrado, a loja aparece sempre fechada: só a entrega agendada recebe pedidos.</p>}
+        </Secao>
+
+        <Secao titulo="Folha de lançamento">
+          <Selecao rotulo="Impressora da folha" value={f.impressoraFolhaId} onChange={(e) => mudar({ impressoraFolhaId: e.target.value })}>
+            <option value="">Nenhuma (só na tela)</option>
+            {impressoras.map((i) => (
+              <option key={i.id} value={i.id}>{i.nome}</option>
+            ))}
+          </Selecao>
+          <p className="text-xs text-slate-500">Uma térmica de cupom (ESC/POS, 80 mm), cadastrada em Impressoras. A folha traz, em códigos de barras, o código de quem aceitou o pedido (o “Código no ERP”, em Usuários), o telefone do cliente e um código por unidade de cada produto.</p>
+          {impressoras.length === 0 && <p className="text-xs text-amber-700">Nenhuma impressora ESC/POS cadastrada.</p>}
         </Secao>
 
         <Secao titulo="Atualização dos produtos">

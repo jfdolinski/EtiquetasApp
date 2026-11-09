@@ -182,7 +182,7 @@ test('API pública: link, regras, preço nunca vem do cliente, limite por aparel
   expect(retirada.j.numero).toBe(2);
   const acompanhar = await pedir('GET', `/loja/pedido/${retirada.j.codigo}`);
   expect(acompanhar.j).toMatchObject({ numero: 2, situacao: 'NOVO', modalidade: 'RETIRADA', endereco: null, enderecoRetirada: 'Rua das Flores, 100', empresa: 'Mercadinho Bom Preço' });
-  expect(acompanhar.j.totais).toEqual({ subtotalCentavos: 4980, taxaCentavos: 0, totalCentavos: 4980, trocoCentavos: null });
+  expect(acompanhar.j.totais).toEqual({ subtotalCentavos: 4980, taxaCentavos: 0, descontoCentavos: 0, totalCentavos: 4980, trocoCentavos: null });
   expect((await pedir('GET', `/loja/pedido/${retirada.j.codigo}x`)).status).toBe(404);
   // O código do acompanhamento não fica legível no banco.
   const [guardado] = await sql(`SELECT codigo_hash, codigo_cifrado FROM pedidos WHERE empresa_id = $1 AND numero = 2`, [e.id]);
