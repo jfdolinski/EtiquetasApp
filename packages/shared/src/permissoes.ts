@@ -38,6 +38,9 @@ export const PERMISSOES = [
   { codigo: 'post.ver', grupo: 'Posts', descricao: 'Ver e baixar os posts para redes sociais' },
   { codigo: 'post.editar', grupo: 'Posts', descricao: 'Criar e editar posts, galeria de imagens e marca da empresa' },
   { codigo: 'post.edicao_livre', grupo: 'Posts', descricao: 'Mover e redimensionar os elementos da arte do post' },
+  { codigo: 'pedido.ver', grupo: 'Pedidos', descricao: 'Ver os pedidos feitos pelo link da empresa' },
+  { codigo: 'pedido.gerenciar', grupo: 'Pedidos', descricao: 'Mudar a situação, propor alterações, cancelar e imprimir pedidos' },
+  { codigo: 'pedido.configurar', grupo: 'Pedidos', descricao: 'Configurar o catálogo de pedidos: link, consulta, entrega e horário de funcionamento' },
 ] as const;
 
 export type CodigoPermissao = (typeof PERMISSOES)[number]['codigo'];

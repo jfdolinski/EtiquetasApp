@@ -716,5 +716,5 @@ export class TelasController {
 }
 
 // O controlador de conteúdos vem antes: `telas/conteudos` não pode cair nas rotas de `telas/:id`.
-@Module({ imports: [ConsultasModule, BanidosModule], controllers: [TvController, ConteudosTelaController, TelasController], providers: [TelasService, ParametrosTelasService, ConteudosTelaService, FotosProdutoTelaService] })
+@Module({ imports: [ConsultasModule, BanidosModule], controllers: [TvController, ConteudosTelaController, TelasController], providers: [TelasService, ParametrosTelasService, ConteudosTelaService, FotosProdutoTelaService], exports: [FotosProdutoTelaService] })
 export class TelasModule {}

@@ -18,54 +18,57 @@ enum StatusAssinatura {
 }
 
 model Empresa {
-  id                String           @id @default(uuid()) @db.Uuid
-  razaoSocial       String           @map("razao_social")
-  nomeFantasia      String?          @map("nome_fantasia")
+  id                   String           @id @default(uuid()) @db.Uuid
+  razaoSocial          String           @map("razao_social")
+  nomeFantasia         String?          @map("nome_fantasia")
   /// Normalizado: 14 caracteres, sem máscara, maiúsculo (aceita CNPJ alfanumérico).
-  cnpj              String           @unique @db.VarChar(14)
-  codigoErp         String?          @map("codigo_erp")
-  plano             String           @default("padrao")
-  statusAssinatura  StatusAssinatura @default(ATIVA) @map("status_assinatura")
-  ativa             Boolean          @default(true)
+  cnpj                 String           @unique @db.VarChar(14)
+  codigoErp            String?          @map("codigo_erp")
+  plano                String           @default("padrao")
+  statusAssinatura     StatusAssinatura @default(ATIVA) @map("status_assinatura")
+  ativa                Boolean          @default(true)
   /// Veio do "Cadastre-se" com CNPJ novo: fica inativa até o super-admin aprovar.
-  aprovacaoPendente Boolean          @default(false) @map("aprovacao_pendente")
+  aprovacaoPendente    Boolean          @default(false) @map("aprovacao_pendente")
   /// Situação na Receita lida no cadastro; nula quando a consulta estava fora do ar.
-  situacaoReceita   String?          @map("situacao_receita")
+  situacaoReceita      String?          @map("situacao_receita")
   /// ERP usado pela empresa; o template dele pode ser copiado para as consultas da empresa.
-  sistemaErpId      String?          @map("sistema_erp_id") @db.Uuid
-  criadoEm          DateTime         @default(now()) @map("criado_em")
-  atualizadoEm      DateTime         @updatedAt @map("atualizado_em")
+  sistemaErpId         String?          @map("sistema_erp_id") @db.Uuid
+  /// HorarioFuncionamento de packages/shared (7 dias, até 2 períodos, fuso do sistema). Nulo: não cadastrado.
+  horarioFuncionamento Json?            @map("horario_funcionamento")
+  criadoEm             DateTime         @default(now()) @map("criado_em")
+  atualizadoEm         DateTime         @updatedAt @map("atualizado_em")
 
-  usuarios           Usuario[]
-  perfis             Perfil[]
-  logs               LogAuditoria[]
-  agentes            Agente[]
-  conexoes           ConexaoBanco[]
-  consultas          ConsultaSql[]
-  perfisTela         PerfilTela[]
-  telas              Tela[]
-  conteudosTela      ConteudoTela[]
-  imagensTela        ImagemTela[]
-  fotosProdutoTela   FotoProdutoTela[]
-  produtosBanidos    ProdutoBanido[]
-  modelos            ModeloEtiqueta[]
-  impressoras        Impressora[]
-  listas             ListaDiaria[]
-  trabalhos          TrabalhoImpressao[]
-  sistemaErp         SistemaErp?           @relation(fields: [sistemaErpId], references: [id], onDelete: Restrict)
-  assinatura         Assinatura?
-  parametrosCobranca ParametroCobranca?
-  pagamentos         PagamentoAssinatura[]
-  avisosCobranca     AvisoCobranca[]
-  agendamentos       AgendamentoModelo[]
-  execucoesConsulta  ExecucaoConsulta[]
-  regrasNotificacao  RegraNotificacao[]
-  janelaNotificacao  JanelaNotificacao?
-  notificacoes       Notificacao[]
-  dispositivos       DispositivoMovel[]
-  posts              PostSocial[]
-  imagensPost        ImagemPost[]
-  marcaPost          MarcaPost?
+  usuarios            Usuario[]
+  perfis              Perfil[]
+  logs                LogAuditoria[]
+  agentes             Agente[]
+  conexoes            ConexaoBanco[]
+  consultas           ConsultaSql[]
+  perfisTela          PerfilTela[]
+  telas               Tela[]
+  conteudosTela       ConteudoTela[]
+  imagensTela         ImagemTela[]
+  fotosProdutoTela    FotoProdutoTela[]
+  produtosBanidos     ProdutoBanido[]
+  modelos             ModeloEtiqueta[]
+  impressoras         Impressora[]
+  listas              ListaDiaria[]
+  trabalhos           TrabalhoImpressao[]
+  sistemaErp          SistemaErp?           @relation(fields: [sistemaErpId], references: [id], onDelete: Restrict)
+  assinatura          Assinatura?
+  parametrosCobranca  ParametroCobranca?
+  pagamentos          PagamentoAssinatura[]
+  avisosCobranca      AvisoCobranca[]
+  agendamentos        AgendamentoModelo[]
+  execucoesConsulta   ExecucaoConsulta[]
+  regrasNotificacao   RegraNotificacao[]
+  janelaNotificacao   JanelaNotificacao?
+  notificacoes        Notificacao[]
+  dispositivos        DispositivoMovel[]
+  posts               PostSocial[]
+  imagensPost         ImagemPost[]
+  marcaPost           MarcaPost?
+  configuracaoPedidos ConfiguracaoPedidos?
 
   @@map("empresas")
 }
@@ -96,17 +99,18 @@ model Usuario {
   criadoEm               DateTime  @default(now()) @map("criado_em")
   atualizadoEm           DateTime  @updatedAt @map("atualizado_em")
 
-  empresa       Empresa?              @relation(fields: [empresaId], references: [id], onDelete: Restrict)
-  perfil        Perfil?               @relation(fields: [perfilId], references: [id], onDelete: SetNull)
-  logs          LogAuditoria[]
-  trabalhos     TrabalhoImpressao[]
-  pagamentos    PagamentoAssinatura[]
-  agendamentos  AgendamentoModelo[]
-  sessoes       SessaoUsuario[]
-  dispositivos  DispositivoMovel[]
-  vinculosApp   CodigoVinculoApp[]
-  redefinicoes  RedefinicaoSenha[]
-  conteudosTela ConteudoTela[]
+  empresa              Empresa?              @relation(fields: [empresaId], references: [id], onDelete: Restrict)
+  perfil               Perfil?               @relation(fields: [perfilId], references: [id], onDelete: SetNull)
+  logs                 LogAuditoria[]
+  trabalhos            TrabalhoImpressao[]
+  pagamentos           PagamentoAssinatura[]
+  agendamentos         AgendamentoModelo[]
+  sessoes              SessaoUsuario[]
+  dispositivos         DispositivoMovel[]
+  vinculosApp          CodigoVinculoApp[]
+  redefinicoes         RedefinicaoSenha[]
+  conteudosTela        ConteudoTela[]
+  configuracoesPedidos ConfiguracaoPedidos[]
 
   @@index([empresaId])
   @@map("usuarios")
@@ -446,11 +450,12 @@ model ConsultaSql {
   criadoEm            DateTime           @default(now()) @map("criado_em")
   atualizadoEm        DateTime           @updatedAt @map("atualizado_em")
 
-  empresa       Empresa           @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  conexao       ConexaoBanco      @relation(fields: [conexaoId], references: [id], onDelete: Restrict)
-  template      TemplateConsulta? @relation(fields: [templateConsultaId], references: [id], onDelete: SetNull)
-  modelos       ModeloEtiqueta[]
-  conteudosTela ConteudoTela[]
+  empresa              Empresa               @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  conexao              ConexaoBanco          @relation(fields: [conexaoId], references: [id], onDelete: Restrict)
+  template             TemplateConsulta?     @relation(fields: [templateConsultaId], references: [id], onDelete: SetNull)
+  modelos              ModeloEtiqueta[]
+  conteudosTela        ConteudoTela[]
+  configuracoesPedidos ConfiguracaoPedidos[]
 
   @@unique([empresaId, nome])
   @@index([conexaoId])
@@ -1127,4 +1132,37 @@ model FotoProdutoTela {
   @@unique([empresaId, codigo])
   @@index([verificadoEm])
   @@map("fotos_produto_tela")
+}
+
+/// O catálogo de pedidos da empresa (docs/PEDIDOS.md): um só por empresa, com a cópia dos produtos.
+model ConfiguracaoPedidos {
+  id                   String    @id @default(uuid()) @db.Uuid
+  empresaId            String    @unique @map("empresa_id") @db.Uuid
+  /// Desligado, o link mostra "catálogo indisponível".
+  ativo                Boolean   @default(false)
+  /// O código do link público (/loja/<codigo>). Trocar invalida o link antigo.
+  codigoLink           String    @unique @map("codigo_link")
+  /// Consulta excluída: a cópia vence e o catálogo sai do ar sozinho.
+  consultaId           String?   @map("consulta_id") @db.Uuid
+  /// ConfigPedidos de packages/shared.
+  config               Json
+  intervaloMinutos     Int       @default(15) @map("intervalo_minutos")
+  validadeMinutos      Int       @default(120) @map("validade_minutos")
+  /// ItemCatalogo[]: a cópia dos produtos.
+  itens                Json      @default("[]")
+  quantidadeItens      Int       @default(0) @map("quantidade_itens")
+  dadosEm              DateTime? @map("dados_em")
+  erro                 String?
+  proximaAtualizacaoEm DateTime? @map("proxima_atualizacao_em")
+  /// Último a salvar: a consulta pode usar {usuario.*}.
+  responsavelId        String?   @map("responsavel_id") @db.Uuid
+  criadoEm             DateTime  @default(now()) @map("criado_em")
+  atualizadoEm         DateTime  @updatedAt @map("atualizado_em")
+
+  empresa     Empresa      @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  consulta    ConsultaSql? @relation(fields: [consultaId], references: [id], onDelete: SetNull)
+  responsavel Usuario?     @relation(fields: [responsavelId], references: [id], onDelete: SetNull)
+
+  @@index([ativo, proximaAtualizacaoEm])
+  @@map("configuracoes_pedidos")
 }

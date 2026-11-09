@@ -35,6 +35,7 @@ export const GRUPOS_ACAO: { prefixo: string; rotulo: string }[] = [
   { prefixo: 'assinatura.', rotulo: 'Assinatura' },
   { prefixo: 'cobranca.', rotulo: 'Cobrança' },
   { prefixo: 'erp.', rotulo: 'Sistemas ERP' },
+  { prefixo: 'pedido.', rotulo: 'Pedidos' },
 ];
 
 /** Arquivo de exportação de modelo (portável entre empresas). */

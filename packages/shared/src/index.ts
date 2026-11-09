@@ -17,6 +17,7 @@ export * from './banidos';
 export * from './notificacoes';
 export * from './painel';
 export * from './referencias';
+export * from './pedidos';
 export * from './posts';
 export * from './telas';
 export * from './telas-conteudo';
