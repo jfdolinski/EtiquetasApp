@@ -113,6 +113,16 @@ class RespostaPropostaDto {
   aceita: boolean;
 }
 
+const escaparHtml = (v: string) => v.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+
+/** Endereço público do site: o configurado, senão o que o nginx repassou (Host e protocolo originais). */
+function origemDaRequisicao(req: Request): string {
+  const publica = config().urlPublica;
+  if (publica) return publica;
+  const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').split(',')[0].trim();
+  return `${req.protocol}://${host}`;
+}
+
 const t = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
 /** Só os campos conhecidos, aparados: o que o navegador mandar a mais não vai para o banco. */
@@ -205,6 +215,50 @@ export class LojaService {
   }
 
   /** Pública como as imagens das telas: o `<img>` não manda token, e o endereço muda a cada envio. */
+  /**
+   * A página que o WhatsApp (e outros) lê para montar a prévia do link: o site é montado no navegador,
+   * e esses robôs não rodam JavaScript. Só o que já é público no link: nome, mensagem e logomarca.
+   */
+  async previa(tipo: 'loja' | 'pedido', codigo: string, origem: string): Promise<{ status: number; html: string }> {
+    let titulo = 'Pedidos';
+    let descricao = 'Faça seu pedido pelo celular.';
+    let logo: string | null = null;
+    let status = 200;
+    if (tipo === 'loja') {
+      const l = CODIGO.test(codigo) ? await this.prisma.configuracaoPedidos.findUnique({ where: { codigoLink: codigo }, select: { config: true, codigoLink: true, logoEm: true, empresa: { select: { razaoSocial: true, nomeFantasia: true } } } }) : null;
+      if (l) {
+        titulo = l.empresa.nomeFantasia || l.empresa.razaoSocial;
+        descricao = (l.config as unknown as ConfigPedidos | null)?.mensagem?.trim() || `Faça seu pedido na ${titulo} pelo celular.`;
+        logo = logoDe(l);
+      } else status = 404;
+    } else {
+      const ped = CODIGO.test(codigo)
+        ? await this.prisma.pedido.findUnique({ where: { codigoHash: sha256(codigo) }, select: { numero: true, empresa: { select: { razaoSocial: true, nomeFantasia: true, configuracaoPedidos: { select: { codigoLink: true, logoEm: true } } } } } })
+        : null;
+      if (ped) {
+        const empresa = ped.empresa.nomeFantasia || ped.empresa.razaoSocial;
+        // Nada do cliente na prévia: o link pode ser encaminhado.
+        titulo = `Pedido nº ${ped.numero} – ${empresa}`;
+        descricao = `Acompanhe o seu pedido na ${empresa}.`;
+        logo = logoDe(ped.empresa.configuracaoPedidos);
+      } else status = 404;
+    }
+    const e = escaparHtml;
+    const url = `${origem}/loja/${tipo === 'pedido' ? 'pedido/' : ''}${encodeURIComponent(codigo)}`;
+    const html = `<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<title>${e(titulo)}</title>
+<meta name="description" content="${e(descricao)}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="${e(titulo)}">
+<meta property="og:title" content="${e(titulo)}">
+<meta property="og:description" content="${e(descricao)}">
+<meta property="og:url" content="${e(url)}">
+${logo ? `<meta property="og:image" content="${e(origem + logo)}">\n` : ''}<meta name="twitter:card" content="summary">
+</head><body><h1>${e(titulo)}</h1><p>${e(descricao)}</p><p><a href="${e(url)}">Abrir</a></p></body></html>`;
+    return { status, html };
+  }
+
   async logo(codigo: string) {
     const l = CODIGO.test(codigo) ? await this.prisma.configuracaoPedidos.findUnique({ where: { codigoLink: codigo }, select: { logo: true, logoMime: true } }) : null;
     if (!l?.logo || !l.logoMime) throw new NotFoundException('Sem logomarca.');
@@ -388,6 +442,23 @@ export class LojaService {
 @Controller('loja')
 export class LojaController {
   constructor(private readonly loja: LojaService) {}
+
+  @Get(':codigo/previa')
+  @Publico()
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  async previaLoja(@Param('codigo') codigo: string, @Req() req: Request, @Res() res: Response) {
+    const r = await this.loja.previa('loja', codigo, origemDaRequisicao(req));
+    res.status(r.status).type('html').setHeader('Cache-Control', 'public, max-age=300').send(r.html);
+  }
+
+  @Get('pedido/:codigo/previa')
+  @Publico()
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  async previaPedido(@Param('codigo') codigo: string, @Req() req: Request, @Res() res: Response) {
+    const r = await this.loja.previa('pedido', codigo, origemDaRequisicao(req));
+    // Sem cache público: a página é do pedido de alguém.
+    res.status(r.status).type('html').setHeader('Cache-Control', 'no-store').send(r.html);
+  }
 
   @Get('pedido/:codigo')
   @Publico()

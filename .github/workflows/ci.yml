@@ -155,6 +155,11 @@ jobs:
             -d '{"email":"ci@exemplo.invalid","senha":"senha-do-ci-123"}' | sed -E 's/.*"token":"([^"]+)".*/\1/')
           test -n "$token"
           echo "Login pelo nginx ok"
+          # Prévia de link: o robô do WhatsApp recebe a página da API (com og:title); o navegador, o site.
+          curl -sS -A "WhatsApp/2.24.1 A" http://localhost:8080/loja/naoexiste1234 | grep -q "og:title"
+          curl -sS -A "WhatsApp/2.24.1 A" http://localhost:8080/loja/pedido/naoexiste1234 | grep -q "og:title"
+          curl -fsS -A "Mozilla/5.0" http://localhost:8080/loja/naoexiste1234 | grep -q "id=\"root\""
+          echo "Prévia de link pelo nginx ok"
       - name: Logs em caso de falha
         if: failure()
         run: docker logs api; docker logs web

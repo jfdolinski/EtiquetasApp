@@ -9,6 +9,13 @@ map $http_x_forwarded_proto $proto_original {
   ''      $scheme;
 }
 
+# Robôs que montam a prévia de um link (WhatsApp, Facebook, Telegram...). Eles não rodam JavaScript:
+# para eles, /loja/... vira uma página da API com o nome e a logomarca da empresa dona do link.
+map $http_user_agent $robo_de_previa {
+  default 0;
+  "~*(whatsapp|facebookexternalhit|facebot|telegrambot|twitterbot|slackbot|linkedinbot|discordbot|skypeuripreview|pinterest|vkshare|embedly|redditbot|applebot|googlebot|bingbot)" 1;
+}
+
 server {
   listen 80;
   root /usr/share/nginx/html;
@@ -66,6 +73,24 @@ server {
   }
 
   # SPA: qualquer outra rota cai no index.html.
+  location ^~ /loja/ {
+    error_page 418 = @previa_da_loja;
+    if ($robo_de_previa) {
+      return 418;
+    }
+    try_files $uri /index.html;
+  }
+
+  location @previa_da_loja {
+    rewrite ^/loja/(.+?)/?$ /api/loja/$1/previa break;
+    proxy_pass ${API_UPSTREAM};
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $proto_original;
+  }
+
   location / {
     try_files $uri /index.html;
   }

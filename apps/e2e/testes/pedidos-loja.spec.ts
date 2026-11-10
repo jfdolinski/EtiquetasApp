@@ -327,3 +327,37 @@ test('logomarca pela tela de configuração', async ({ page }) => {
   await page.getByRole('button', { name: 'Tirar', exact: true }).click();
   await expect(page.getByAltText('Logomarca atual')).toHaveCount(0);
 });
+
+test('prévia do link (WhatsApp): nome e logomarca da empresa, nada do cliente, texto escapado', async () => {
+  const e = await criarEmpresa(tokenSuper);
+  const codigo = await lojaNoAr(e);
+  await pedir('PUT', '/pedidos/configuracao/logo', { token: e.adminToken, corpo: { dados: `data:image/png;base64,${PNG_1x1}` } });
+  const html = async (caminho: string) => {
+    const r = await fetch(`http://localhost:3000/api${caminho}`, { headers: { 'x-forwarded-for': ip() } });
+    return { status: r.status, tipo: r.headers.get('content-type'), corpo: await r.text() };
+  };
+
+  const loja = await html(`/loja/${codigo}/previa`);
+  expect(loja.status).toBe(200);
+  expect(loja.tipo).toMatch(/text\/html/);
+  expect(loja.corpo).toContain('<title>Mercadinho Bom Preço</title>');
+  expect(loja.corpo).toContain('<meta property="og:title" content="Mercadinho Bom Preço">');
+  expect(loja.corpo).toContain('<meta property="og:description" content="Pedidos até as 17h saem no mesmo dia">');
+  expect(loja.corpo).toContain(`<meta property="og:image" content="http://localhost:3000/api/loja/${codigo}/logo?v=`);
+  expect(loja.corpo).toContain(`<meta property="og:url" content="http://localhost:3000/loja/${codigo}">`);
+
+  const feito = (await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido(), ip: ip() })).j;
+  const doPedido = await html(`/loja/pedido/${feito.codigo}/previa`);
+  expect(doPedido.corpo).toContain(`<title>Pedido nº ${feito.numero} – Mercadinho Bom Preço</title>`);
+  expect(doPedido.corpo).not.toContain('Maria');
+  expect(doPedido.corpo).not.toContain('98765');
+
+  const inexistente = await html('/loja/naoexiste1234/previa');
+  expect(inexistente.status).toBe(404);
+  expect(inexistente.corpo).toContain('<title>Pedidos</title>');
+
+  await sql(`UPDATE empresas SET nome_fantasia = $2 WHERE id = $1`, [e.id, 'Loja "Boa" <script>alert(1)</script>']);
+  const perigoso = await html(`/loja/${codigo}/previa`);
+  expect(perigoso.corpo).not.toContain('<script>');
+  expect(perigoso.corpo).toContain('<title>Loja &quot;Boa&quot; &lt;script&gt;alert(1)&lt;/script&gt;</title>');
+});
