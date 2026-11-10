@@ -24,6 +24,7 @@ import {
   trocoPara,
   unidadesDe,
   faixasDeAgendamento,
+  rotuloSugerido,
   descontarReservas,
   itensParaRepetir,
   reservasDosPedidos,
@@ -372,5 +373,25 @@ describe('reserva e repetir a compra', () => {
     );
     expect(r.carrinho).toEqual({ '1': 2, '2': 2 });
     expect(r.avisos).toEqual(['Feijão: só restam 2, em vez de 3.', 'Feijão: o preço agora é R$ 8,49 (era R$ 7,99).', 'Café: não está disponível agora.']);
+  });
+});
+
+describe('detalhe do produto', () => {
+  it('leva só as colunas escolhidas, com o nome da loja, datas como DD/MM/AAAA e sem valores vazios', () => {
+    const { itens } = itensDoCatalogo(
+      [{ codigo: 1, descricao: 'Arroz', preco: 10, marca: 'Camil', validade: '2026-12-31', custo: 7, obs: '' }],
+      { ...colunas, camposDetalhe: [{ coluna: 'MARCA', rotulo: 'Marca' }, { coluna: 'validade', rotulo: 'Validade' }, { coluna: 'obs', rotulo: 'Observação' }] },
+    );
+    expect(itens[0].detalhes).toEqual([{ rotulo: 'Marca', valor: 'Camil' }, { rotulo: 'Validade', valor: '31/12/2026' }]);
+    expect(JSON.stringify(itens[0])).not.toContain('7');
+    expect(itensDoCatalogo([{ codigo: 1, descricao: 'Arroz', preco: 10 }], colunas).itens[0]).not.toHaveProperty('detalhes');
+  });
+
+  it('valida os campos e sugere o nome', () => {
+    const boa: ConfigPedidos = { ...CONFIG_PEDIDOS_PADRAO, ...colunas, enderecoRetirada: 'Rua A' };
+    expect(problemaNaConfigPedidos({ ...boa, camposDetalhe: [{ coluna: 'marca', rotulo: 'Marca' }] })).toBeNull();
+    expect(problemaNaConfigPedidos({ ...boa, camposDetalhe: [{ coluna: 'marca', rotulo: ' ' }] })).toMatch(/Dê um nome/);
+    expect(problemaNaConfigPedidos({ ...boa, camposDetalhe: [{ coluna: 'marca', rotulo: 'A' }, { coluna: 'MARCA', rotulo: 'B' }] })).toMatch(/duas vezes/);
+    expect(rotuloSugerido('data_validade')).toBe('Data validade');
   });
 });

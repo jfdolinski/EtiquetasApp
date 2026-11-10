@@ -361,3 +361,67 @@ test('prévia do link (WhatsApp): nome e logomarca da empresa, nada do cliente, 
   expect(perigoso.corpo).not.toContain('<script>');
   expect(perigoso.corpo).toContain('<title>Loja &quot;Boa&quot; &lt;script&gt;alert(1)&lt;/script&gt;</title>');
 });
+
+test('cartão do produto: abre ao tocar, mostra os campos escolhidos e a foto, e o voltar do celular fecha', async ({ page }) => {
+  const e = await criarEmpresa(tokenSuper);
+  const comDetalhe = ITENS.map((i) => (i.codigo === '10' ? { ...i, detalhes: [{ rotulo: 'Marca', valor: 'Camil' }, { rotulo: 'Validade', valor: '31/12/2026' }] } : i));
+  const codigo = await lojaNoAr(e, { itens: comDetalhe });
+  await pedir('PUT', '/pedidos/configuracao/logo', { token: e.adminToken, corpo: { dados: `data:image/png;base64,${PNG_1x1}` } });
+  const foto = (await pedir('GET', `/loja/${codigo}`)).j.logo as string;
+  await sql(`UPDATE configuracoes_pedidos SET itens = $2 WHERE empresa_id = $1`, [e.id, JSON.stringify(comDetalhe.map((i) => (i.codigo === '10' ? { ...i, foto } : i)))]);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/loja/${codigo}`);
+  await page.getByRole('button', { name: 'Ver detalhes de Arroz Tipo 1 5kg' }).click();
+  const cartao = page.getByTestId('detalhe-produto');
+  await expect(cartao.getByRole('heading', { name: 'Arroz Tipo 1 5kg' })).toBeVisible();
+  await expect(cartao.getByRole('img', { name: 'Arroz Tipo 1 5kg' })).toBeVisible();
+  await expect(cartao.getByText('5 disponíveis')).toBeVisible();
+  await expect(cartao.getByText('Mercearia')).toBeVisible();
+  await expect(cartao.getByTestId('detalhes-produto')).toContainText('MarcaCamil');
+  await expect(cartao.getByTestId('detalhes-produto')).toContainText('Validade31/12/2026');
+  await cartao.getByRole('button', { name: 'Adicionar ao carrinho' }).click();
+  await expect(cartao.getByLabel('Quantidade de Arroz Tipo 1 5kg')).toHaveText('1');
+  await page.screenshot({ path: 'test-results/loja-cartao-produto.png' });
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('detalhe-produto')).toHaveCount(0);
+  await expect(page.getByText('1 item · R$ 24,90')).toBeVisible();
+
+  // O "voltar" fecha o cartão e continua na loja.
+  await page.getByRole('button', { name: 'Ver detalhes de Feijão Carioca 1kg' }).click();
+  await expect(page.getByTestId('detalhe-produto')).toBeVisible();
+  await expect(page.getByTestId('detalhes-produto')).toHaveCount(0);
+  await page.goBack();
+  await expect(page.getByTestId('detalhe-produto')).toHaveCount(0);
+  expect(new URL(page.url()).pathname).toBe(`/loja/${codigo}`);
+});
+
+test('campos do detalhe na configuração: escolhe, renomeia e só entram colunas da consulta', async ({ page }) => {
+  const e = await criarEmpresa(tokenSuper);
+  await lojaNoAr(e);
+  const conexao = randomUUID();
+  const consulta = randomUUID();
+  await sql(`INSERT INTO conexoes_banco (id, empresa_id, nome, tipo, host, porta, banco, usuario, atualizado_em) VALUES ($1, $2, 'Conexão', 'POSTGRES', 'localhost', 5432, 'erp', 'leitor', now())`, [conexao, e.id]);
+  await sql(`INSERT INTO consultas_sql (id, empresa_id, conexao_id, nome, finalidade, sql, campos, atualizado_em) VALUES ($1, $2, $3, 'Produtos detalhe', 'OUTRA', 'SELECT 1', $4, now())`, [consulta, e.id, conexao, JSON.stringify(['codigo', 'descricao', 'preco', 'estoque', 'marca', 'preco_custo'].map((nome) => ({ nome })))]);
+  await sql(`UPDATE configuracoes_pedidos SET consulta_id = $2 WHERE empresa_id = $1`, [e.id, consulta]);
+  const [{ config }] = await sql(`SELECT config FROM configuracoes_pedidos WHERE empresa_id = $1`, [e.id]);
+  const corpo = (campos: unknown) => ({ ativo: false, consultaId: consulta, config: { ...config, colunaUnidade: null, colunaCategoria: null, colunaCodigoBarras: null, camposDetalhe: campos }, intervaloMinutos: 15, validadeMinutos: 120, horario: Array.from({ length: 7 }, () => []) });
+  expect((await pedir('PUT', '/pedidos/configuracao', { token: e.adminToken, corpo: corpo([{ coluna: 'nao_existe', rotulo: 'X' }]) })).status).toBe(400);
+  expect((await pedir('PUT', '/pedidos/configuracao', { token: e.adminToken, corpo: corpo([{ coluna: 'marca', rotulo: '' }]) })).status).toBe(400);
+
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await page.setExtraHTTPHeaders({ 'x-forwarded-for': ip() });
+  await page.goto('/');
+  await page.getByLabel('E-mail').fill(e.adminEmail);
+  await page.getByLabel('Senha').fill(e.adminSenha);
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  await page.getByRole('link', { name: 'Pedidos' }).click();
+  await page.getByRole('tab', { name: 'Configuração' }).click();
+  await page.getByLabel('Mostrar marca no detalhe').check();
+  await expect(page.getByLabel('Nome de marca para o cliente')).toHaveValue('Marca');
+  await page.getByLabel('Nome de marca para o cliente').fill('Fabricante');
+  await page.getByRole('button', { name: 'Salvar' }).click();
+  await expect(page.getByText(/Configuração salva/)).toBeVisible({ timeout: 40_000 });
+  const [{ config: salvo }] = await sql(`SELECT config FROM configuracoes_pedidos WHERE empresa_id = $1`, [e.id]);
+  expect(salvo.camposDetalhe).toEqual([{ coluna: 'marca', rotulo: 'Fabricante' }]);
+});

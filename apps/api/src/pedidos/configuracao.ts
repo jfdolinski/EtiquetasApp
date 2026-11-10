@@ -108,6 +108,7 @@ function configLimpa(c: Partial<ConfigPedidos>): ConfigPedidos {
     enderecoRetirada: texto(c.enderecoRetirada, 1000),
     agendamento: { dias: c.agendamento?.dias ?? AGENDAMENTO_PADRAO.dias, duracaoMinutos: c.agendamento?.duracaoMinutos ?? AGENDAMENTO_PADRAO.duracaoMinutos },
     impressoraFolhaId: typeof c.impressoraFolhaId === 'string' && c.impressoraFolhaId ? c.impressoraFolhaId : null,
+    camposDetalhe: (Array.isArray(c.camposDetalhe) ? c.camposDetalhe : []).slice(0, 50).map((d) => ({ coluna: coluna(d?.coluna) ?? '', rotulo: texto(d?.rotulo, 100) })),
   };
 }
 
@@ -200,7 +201,7 @@ export class ConfiguracaoPedidosService implements OnApplicationBootstrap, OnMod
     // Sem colunas lidas (agente desligado ao salvar a consulta) não dá para conferir: a atualização avisa.
     const colunas = ((consulta.campos ?? []) as unknown as CampoDinamico[]).map((c) => c.nome.toLowerCase());
     if (colunas.length) {
-      for (const col of [config.colunaCodigo, config.colunaNome, config.colunaPreco, config.colunaPrecoDe, config.colunaUnidade, config.colunaCategoria, config.colunaEstoque, config.colunaCodigoBarras]) {
+      for (const col of [config.colunaCodigo, config.colunaNome, config.colunaPreco, config.colunaPrecoDe, config.colunaUnidade, config.colunaCategoria, config.colunaEstoque, config.colunaCodigoBarras, ...config.camposDetalhe.map((d) => d.coluna)]) {
         if (col && !colunas.includes(col.toLowerCase())) throw new BadRequestException(`A consulta não tem a coluna “${col}”.`);
       }
     }

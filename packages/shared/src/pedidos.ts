@@ -129,7 +129,24 @@ export interface ConfigPedidos extends ColunasCatalogo {
   agendamento: ConfigAgendamento;
   /** Térmica ESC/POS que recebe a folha de lançamento. Nula: a folha só aparece na tela. */
   impressoraFolhaId: string | null;
+  /** Colunas a mais que o cliente vê ao abrir o produto, com o nome que ele lê. Só as escolhidas: o SQL pode ter custo. */
+  camposDetalhe: CampoDetalhe[];
 }
+
+export interface CampoDetalhe {
+  coluna: string;
+  rotulo: string;
+}
+
+export const MAX_CAMPOS_DETALHE = 10;
+const MAX_ROTULO_DETALHE = 40;
+const MAX_VALOR_DETALHE = 300;
+
+/** "data_validade" → "Data validade": o ponto de partida do nome, que a loja pode trocar. */
+export const rotuloSugerido = (coluna: string) => {
+  const t = coluna.replace(/[_-]+/g, ' ').trim().toLowerCase();
+  return t ? t[0].toUpperCase() + t.slice(1) : coluna;
+};
 
 export interface ConfigAgendamento {
   dias: number;
@@ -172,6 +189,7 @@ export const CONFIG_PEDIDOS_PADRAO: ConfigPedidos = {
   enderecoRetirada: '',
   agendamento: AGENDAMENTO_PADRAO,
   impressoraFolhaId: null,
+  camposDetalhe: [],
 };
 
 const valorValido = (v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= LIMITES_PEDIDOS.valorMaximoCentavos;
@@ -195,6 +213,14 @@ export function problemaNaConfigPedidos(c: ConfigPedidos): string | null {
   const a = c.agendamento ?? AGENDAMENTO_PADRAO;
   if (!Number.isInteger(a.dias) || a.dias < 1 || a.dias > 30) return 'A entrega agendada pode ir de 1 a 30 dias à frente.';
   if (!(DURACOES_FAIXA as readonly number[]).includes(a.duracaoMinutos)) return 'Escolha o tamanho das faixas de horário.';
+  const campos = c.camposDetalhe ?? [];
+  if (!Array.isArray(campos) || campos.length > MAX_CAMPOS_DETALHE) return `O detalhe do produto mostra até ${MAX_CAMPOS_DETALHE} campos.`;
+  for (const d of campos) {
+    if (!d?.coluna?.trim()) return 'Campo do detalhe sem coluna.';
+    if (!d.rotulo?.trim()) return `Dê um nome ao campo “${d.coluna}” do detalhe.`;
+    if (d.rotulo.length > MAX_ROTULO_DETALHE) return `O nome do campo “${d.coluna}” pode ter até ${MAX_ROTULO_DETALHE} caracteres.`;
+  }
+  if (new Set(campos.map((d) => d.coluna.toLowerCase())).size !== campos.length) return 'Uma coluna aparece duas vezes no detalhe do produto.';
   return null;
 }
 
@@ -256,6 +282,8 @@ export interface ItemCatalogo {
   /** Inteiro; ausente quando a consulta não traz estoque. */
   estoque?: number;
   codigoBarras?: string;
+  /** O que a loja escolheu mostrar ao abrir o produto; vazio fica de fora. */
+  detalhes?: { rotulo: string; valor: string }[];
   /** Endereço da foto guardada. */
   foto?: string;
 }
@@ -280,7 +308,7 @@ function valorDaColuna(registro: Registro, coluna: string | null): unknown {
 
 const textoDe = (v: unknown) => (v === null || v === undefined ? '' : textoNaTela(v).trim());
 
-export function itensDoCatalogo(registros: Registro[], c: ColunasCatalogo): ResultadoCatalogo {
+export function itensDoCatalogo(registros: Registro[], c: ColunasCatalogo & { camposDetalhe?: CampoDetalhe[] }): ResultadoCatalogo {
   const r: ResultadoCatalogo = { itens: [], descartados: 0, semEstoque: 0, repetidos: 0, cortados: 0 };
   const vistos = new Set<string>();
   for (const linha of registros) {
@@ -319,6 +347,11 @@ export function itensDoCatalogo(registros: Registro[], c: ColunasCatalogo): Resu
     if (estoque !== undefined) item.estoque = estoque;
     const barras = textoDe(valorDaColuna(linha, c.colunaCodigoBarras));
     if (barras) item.codigoBarras = barras;
+    const detalhes = (c.camposDetalhe ?? []).flatMap((d) => {
+      const valor = textoDe(valorDaColuna(linha, d.coluna)).slice(0, MAX_VALOR_DETALHE);
+      return valor ? [{ rotulo: d.rotulo, valor }] : [];
+    });
+    if (detalhes.length) item.detalhes = detalhes;
     r.itens.push(item);
   }
   return r;

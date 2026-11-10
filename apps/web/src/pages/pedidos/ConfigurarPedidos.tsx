@@ -4,6 +4,8 @@ import {
   caminhoCatalogo,
   centavosDe,
   colunasSugeridasPedidos,
+  MAX_CAMPOS_DETALHE,
+  rotuloSugerido,
   DIAS_SEMANA,
   DURACOES_FAIXA,
   formatarCentavos,
@@ -15,6 +17,7 @@ import {
   problemaNosPrazosPedidos,
   ROTULO_MODALIDADE,
   ROTULO_SITUACAO_CATALOGO,
+  type CampoDetalhe,
   type ColunasCatalogo,
   type ConfigPedidos,
   type ConfiguracaoPedidosResumo,
@@ -63,6 +66,7 @@ interface Formulario {
   agDias: string;
   agDuracao: number;
   impressoraFolhaId: string;
+  camposDetalhe: CampoDetalhe[];
 }
 
 const reais = (c: number) => (c / 100).toFixed(2).replace('.', ',');
@@ -84,6 +88,7 @@ function formularioDe(c: ConfiguracaoPedidosResumo): Formulario {
     agDias: String(k.agendamento?.dias ?? 7),
     agDuracao: k.agendamento?.duracaoMinutos ?? 120,
     impressoraFolhaId: k.impressoraFolhaId ?? '',
+    camposDetalhe: k.camposDetalhe ?? [],
   };
 }
 
@@ -100,6 +105,7 @@ function corpoDe(f: Formulario): SalvarConfiguracaoPedidos {
     enderecoRetirada: f.enderecoRetirada,
     agendamento: { dias: Number(f.agDias), duracaoMinutos: f.agDuracao },
     impressoraFolhaId: f.impressoraFolhaId || null,
+    camposDetalhe: f.camposDetalhe.map((d) => ({ coluna: d.coluna, rotulo: d.rotulo.trim() })),
   };
   return { ativo: f.ativo, consultaId: f.consultaId, config, intervaloMinutos: Number(f.intervalo), validadeMinutos: Number(f.validade), horario: f.horario };
 }
@@ -213,6 +219,37 @@ export function ConfigurarPedidos() {
           </div>
           {previa.error && <Alerta>{(previa.error as Error).message}</Alerta>}
           {previa.data && <ResultadoPrevia previa={previa.data} />}
+        </Secao>
+
+        <Secao titulo="Detalhe do produto">
+          <p className="text-xs text-slate-500">Quando o cliente toca num produto, abre um cartão com a foto grande e estes dados da consulta. Escolha só o que o cliente pode ver: custo e margem, por exemplo, ficam de fora. Até {MAX_CAMPOS_DETALHE} campos.</p>
+          {colunasDaConsulta.length === 0 && <p className="text-xs text-amber-700">Leia a consulta para escolher os campos.</p>}
+          <div className="grid gap-1.5 sm:grid-cols-2">
+            {colunasDaConsulta.map((col) => {
+              const escolhido = f.camposDetalhe.find((d) => d.coluna === col);
+              return (
+                <div key={col} className="flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1.5">
+                  <input
+                    type="checkbox"
+                    aria-label={`Mostrar ${col} no detalhe`}
+                    checked={!!escolhido}
+                    disabled={!escolhido && f.camposDetalhe.length >= MAX_CAMPOS_DETALHE}
+                    onChange={(e) => mudar({ camposDetalhe: e.target.checked ? [...f.camposDetalhe, { coluna: col, rotulo: rotuloSugerido(col) }] : f.camposDetalhe.filter((d) => d.coluna !== col) })}
+                  />
+                  <span className="w-28 shrink-0 truncate font-mono text-xs text-slate-600" title={col}>{col}</span>
+                  {escolhido && (
+                    <input
+                      aria-label={`Nome de ${col} para o cliente`}
+                      className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
+                      maxLength={40}
+                      value={escolhido.rotulo}
+                      onChange={(e) => mudar({ camposDetalhe: f.camposDetalhe.map((d) => (d.coluna === col ? { ...d, rotulo: e.target.value } : d)) })}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </Secao>
 
         <Secao titulo="Entrega e pedido mínimo">

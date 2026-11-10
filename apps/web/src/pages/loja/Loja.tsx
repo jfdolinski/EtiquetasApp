@@ -129,6 +129,22 @@ function Catalogo({ codigo }: { codigo: string }) {
   const [aviso, setAviso] = useState<string | null>(null);
   const [enviado, setEnviado] = useState<PedidoCriado | null>(null);
   const [pedidos] = useState<PedidoGuardado[]>(() => ler(chavePedidos, []));
+  const [produtoAberto, setProdutoAberto] = useState<string | null>(null);
+
+  // O cartão do produto entra no histórico: o "voltar" do celular fecha o cartão em vez de sair da loja.
+  useEffect(() => {
+    const aoVoltar = () => setProdutoAberto(null);
+    window.addEventListener('popstate', aoVoltar);
+    return () => window.removeEventListener('popstate', aoVoltar);
+  }, []);
+  const abrirProduto = (codigo: string) => {
+    window.history.pushState({ produto: codigo }, '');
+    setProdutoAberto(codigo);
+  };
+  const fecharProduto = () => {
+    if ((window.history.state as { produto?: string } | null)?.produto) window.history.back();
+    else setProdutoAberto(null);
+  };
 
   const setCarrinho = useCallback(
     (c: Carrinho) => {
@@ -261,7 +277,7 @@ function Catalogo({ codigo }: { codigo: string }) {
           {filtrados.length === 0 && <p className="py-10 text-center text-sm text-slate-500">Nenhum produto encontrado.</p>}
           <ul className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {filtrados.slice(0, mostrar).map((i) => (
-              <CartaoProduto key={i.codigo} item={i} quantidade={carrinho[i.codigo] ?? 0} aoMudar={(q) => mudarQuantidade(i, q)} />
+              <CartaoProduto key={i.codigo} item={i} quantidade={carrinho[i.codigo] ?? 0} aoMudar={(q) => mudarQuantidade(i, q)} aoAbrir={() => abrirProduto(i.codigo)} />
             ))}
           </ul>
           <div ref={fim} />
@@ -313,6 +329,10 @@ function Catalogo({ codigo }: { codigo: string }) {
         />
       )}
 
+      {produtoAberto && porCodigo.get(produtoAberto) && (
+        <DetalheProduto item={porCodigo.get(produtoAberto)!} quantidade={carrinho[produtoAberto] ?? 0} aoMudar={(q) => mudarQuantidade(porCodigo.get(produtoAberto)!, q)} aoFechar={fecharProduto} />
+      )}
+
       {etapa !== 'dados' && unidades > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,.06)]">
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
@@ -341,15 +361,18 @@ function Voltar({ aoClicar, children }: { aoClicar: () => void; children: ReactN
   );
 }
 
-function CartaoProduto({ item, quantidade, aoMudar }: { item: ItemCatalogo; quantidade: number; aoMudar: (q: number) => void }) {
+function CartaoProduto({ item, quantidade, aoMudar, aoAbrir }: { item: ItemCatalogo; quantidade: number; aoMudar: (q: number) => void; aoAbrir: () => void }) {
   const [semFoto, setSemFoto] = useState(false);
   return (
     <li className="flex flex-col overflow-hidden rounded-lg bg-white shadow-sm" data-testid="produto-loja">
-      <div className="flex aspect-square items-center justify-center bg-white p-2">
-        {item.foto && !semFoto ? <img src={item.foto} alt="" loading="lazy" className="h-full w-full object-contain" onError={() => setSemFoto(true)} /> : <span className="text-4xl font-bold text-slate-200">{item.nome.slice(0, 1)}</span>}
-      </div>
+      {/* Foto e nome abrem o cartão; os botões de quantidade ficam de fora, para não abrir sem querer. */}
+      <button type="button" onClick={aoAbrir} aria-label={`Ver detalhes de ${item.nome}`} className="block text-left">
+        <div className="flex aspect-square items-center justify-center bg-white p-2">
+          {item.foto && !semFoto ? <img src={item.foto} alt="" loading="lazy" className="h-full w-full object-contain" onError={() => setSemFoto(true)} /> : <span className="text-4xl font-bold text-slate-200">{item.nome.slice(0, 1)}</span>}
+        </div>
+        <p className="line-clamp-2 px-2.5 text-sm leading-snug">{item.nome}</p>
+      </button>
       <div className="flex flex-1 flex-col p-2.5 pt-0">
-        <p className="line-clamp-2 text-sm leading-snug">{item.nome}</p>
         <div className="mt-auto pt-1.5">
           {item.precoDeCentavos && <p className="text-xs text-slate-400 line-through">{formatarCentavos(item.precoDeCentavos)}</p>}
           <p className="text-base font-bold">
@@ -366,6 +389,63 @@ function CartaoProduto({ item, quantidade, aoMudar }: { item: ItemCatalogo; quan
         </div>
       </div>
     </li>
+  );
+}
+
+/** O cartão do produto: foto grande, preço e o que a loja escolheu mostrar da consulta. */
+function DetalheProduto({ item, quantidade, aoMudar, aoFechar }: { item: ItemCatalogo; quantidade: number; aoMudar: (q: number) => void; aoFechar: () => void }) {
+  const [semFoto, setSemFoto] = useState(false);
+  useEffect(() => {
+    const tecla = (e: KeyboardEvent) => e.key === 'Escape' && aoFechar();
+    window.addEventListener('keydown', tecla);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', tecla);
+      document.body.style.overflow = '';
+    };
+  }, [aoFechar]);
+  return (
+    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={aoFechar}>
+      <div role="dialog" aria-modal="true" aria-label={item.nome} data-testid="detalhe-produto" className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white shadow-xl sm:max-w-lg sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex justify-end bg-white/90 p-2 backdrop-blur">
+          <button type="button" aria-label="Fechar" onClick={aoFechar} className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-lg text-slate-700">✕</button>
+        </div>
+        <div className="flex max-h-[45vh] items-center justify-center bg-white px-6">
+          {item.foto && !semFoto ? <img src={item.foto} alt={item.nome} className="max-h-[45vh] w-full object-contain" onError={() => setSemFoto(true)} /> : <span className="py-10 text-7xl font-bold text-slate-200">{item.nome.slice(0, 1)}</span>}
+        </div>
+        <div className="space-y-3 p-4">
+          <div>
+            {item.categoria && <p className="text-xs uppercase tracking-wide text-slate-500">{item.categoria}</p>}
+            <h2 className="text-lg font-semibold leading-snug">{item.nome}</h2>
+          </div>
+          <div>
+            {item.precoDeCentavos && <p className="text-sm text-slate-400 line-through">{formatarCentavos(item.precoDeCentavos)}</p>}
+            <p className="text-2xl font-bold">
+              {formatarCentavos(item.precoCentavos)}
+              {item.unidade && <span className="text-sm font-normal text-slate-500"> / {item.unidade}</span>}
+            </p>
+            {item.estoque !== undefined && <p className="text-xs text-slate-500">{item.estoque === 1 ? '1 disponível' : `${item.estoque} disponíveis`}</p>}
+          </div>
+          {item.detalhes && item.detalhes.length > 0 && (
+            <dl className="divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm" data-testid="detalhes-produto">
+              {item.detalhes.map((d) => (
+                <div key={d.rotulo} className="flex justify-between gap-3 px-3 py-2">
+                  <dt className="text-slate-500">{d.rotulo}</dt>
+                  <dd className="text-right font-medium text-slate-900">{d.valor}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          <div className="pt-1">
+            {quantidade === 0 ? (
+              <button type="button" className="w-full rounded-full bg-blue-600 py-3 text-base font-semibold text-white" onClick={() => aoMudar(1)}>Adicionar ao carrinho</button>
+            ) : (
+              <Quantidade nome={item.nome} valor={quantidade} max={item.estoque} aoMudar={aoMudar} largo />
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
