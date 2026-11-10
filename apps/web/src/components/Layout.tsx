@@ -118,7 +118,10 @@ export function Layout() {
     <div className="flex min-h-screen flex-col md:flex-row">
       <aside className="border-b border-slate-200 bg-white md:w-60 md:shrink-0 md:border-r md:border-b-0">
         <div className="px-5 py-4">
-          <div className="text-lg font-semibold text-blue-700">Flow</div>
+          <div className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+            <img src="/favicon.svg" alt="" className="h-7 w-7" />
+            Flow
+          </div>
           <div className="truncate text-xs text-slate-500">
             {usuario.superAdmin ? 'Administração da plataforma' : usuario.empresa?.nomeFantasia || usuario.empresa?.razaoSocial}
           </div>

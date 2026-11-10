@@ -71,7 +71,7 @@ func (p *Painel) abrirJanela() {
 		}
 		hwnd := uintptr(w.Window())
 		lado := int(32 * escala)
-		definirIcone(hwnd, icone.PNG(icone.Azul, lado), lado)
+		definirIcone(hwnd, icone.PNG(icone.Laranja, lado), lado)
 		w.SetSize(largura, altura, webview2.HintFixed)
 
 		_ = w.Bind("estado", p.visaoDaPagina)
@@ -92,7 +92,7 @@ func (p *Painel) abrirJanela() {
 		// Configurações > Barra de tarefas, onde se liga o ícone em "Outros ícones da bandeja".
 		_ = w.Bind("configurarIcone", func() { _ = abrir("ms-settings:taskbar") })
 		_ = w.Bind("fechar", func() { fecharJanela(hwnd) })
-		w.SetHtml(strings.Replace(pagina, "{{ICONE}}", base64.StdEncoding.EncodeToString(icone.PNG(icone.Azul, 64)), 1))
+		w.SetHtml(strings.Replace(pagina, "{{ICONE}}", base64.StdEncoding.EncodeToString(icone.PNG(icone.Laranja, 64)), 1))
 
 		p.mu.Lock()
 		p.janela, p.abrindo = hwnd, false

@@ -29,7 +29,7 @@ module.exports = {
     android: {
       package: 'br.com.etiquetas.app',
       versionCode,
-      adaptiveIcon: { foregroundImage: './assets/icone-frente.png', backgroundColor: '#1d4ed8' },
+      adaptiveIcon: { foregroundImage: './assets/icone-frente.png', backgroundColor: '#ea580c' },
       permissions: ['android.permission.CAMERA', 'android.permission.POST_NOTIFICATIONS'],
       ...(temFirebase ? { googleServicesFile: googleServices } : {}),
     },
@@ -40,7 +40,7 @@ module.exports = {
     plugins: [
       ['expo-camera', { cameraPermission: 'A câmera lê o QR code que vincula o celular à sua conta.', microphonePermission: false, recordAudioAndroid: false }],
       'expo-secure-store',
-      ['expo-notifications', { color: '#1d4ed8', defaultChannel: 'avisos' }],
+      ['expo-notifications', { color: '#ea580c', defaultChannel: 'avisos' }],
       ...(testeHttp ? [liberarHttp] : []),
     ],
     extra: { temFirebase, testeHttp },

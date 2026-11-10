@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Linking, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
@@ -90,7 +90,10 @@ export function TelaVincular({ aoVincular, motivo }: { aoVincular: (s: Sessao) =
 
   return (
     <ScrollView contentContainerStyle={estilos.pagina} keyboardShouldPersistTaps="handled">
-      <Text accessibilityRole="header" style={estilos.titulo}>Flow</Text>
+      <View style={estilos.marca}>
+        <Image source={require('../assets/icone.png')} style={estilos.logo} accessibilityIgnoresInvertColors />
+        <Text accessibilityRole="header" style={estilos.titulo}>Flow</Text>
+      </View>
       {motivo ? <Alerta tipo="aviso">{motivo}</Alerta> : null}
       {erro ? <Alerta>{erro}</Alerta> : null}
 
@@ -127,7 +130,9 @@ export function TelaVincular({ aoVincular, motivo }: { aoVincular: (s: Sessao) =
 
 const estilos = StyleSheet.create({
   pagina: { flexGrow: 1, justifyContent: 'center', padding: 24, backgroundColor: cores.fundo },
-  titulo: { fontSize: 30, fontWeight: '700', color: cores.azul, marginBottom: 20 },
+  marca: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
+  logo: { width: 44, height: 44, borderRadius: 10 },
+  titulo: { fontSize: 30, fontWeight: '700', color: '#0f172a' },
   texto: { fontSize: 16, color: cores.texto, marginBottom: 16, lineHeight: 23 },
   servidor: { fontSize: 20, fontWeight: '700', color: cores.texto, marginBottom: 4 },
   ajuda: { fontSize: 14, color: cores.suave, marginBottom: 20 },
