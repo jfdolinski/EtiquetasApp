@@ -1,11 +1,15 @@
 import { randomBytes } from 'node:crypto';
-import { BadRequestException, Body, ConflictException, Controller, Get, HttpException, HttpStatus, Injectable, NotFoundException, Param, Post, Req, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Get, HttpException, HttpStatus, Injectable, NotFoundException, Param, Post, Req, Res, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { Throttle } from '@nestjs/throttler';
-import type { Request } from 'express';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
+import type { Request, Response } from 'express';
 import { IsArray, IsBoolean, IsDateString, IsInt, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import {
+  caminhoLogoDaLoja,
   categoriasDoCatalogo,
+  descontarReservas,
+  reservasDosPedidos,
+  SITUACOES_QUE_RESERVAM,
   clientePodeCancelar,
   clientePodeConfirmar,
   LIMITE_MOTIVO_CANCELAMENTO,
@@ -130,8 +134,24 @@ const SELECAO_LOJA = {
   dadosEm: true,
   validadeMinutos: true,
   quantidadeItens: true,
+  codigoLink: true,
+  logoEm: true,
   empresa: { select: { razaoSocial: true, nomeFantasia: true, ativa: true, statusAssinatura: true, horarioFuncionamento: true } },
 } satisfies Prisma.ConfiguracaoPedidosSelect;
+
+const logoDe = (c: { codigoLink: string; logoEm: Date | null } | null | undefined) => (c?.logoEm ? caminhoLogoDaLoja(c.codigoLink, c.logoEm.getTime()) : null);
+
+/** O estoque da cópia menos o que está em pedidos ainda não lançados no ERP. */
+async function catalogoComReservas(db: Pick<PrismaService, 'pedido'>, empresaId: string, itens: ItemCatalogo[]): Promise<ItemCatalogo[]> {
+  if (!itens.some((i) => i.estoque !== undefined)) return itens;
+  const abertos = await db.pedido.findMany({ where: { empresaId, situacao: { in: [...SITUACOES_QUE_RESERVAM] } }, select: { itens: true } });
+  return descontarReservas(itens, reservasDosPedidos(abertos.map((p) => ({ itens: p.itens as unknown as ItemConferido[] }))));
+}
+
+function recusaPorMudanca(mudancas: RecusaPorMudanca['mudancas'], itens: ItemConferido[]): never {
+  const corpo: RecusaPorMudanca & { message: string; statusCode: number } = { statusCode: 409, message: 'Alguns produtos mudaram desde que você os escolheu. Confira e envie de novo.', mudancas, itens };
+  throw new ConflictException(corpo);
+}
 
 type Loja = Prisma.ConfiguracaoPedidosGetPayload<{ select: typeof SELECAO_LOJA }>;
 
@@ -164,11 +184,12 @@ export class LojaService {
     const l = await this.loja(codigo, agora);
     const { cfg, horario, hoje, hora, diaSemana, aberta, faixas } = this.contexto(l, agora);
     // O código de barras só serve para a foto e para a folha da loja.
-    const itens = (l.itens as unknown as ItemCatalogo[]).map(({ codigoBarras: _cb, ...i }) => i);
+    const itens = (await catalogoComReservas(this.prisma, l.empresaId, l.itens as unknown as ItemCatalogo[])).map(({ codigoBarras: _cb, ...i }) => i);
     // Agendada sem nenhuma faixa livre seria uma opção que não dá para escolher.
     const permitidas = modalidadesPermitidas(cfg.modalidades, aberta).filter((m) => m !== 'AGENDADA' || faixas.length > 0);
     return {
       empresa: l.empresa.nomeFantasia || l.empresa.razaoSocial,
+      logo: logoDe(l),
       mensagem: cfg.mensagem,
       aberta,
       abreEm: aberta ? null : textoProximaAbertura(horario, diaSemana, hora),
@@ -183,6 +204,13 @@ export class LojaService {
     };
   }
 
+  /** Pública como as imagens das telas: o `<img>` não manda token, e o endereço muda a cada envio. */
+  async logo(codigo: string) {
+    const l = CODIGO.test(codigo) ? await this.prisma.configuracaoPedidos.findUnique({ where: { codigoLink: codigo }, select: { logo: true, logoMime: true } }) : null;
+    if (!l?.logo || !l.logoMime) throw new NotFoundException('Sem logomarca.');
+    return { mime: l.logoMime, bytes: Buffer.from(l.logo) };
+  }
+
   async cep(codigo: string, cep: string) {
     await this.loja(codigo, new Date());
     const normalizado = normalizarCep(cep);
@@ -193,19 +221,17 @@ export class LojaService {
   async criar(codigo: string, dto: NovoPedidoDto, ip: string, agora = new Date()): Promise<PedidoCriado> {
     const l = await this.loja(codigo, agora);
     const { cfg, aberta, faixas } = this.contexto(l, agora);
+    // Antes de qualquer conta: quem dispara pedidos seguidos não chega a consultar estoque.
+    const origemHash = sha256(`${l.empresaId}:${ip}`);
+    const recentes = await this.prisma.pedido.count({ where: { empresaId: l.empresaId, origemHash, criadoEm: { gte: new Date(agora.getTime() - 3600_000) } } });
+    if (recentes >= MAX_PEDIDOS_POR_ORIGEM_HORA) throw new HttpException('Muitos pedidos seguidos deste aparelho. Fale com a loja ou tente mais tarde.', HttpStatus.TOO_MANY_REQUESTS);
     const carrinho: ItemCarrinho[] = (Array.isArray(dto.itens) ? dto.itens : []).map((i) => ({ codigo: String(i?.codigo ?? ''), quantidade: Number(i?.quantidade), precoCentavos: Number(i?.precoCentavos) }));
-    const { itens, mudancas } = conferirCarrinho(carrinho, l.itens as unknown as ItemCatalogo[]);
-    if (mudancas.length) {
-      const corpo: RecusaPorMudanca & { message: string; statusCode: number } = { statusCode: 409, message: 'Alguns produtos mudaram desde que você os escolheu. Confira e envie de novo.', mudancas, itens };
-      throw new ConflictException(corpo);
-    }
+    const { itens, mudancas } = conferirCarrinho(carrinho, await catalogoComReservas(this.prisma, l.empresaId, l.itens as unknown as ItemCatalogo[]));
+    if (mudancas.length) recusaPorMudanca(mudancas, itens);
     const pedido: NovoPedido = { ...dto, itens: carrinho, endereco: dto.endereco ? enderecoLimpo(dto.endereco) : null, agendamento: dto.agendamento ?? null, trocoParaCentavos: dto.trocoParaCentavos ?? null, observacao: dto.observacao ?? '' };
     const problema = problemaNoPedido(pedido, itens, { modalidades: cfg.modalidades, aberta, faixas, pedidoMinimoCentavos: cfg.pedidoMinimoCentavos });
     if (problema) throw new BadRequestException(problema);
 
-    const origemHash = sha256(`${l.empresaId}:${ip}`);
-    const recentes = await this.prisma.pedido.count({ where: { empresaId: l.empresaId, origemHash, criadoEm: { gte: new Date(agora.getTime() - 3600_000) } } });
-    if (recentes >= MAX_PEDIDOS_POR_ORIGEM_HORA) throw new HttpException('Muitos pedidos seguidos deste aparelho. Fale com a loja ou tente mais tarde.', HttpStatus.TOO_MANY_REQUESTS);
 
     const taxa = cfg.modalidades[pedido.modalidade].precoCentavos;
     const troco = pedido.pagamento === 'DINHEIRO' ? pedido.trocoParaCentavos : null;
@@ -215,6 +241,9 @@ export class LojaService {
       // A linha da configuração fica presa até o fim: dois pedidos ao mesmo tempo não pegam o mesmo número.
       const { proximoNumero } = await tx.configuracaoPedidos.update({ where: { empresaId: l.empresaId }, data: { proximoNumero: { increment: 1 } }, select: { proximoNumero: true } });
       const n = proximoNumero - 1;
+      // De novo, já com a linha presa: outro pedido que acabou de entrar pode ter levado a última unidade.
+      const conferido = conferirCarrinho(carrinho, await catalogoComReservas(tx, l.empresaId, l.itens as unknown as ItemCatalogo[]));
+      if (conferido.mudancas.length) recusaPorMudanca(conferido.mudancas, conferido.itens);
       const criado = await tx.pedido.create({
         data: {
           empresaId: l.empresaId,
@@ -247,14 +276,17 @@ export class LojaService {
     const p = CODIGO.test(codigo)
       ? await this.prisma.pedido.findUnique({
           where: { codigoHash: sha256(codigo) },
-          include: { empresa: { select: { razaoSocial: true, nomeFantasia: true, configuracaoPedidos: { select: { config: true } } } } },
+          include: { empresa: { select: { razaoSocial: true, nomeFantasia: true, configuracaoPedidos: { select: { config: true, ativo: true, codigoLink: true, logoEm: true } } } } },
         })
       : null;
     if (!p) throw new NotFoundException('Pedido não encontrado. Confira o link.');
     const itens = p.itens as unknown as ItemConferido[];
     const cfg = p.empresa.configuracaoPedidos?.config as unknown as ConfigPedidos | undefined;
+    const loja = p.empresa.configuracaoPedidos;
     return {
       empresa: p.empresa.nomeFantasia || p.empresa.razaoSocial,
+      logo: logoDe(loja),
+      codigoLoja: loja?.ativo ? loja.codigoLink : null,
       numero: p.numero,
       situacao: p.situacao as SituacaoPedido,
       criadoEm: p.criadoEm.toISOString(),
@@ -390,6 +422,17 @@ export class LojaController {
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   catalogo(@Param('codigo') codigo: string) {
     return this.loja.catalogo(codigo);
+  }
+
+  @Get(':codigo/logo')
+  @Publico()
+  @SkipThrottle()
+  async logo(@Param('codigo') codigo: string, @Res() res: Response) {
+    const l = await this.loja.logo(codigo);
+    res.setHeader('Content-Type', l.mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(l.bytes);
   }
 
   @Get(':codigo/cep/:cep')

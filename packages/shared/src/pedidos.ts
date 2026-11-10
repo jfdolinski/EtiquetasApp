@@ -324,6 +324,30 @@ export function itensDoCatalogo(registros: Registro[], c: ColunasCatalogo): Resu
   return r;
 }
 
+/**
+ * Pedido recebido ou em separação ainda não foi lançado no ERP: o estoque da consulta não sabe dele.
+ * Até sair para entrega (ou ficar pronto para retirar), a quantidade fica reservada no link.
+ */
+export const SITUACOES_QUE_RESERVAM = ['NOVO', 'EM_SEPARACAO'] as const;
+
+export function reservasDosPedidos(pedidos: { itens: { codigo: string; quantidade: number }[] }[]): Map<string, number> {
+  const r = new Map<string, number>();
+  for (const p of pedidos) for (const i of p.itens ?? []) r.set(i.codigo, (r.get(i.codigo) ?? 0) + i.quantidade);
+  return r;
+}
+
+/** O estoque que sobra para o link. Sem coluna de estoque, nada muda; o que zerou sai do catálogo. */
+export function descontarReservas(itens: ItemCatalogo[], reservas: ReadonlyMap<string, number>): ItemCatalogo[] {
+  if (reservas.size === 0) return itens;
+  const r: ItemCatalogo[] = [];
+  for (const i of itens) {
+    const reservado = reservas.get(i.codigo);
+    if (i.estoque === undefined || !reservado) r.push(i);
+    else if (i.estoque - reservado > 0) r.push({ ...i, estoque: i.estoque - reservado });
+  }
+  return r;
+}
+
 /** Categorias na ordem alfabética, sem repetir. */
 export function categoriasDoCatalogo(itens: ItemCatalogo[]): string[] {
   return [...new Set(itens.map((i) => i.categoria).filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
@@ -454,6 +478,8 @@ export function situacaoDoCatalogo(c: { ativo: boolean; dadosEm: Date | null; va
 export interface ConfiguracaoPedidosResumo {
   /** Nulo até salvar a primeira vez. */
   codigoLink: string | null;
+  /** Endereço da logomarca; nulo sem logomarca. */
+  logo: string | null;
   ativo: boolean;
   consultaId: string | null;
   consultaNome: string | null;
@@ -673,6 +699,8 @@ export function problemaNoPedido(p: NovoPedido, itens: ItemConferido[], ctx: Con
 
 export interface CatalogoPublico {
   empresa: string;
+  /** Endereço da logomarca da loja; nulo sem logomarca. */
+  logo: string | null;
   mensagem: string;
   aberta: boolean;
   /** "hoje às 14h"; nulo quando aberta ou sem horário. */
@@ -690,6 +718,9 @@ export interface CatalogoPublico {
 
 export interface PedidoPublico {
   empresa: string;
+  logo: string | null;
+  /** O link do catálogo, para repetir a compra; nulo com o catálogo desligado. */
+  codigoLoja: string | null;
   numero: number;
   situacao: SituacaoPedido;
   criadoEm: string;
@@ -722,3 +753,28 @@ export interface RecusaPorMudanca {
 }
 
 export const caminhoAcompanhamento = (codigo: string) => `/loja/pedido/${codigo}`;
+
+/**
+ * Repetir a compra: os produtos do pedido no carrinho, com o que vale agora. O que saiu do catálogo fica
+ * de fora, a quantidade cabe no estoque e o preço é o de hoje; cada mudança vira um aviso.
+ */
+export function itensParaRepetir(pedido: { codigo: string; nome: string; quantidade: number; precoCentavos: number }[], catalogo: ItemCatalogo[]): { carrinho: Record<string, number>; avisos: string[] } {
+  const porCodigo = new Map(catalogo.map((i) => [i.codigo, i]));
+  const carrinho: Record<string, number> = {};
+  const avisos: string[] = [];
+  for (const i of pedido) {
+    const agora = porCodigo.get(i.codigo);
+    if (!agora) {
+      avisos.push(`${i.nome}: não está disponível agora.`);
+      continue;
+    }
+    const quantidade = Math.min(i.quantidade, agora.estoque ?? MAX_QUANTIDADE_ITEM, MAX_QUANTIDADE_ITEM);
+    if (quantidade < i.quantidade) avisos.push(`${agora.nome}: só ${quantidade === 1 ? 'resta 1' : `restam ${quantidade}`}, em vez de ${i.quantidade}.`);
+    if (agora.precoCentavos !== i.precoCentavos) avisos.push(`${agora.nome}: o preço agora é ${formatarCentavos(agora.precoCentavos)} (era ${formatarCentavos(i.precoCentavos)}).`);
+    carrinho[i.codigo] = (carrinho[i.codigo] ?? 0) + quantidade;
+  }
+  return { carrinho, avisos };
+}
+
+export const caminhoLogoDaLoja = (codigo: string, versao: number) => `/api/loja/${codigo}/logo?v=${versao}`;
+export const LOGO_LOJA_MAXIMO_BYTES = 1_000_000;

@@ -174,6 +174,7 @@ export function ConfigurarPedidos() {
               <span className="mt-0.5 block text-xs text-slate-500">Desligado, quem abrir o link vê “catálogo indisponível”.</span>
             </span>
           </label>
+          <LogoDaLoja atual={atual} aoMudar={(c) => cliente.setQueryData(chave, c)} />
           <Campo rotulo="Mensagem de boas-vindas" value={f.mensagem} maxLength={LIMITES_PEDIDOS.mensagem} placeholder="Pedidos até as 17h saem no mesmo dia" onChange={(e) => mudar({ mensagem: e.target.value })} />
         </Secao>
 
@@ -411,6 +412,59 @@ function EditorHorario({ horario, aoMudar }: { horario: HorarioFuncionamento; ao
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Até 600 px no maior lado, em PNG (mantém o fundo transparente): a logomarca fica leve no celular do cliente. */
+async function reduzirLogo(arquivo: File): Promise<string> {
+  const url = URL.createObjectURL(arquivo);
+  try {
+    const img = await new Promise<HTMLImageElement>((ok, erro) => {
+      const i = new Image();
+      i.onload = () => ok(i);
+      i.onerror = () => erro(new Error('Não deu para abrir a imagem. Use PNG, JPEG, WebP ou GIF.'));
+      i.src = url;
+    });
+    const escala = Math.min(1, 600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * escala));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * escala));
+    canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/png');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function LogoDaLoja({ atual, aoMudar }: { atual: ConfiguracaoPedidosResumo; aoMudar: (c: ConfiguracaoPedidosResumo) => void }) {
+  const enviar = useMutation({ mutationFn: async (arquivo: File) => api<ConfiguracaoPedidosResumo>('/pedidos/configuracao/logo', { metodo: 'PUT', corpo: { dados: await reduzirLogo(arquivo) } }), onSuccess: aoMudar });
+  const apagar = useMutation({ mutationFn: () => api<ConfiguracaoPedidosResumo>('/pedidos/configuracao/logo', { metodo: 'DELETE' }), onSuccess: aoMudar });
+  const erro = (enviar.error ?? apagar.error) as Error | null;
+  return (
+    <div>
+      <span className="mb-1 block text-sm font-medium text-slate-700">Logomarca</span>
+      <div className="flex flex-wrap items-center gap-3">
+        {atual.logo ? <img src={atual.logo} alt="Logomarca atual" className="h-14 w-14 rounded-md border border-slate-200 object-contain" /> : <span className="flex h-14 w-14 items-center justify-center rounded-md border border-dashed border-slate-300 text-xs text-slate-400">sem</span>}
+        <label className={`inline-flex cursor-pointer items-center rounded-md px-3 py-2 text-sm font-medium ring-1 ring-slate-300 hover:bg-slate-50 ${!atual.codigoLink ? 'pointer-events-none opacity-50' : ''}`}>
+          {enviar.isPending ? 'Enviando…' : atual.logo ? 'Trocar' : 'Enviar logomarca'}
+          <input
+            type="file"
+            aria-label="Arquivo da logomarca"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            className="sr-only"
+            disabled={!atual.codigoLink || enviar.isPending}
+            onChange={(e) => {
+              const arquivo = e.target.files?.[0];
+              e.target.value = '';
+              if (arquivo) enviar.mutate(arquivo);
+            }}
+          />
+        </label>
+        {atual.logo && <Botao variante="secundario" disabled={apagar.isPending} onClick={() => apagar.mutate()}>Tirar</Botao>}
+      </div>
+      <p className="mt-1 text-xs text-slate-500">{atual.codigoLink ? 'Aparece no alto do catálogo e do acompanhamento do pedido. De preferência quadrada, com fundo transparente.' : 'Salve a configuração uma vez para enviar a logomarca.'}</p>
+      {erro && <Alerta>{erro.message}</Alerta>}
     </div>
   );
 }

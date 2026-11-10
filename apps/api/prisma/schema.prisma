@@ -1164,6 +1164,11 @@ model ConfiguracaoPedidos {
   responsavelId        String?   @map("responsavel_id") @db.Uuid
   /// Número do próximo pedido da empresa: incrementado na mesma linha, sem corrida entre dois pedidos.
   proximoNumero        Int       @default(1) @map("proximo_numero")
+  /// Logomarca do catálogo e do acompanhamento (PNG, JPEG, WebP ou GIF, conferido pelos bytes).
+  logo                 Bytes?
+  logoMime             String?   @map("logo_mime")
+  /// Muda a cada envio: entra no endereço, e o navegador guarda a imagem sem perguntar de novo.
+  logoEm               DateTime? @map("logo_em")
   criadoEm             DateTime  @default(now()) @map("criado_em")
   atualizadoEm         DateTime  @updatedAt @map("atualizado_em")
 

@@ -24,6 +24,9 @@ import {
   trocoPara,
   unidadesDe,
   faixasDeAgendamento,
+  descontarReservas,
+  itensParaRepetir,
+  reservasDosPedidos,
   problemaNoEndereco,
   problemaNoPedido,
   rotuloSituacaoPedido,
@@ -341,5 +344,33 @@ describe('pedido do cliente', () => {
     expect(rotuloSituacaoPedido('PRONTO', 'ENTREGA')).toBe('Saiu para entrega');
     expect(textoEndereco({ ...endereco, cep: '01001000', complemento: 'apto 2' })).toBe('Praça da Sé, 10 – apto 2 – Sé, São Paulo/SP – CEP 01001-000');
     expect(problemaNoEndereco(endereco)).toBeNull();
+  });
+});
+
+describe('reserva e repetir a compra', () => {
+  const catalogo = [
+    { codigo: '1', nome: 'Arroz', precoCentavos: 2490, estoque: 5 },
+    { codigo: '2', nome: 'Feijão', precoCentavos: 849, estoque: 2 },
+    { codigo: '3', nome: 'Sal', precoCentavos: 300 },
+  ];
+
+  it('desconta o que está em pedidos abertos; o que zera sai; sem estoque, nada muda', () => {
+    const reservas = reservasDosPedidos([{ itens: [{ codigo: '1', quantidade: 2 }, { codigo: '2', quantidade: 1 }] }, { itens: [{ codigo: '2', quantidade: 1 }, { codigo: '3', quantidade: 9 }] }]);
+    expect([...reservas]).toEqual([['1', 2], ['2', 2], ['3', 9]]);
+    expect(descontarReservas(catalogo, reservas)).toEqual([{ codigo: '1', nome: 'Arroz', precoCentavos: 2490, estoque: 3 }, { codigo: '3', nome: 'Sal', precoCentavos: 300 }]);
+    expect(descontarReservas(catalogo, new Map())).toBe(catalogo);
+  });
+
+  it('repetir: põe no carrinho o que dá, e avisa o que mudou', () => {
+    const r = itensParaRepetir(
+      [
+        { codigo: '1', nome: 'Arroz', quantidade: 2, precoCentavos: 2490 },
+        { codigo: '2', nome: 'Feijão', quantidade: 3, precoCentavos: 799 },
+        { codigo: '9', nome: 'Café', quantidade: 1, precoCentavos: 1500 },
+      ],
+      catalogo,
+    );
+    expect(r.carrinho).toEqual({ '1': 2, '2': 2 });
+    expect(r.avisos).toEqual(['Feijão: só restam 2, em vez de 3.', 'Feijão: o preço agora é R$ 8,49 (era R$ 7,99).', 'Café: não está disponível agora.']);
   });
 });

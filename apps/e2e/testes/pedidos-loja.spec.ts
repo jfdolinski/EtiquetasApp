@@ -206,7 +206,8 @@ test('API pública: link, regras, preço nunca vem do cliente, limite por aparel
   const f = await pedir('GET', `/loja/${fechada}`);
   expect(f.j.aberta).toBe(false);
   expect(f.j.modalidades).toEqual([]);
-  expect((await pedir('POST', `/loja/${fechada}/pedidos`, { corpo: pedido(), ip: ip() })).j.message).toMatch(/fechada/);
+  // Detergente: o arroz já está reservado pelos pedidos acima.
+  expect((await pedir('POST', `/loja/${fechada}/pedidos`, { corpo: pedido({ itens: [{ codigo: '20', quantidade: 11, precoCentavos: 299 }] }), ip: ip() })).j.message).toMatch(/fechada/);
   // O link antigo deixou de valer quando o código mudou.
   expect((await pedir('GET', `/loja/${codigo}`)).status).toBe(404);
 });
@@ -259,4 +260,70 @@ test('o cliente cancela até a separação e, depois que sai, confirma o recebim
   // A loja vê no histórico que foi o cliente.
   const [{ historico }] = await sql(`SELECT historico FROM pedidos WHERE empresa_id = $1 AND numero = $2`, [e.id, f.numero]);
   expect(historico.at(-1)).toMatchObject({ texto: 'O cliente confirmou o recebimento', por: null });
+});
+
+const PNG_1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+test('reserva o estoque dos pedidos em aberto, logomarca e repetir a compra com o estoque de agora', async ({ page }) => {
+  const e = await criarEmpresa(tokenSuper);
+  const codigo = await lojaNoAr(e);
+
+  // Reserva: 3 dos 5 arrozes em pedido recebido somem do link; saiu para entrega, voltam a valer pelo ERP.
+  const primeiro = (await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido({ itens: [{ codigo: '10', quantidade: 3, precoCentavos: 2490 }] }), ip: ip() })).j;
+  const estoqueDoArroz = async () => (await pedir('GET', `/loja/${codigo}`)).j.itens.find((i: { codigo: string }) => i.codigo === '10')?.estoque;
+  expect(await estoqueDoArroz()).toBe(2);
+  const demais = await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido({ itens: [{ codigo: '10', quantidade: 3, precoCentavos: 2490 }] }), ip: ip() });
+  expect(demais.status).toBe(409);
+  expect(demais.j.mudancas).toEqual([{ codigo: '10', nome: 'Arroz Tipo 1 5kg', tipo: 'ESTOQUE', antes: 3, depois: 2 }]);
+  await sql(`UPDATE pedidos SET situacao = 'EM_SEPARACAO' WHERE empresa_id = $1 AND numero = $2`, [e.id, primeiro.numero]);
+  expect(await estoqueDoArroz()).toBe(2);
+  await sql(`UPDATE pedidos SET situacao = 'PRONTO' WHERE empresa_id = $1 AND numero = $2`, [e.id, primeiro.numero]);
+  expect(await estoqueDoArroz()).toBe(5);
+
+  // Logomarca: só imagem de verdade; aparece no catálogo e no acompanhamento.
+  expect((await pedir('PUT', '/pedidos/configuracao/logo', { token: e.adminToken, corpo: { dados: 'data:image/svg+xml;base64,' + Buffer.from('<svg/>').toString('base64') } })).status).toBe(400);
+  const comLogo = await pedir('PUT', '/pedidos/configuracao/logo', { token: e.adminToken, corpo: { dados: `data:image/png;base64,${PNG_1x1}` } });
+  expect(comLogo.status).toBe(200);
+  expect(comLogo.j.logo.startsWith(`/api/loja/${codigo}/logo?v=`)).toBe(true);
+  const imagem = await fetch(`http://localhost:3000${comLogo.j.logo}`);
+  expect(imagem.headers.get('content-type')).toBe('image/png');
+  expect((await pedir('GET', `/loja/${codigo}`)).j.logo).toBe(comLogo.j.logo);
+  const acompanhamento = await pedir('GET', `/loja/pedido/${primeiro.codigo}`);
+  expect(acompanhamento.j).toMatchObject({ logo: comLogo.j.logo, codigoLoja: codigo });
+
+  // Repetir: o arroz agora tem estoque 2 (o 2º pedido reserva 3? não: foi recusado), o preço do feijão mudou.
+  await sql(`UPDATE pedidos SET situacao = 'CONCLUIDO' WHERE empresa_id = $1 AND numero = $2`, [e.id, primeiro.numero]);
+  const outro = (await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido({ itens: [{ codigo: '10', quantidade: 4, precoCentavos: 2490 }, { codigo: '11', quantidade: 1, precoCentavos: 849 }] }), ip: ip() })).j;
+  await sql(`UPDATE configuracoes_pedidos SET itens = $2 WHERE empresa_id = $1`, [e.id, JSON.stringify(ITENS.map((i) => (i.codigo === '11' ? { ...i, precoCentavos: 999 } : i)))]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/loja/pedido/${outro.codigo}`);
+  await expect(page.getByTestId('logo-loja')).toBeVisible();
+  await page.getByRole('button', { name: 'Repetir a compra' }).click();
+  await expect.poll(() => page.url()).toContain(`/loja/${codigo}?carrinho=1`);
+  await expect(page.getByRole('heading', { name: 'Seu carrinho' })).toBeVisible();
+  // Os 4 arrozes deste pedido estão reservados por ele mesmo: sobra 1 no estoque.
+  await expect(page.getByRole('status')).toContainText('Arroz Tipo 1 5kg: só resta 1, em vez de 4.');
+  await expect(page.getByRole('status')).toContainText('Feijão Carioca 1kg: o preço agora é R$ 9,99 (era R$ 8,49).');
+  await expect(page.getByLabel('Quantidade de Arroz Tipo 1 5kg')).toHaveText('1');
+  await expect(page.getByTestId('logo-loja')).toBeVisible();
+  await page.screenshot({ path: 'test-results/loja-repetir.png', fullPage: true });
+});
+
+test('logomarca pela tela de configuração', async ({ page }) => {
+  const e = await criarEmpresa(tokenSuper);
+  await lojaNoAr(e);
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await page.setExtraHTTPHeaders({ 'x-forwarded-for': ip() });
+  await page.goto('/');
+  await page.getByLabel('E-mail').fill(e.adminEmail);
+  await page.getByLabel('Senha').fill(e.adminSenha);
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  await page.getByRole('link', { name: 'Pedidos' }).click();
+  await page.getByRole('tab', { name: 'Configuração' }).click();
+  await page.getByLabel('Arquivo da logomarca').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from(PNG_1x1, 'base64') });
+  await expect(page.getByAltText('Logomarca atual')).toBeVisible();
+  const [{ logo_mime }] = await sql(`SELECT logo_mime FROM configuracoes_pedidos WHERE empresa_id = $1`, [e.id]);
+  expect(logo_mime).toBe('image/png');
+  await page.getByRole('button', { name: 'Tirar', exact: true }).click();
+  await expect(page.getByAltText('Logomarca atual')).toHaveCount(0);
 });

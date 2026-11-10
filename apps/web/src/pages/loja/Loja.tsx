@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   caminhoAcompanhamento,
+  itensParaRepetir,
   centavosDe,
   faltaParaMinimo,
   formatarCelular,
@@ -80,6 +81,8 @@ function gravar(chave: string, valor: unknown) {
   }
 }
 
+const chaveAvisoRepetir = (codigo: string) => `etiquetas.loja.${codigo}.avisoRepetir`;
+
 const simplificar = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 export function Loja() {
@@ -118,7 +121,8 @@ function Catalogo({ codigo }: { codigo: string }) {
   const [catalogo, setCatalogo] = useState<CatalogoPublico | null>(null);
   const [erro, setErro] = useState<ErroLoja | null>(null);
   const [carrinho, setCarrinhoBruto] = useState<Carrinho>(() => ler(chaveCarrinho, {}));
-  const [etapa, setEtapa] = useState<Etapa>('produtos');
+  // "Repetir a compra" chega aqui com ?carrinho: o cliente vê o carrinho montado e confere.
+  const [etapa, setEtapa] = useState<Etapa>(() => (new URLSearchParams(window.location.search).has('carrinho') ? 'carrinho' : 'produtos'));
   const [busca, setBusca] = useState('');
   const [categoria, setCategoria] = useState<string | null>(null);
   const [mostrar, setMostrar] = useState(POR_VEZ);
@@ -159,6 +163,11 @@ function Catalogo({ codigo }: { codigo: string }) {
         if (i) depois[k] = Math.min(q, i.estoque ?? MAX_QUANTIDADE_ITEM);
       }
       if (JSON.stringify(antes) !== JSON.stringify(depois)) setAviso('Alguns itens do seu carrinho mudaram ou não estão mais disponíveis.');
+      const repetido = ler<string | null>(chaveAvisoRepetir(codigo), null);
+      if (repetido) {
+        setAviso(repetido);
+        gravar(chaveAvisoRepetir(codigo), null);
+      }
       setCarrinho(depois);
     });
   }, [carregar, chaveCarrinho, setCarrinho]);
@@ -201,9 +210,12 @@ function Catalogo({ codigo }: { codigo: string }) {
     <div className="min-h-screen bg-slate-50 pb-28 text-slate-900">
       <header className="bg-white px-4 pb-3 pt-4 shadow-sm">
         <div className="mx-auto flex max-w-5xl items-start justify-between gap-3">
-          <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-3">
+            {catalogo.logo && <img src={catalogo.logo} alt="" data-testid="logo-loja" className="h-12 w-12 shrink-0 rounded-md object-contain" />}
+            <div className="min-w-0">
             <h1 className="truncate text-xl font-bold">{catalogo.empresa}</h1>
             {catalogo.mensagem && <p className="mt-0.5 text-sm text-slate-600">{catalogo.mensagem}</p>}
+            </div>
           </div>
           <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${catalogo.aberta ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>{catalogo.aberta ? 'Aberto agora' : 'Fechado agora'}</span>
         </div>
@@ -728,6 +740,29 @@ function Acompanhamento({ codigo }: { codigo: string }) {
     }
   };
 
+  /** O carrinho com os produtos deste pedido, conferidos agora com o estoque e o preço de hoje. */
+  const repetir = async () => {
+    if (!pedido.codigoLoja) return;
+    setRespondendo(true);
+    setErroResposta(null);
+    try {
+      const c = await pedir<CatalogoPublico>(pedido.codigoLoja);
+      const r = itensParaRepetir(pedido.itens, c.itens);
+      if (Object.keys(r.carrinho).length === 0) {
+        setErroResposta('Nenhum produto deste pedido está disponível agora.');
+        return;
+      }
+      const base = `Produtos do pedido nº ${pedido.numero} no carrinho, com o estoque e o preço de agora.`;
+      gravar(`etiquetas.loja.${pedido.codigoLoja}.carrinho`, r.carrinho);
+      gravar(chaveAvisoRepetir(pedido.codigoLoja), r.avisos.length ? `${base} ${r.avisos.join(' ')}` : base);
+      window.location.href = `/loja/${pedido.codigoLoja}?carrinho=1`;
+    } catch (e) {
+      setErroResposta((e as Error).message);
+    } finally {
+      setRespondendo(false);
+    }
+  };
+
   const responder = async (aceita: boolean) => {
     if (!pedido.proposta) return;
     setRespondendo(true);
@@ -746,8 +781,13 @@ function Acompanhamento({ codigo }: { codigo: string }) {
     <div className="min-h-screen bg-slate-50 pb-10 text-slate-900">
       <header className="bg-white px-4 py-4 shadow-sm">
         <div className="mx-auto max-w-2xl">
-          <p className="text-sm text-slate-500">{pedido.empresa}</p>
-          <h1 className="text-xl font-bold">Pedido nº {pedido.numero}</h1>
+          <div className="flex items-center gap-3">
+            {pedido.logo && <img src={pedido.logo} alt="" data-testid="logo-loja" className="h-12 w-12 shrink-0 rounded-md object-contain" />}
+            <div>
+              <p className="text-sm text-slate-500">{pedido.empresa}</p>
+              <h1 className="text-xl font-bold">Pedido nº {pedido.numero}</h1>
+            </div>
+          </div>
         </div>
       </header>
       <main className="mx-auto max-w-2xl space-y-4 px-4 pt-4">
@@ -837,6 +877,15 @@ function Acompanhamento({ codigo }: { codigo: string }) {
             <Linha rotulo="Total" valor={formatarCentavos(pedido.totais.totalCentavos)} forte />
           </dl>
         </Bloco>
+        {pedido.codigoLoja && (
+          <div className="space-y-1">
+            {erroResposta && !pedido.proposta && <p role="alert" className="text-sm text-red-800">{erroResposta}</p>}
+            <button type="button" disabled={respondendo} onClick={() => void repetir()} className="w-full rounded-full bg-blue-600 py-3 text-base font-semibold text-white disabled:bg-slate-300">
+              Repetir a compra
+            </button>
+            <p className="text-center text-xs text-slate-500">Os produtos vão para o carrinho com o estoque e o preço de agora.</p>
+          </div>
+        )}
         <Bloco titulo="Pagamento">
           <p className="text-sm">
             {ROTULO_PAGAMENTO[pedido.pagamento]}

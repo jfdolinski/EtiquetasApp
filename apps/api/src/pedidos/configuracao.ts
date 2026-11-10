@@ -1,9 +1,11 @@
 import { randomBytes } from 'node:crypto';
-import { BadRequestException, Body, Controller, Get, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy, Post, Put } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy, Post, Put } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { IsArray, IsBoolean, IsInt, IsObject, IsOptional, IsUUID } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsObject, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import {
   AGENDAMENTO_PADRAO,
+  caminhoLogoDaLoja,
+  LOGO_LOJA_MAXIMO_BYTES,
   CONFIG_PEDIDOS_PADRAO,
   horarioVazio,
   itensDoCatalogo,
@@ -33,6 +35,7 @@ import { ConsultasService } from '../consultas/consultas.service';
 import { pedeParametros } from '../impressao/agendamentos.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { FotosProdutoTelaService } from '../telas/fotos';
+import { tipoDaImagem } from '../posts/catalogo.service';
 
 const INTERVALO_VERIFICACAO_MS = 30_000;
 const MAX_POR_VERIFICACAO = 20;
@@ -60,6 +63,13 @@ class SalvarConfiguracaoPedidosDto {
 
   @IsArray()
   horario: HorarioFuncionamento;
+}
+
+class LogoDto {
+  /** Data URL; o tamanho de verdade é conferido nos bytes. */
+  @IsString()
+  @MaxLength(1_500_000, { message: 'A logomarca pode ter até 1 MB.' })
+  dados: string;
 }
 
 class PreviaCatalogoDto {
@@ -135,16 +145,17 @@ export class ConfiguracaoPedidosService implements OnApplicationBootstrap, OnMod
     const [c, empresa] = await Promise.all([
       this.prisma.configuracaoPedidos.findUnique({
         where: { empresaId },
-        select: { codigoLink: true, ativo: true, consultaId: true, config: true, intervaloMinutos: true, validadeMinutos: true, quantidadeItens: true, dadosEm: true, erro: true, consulta: { select: { nome: true } }, responsavel: { select: { nome: true } } },
+        select: { codigoLink: true, logoEm: true, ativo: true, consultaId: true, config: true, intervaloMinutos: true, validadeMinutos: true, quantidadeItens: true, dadosEm: true, erro: true, consulta: { select: { nome: true } }, responsavel: { select: { nome: true } } },
       }),
       this.prisma.empresa.findUnique({ where: { id: empresaId }, select: { horarioFuncionamento: true } }),
     ]);
     const horario = (empresa?.horarioFuncionamento as HorarioFuncionamento | null) ?? horarioVazio();
     if (!c) {
-      return { codigoLink: null, ativo: false, consultaId: null, consultaNome: null, config: CONFIG_PEDIDOS_PADRAO, intervaloMinutos: 15, validadeMinutos: 120, horario, situacao: 'DESLIGADO', quantidadeItens: 0, dadosEm: null, erro: null, responsavelNome: null };
+      return { codigoLink: null, logo: null, ativo: false, consultaId: null, consultaNome: null, config: CONFIG_PEDIDOS_PADRAO, intervaloMinutos: 15, validadeMinutos: 120, horario, situacao: 'DESLIGADO', quantidadeItens: 0, dadosEm: null, erro: null, responsavelNome: null };
     }
     return {
       codigoLink: c.codigoLink,
+      logo: c.logoEm ? caminhoLogoDaLoja(c.codigoLink, c.logoEm.getTime()) : null,
       ativo: c.ativo,
       consultaId: c.consultaId,
       consultaNome: c.consulta?.nome ?? null,
@@ -215,6 +226,24 @@ export class ConfiguracaoPedidosService implements OnApplicationBootstrap, OnMod
       await this.auditoria.registrar({ empresaId, usuarioId, acao: 'pedido.configurar', entidade: 'ConfiguracaoPedidos', entidadeId: empresaId, detalhes: { ativo: dto.ativo, consultaId: dto.consultaId } }, tx);
     });
     if (dto.ativo) await this.atualizarDados(empresaId);
+    return this.obter(empresaId);
+  }
+
+  /** Pelos bytes, não pelo que o navegador declarou: SVG pode carregar script. */
+  async enviarLogo(empresaId: string, dados: string, usuarioId: string): Promise<ConfiguracaoPedidosResumo> {
+    const bytes = Buffer.from(dados.slice(dados.indexOf(',') + 1), 'base64');
+    if (bytes.length > LOGO_LOJA_MAXIMO_BYTES) throw new BadRequestException('A logomarca pode ter até 1 MB.');
+    const mime = tipoDaImagem(bytes);
+    if (!mime) throw new BadRequestException('A logomarca precisa ser PNG, JPEG, WebP ou GIF.');
+    const { count } = await this.prisma.configuracaoPedidos.updateMany({ where: { empresaId }, data: { logo: bytes, logoMime: mime, logoEm: new Date() } });
+    if (count === 0) throw new BadRequestException('Salve a configuração antes de enviar a logomarca.');
+    await this.auditoria.registrar({ empresaId, usuarioId, acao: 'pedido.logo', entidade: 'ConfiguracaoPedidos', entidadeId: empresaId, detalhes: { bytes: bytes.length } });
+    return this.obter(empresaId);
+  }
+
+  async apagarLogo(empresaId: string, usuarioId: string): Promise<ConfiguracaoPedidosResumo> {
+    await this.prisma.configuracaoPedidos.updateMany({ where: { empresaId }, data: { logo: null, logoMime: null, logoEm: null } });
+    await this.auditoria.registrar({ empresaId, usuarioId, acao: 'pedido.logo_apagar', entidade: 'ConfiguracaoPedidos', entidadeId: empresaId });
     return this.obter(empresaId);
   }
 
@@ -353,6 +382,18 @@ export class ConfiguracaoPedidosController {
   @RequerPermissao('pedido.configurar')
   previa(@EmpresaAtual() empresaId: string, @Body() dto: PreviaCatalogoDto, @UsuarioAtual() u: UsuarioRequisicao) {
     return this.servico.previa(empresaId, dto, u.id);
+  }
+
+  @Put('logo')
+  @RequerPermissao('pedido.configurar')
+  enviarLogo(@EmpresaAtual() empresaId: string, @Body() dto: LogoDto, @UsuarioAtual() u: UsuarioRequisicao) {
+    return this.servico.enviarLogo(empresaId, dto.dados, u.id);
+  }
+
+  @Delete('logo')
+  @RequerPermissao('pedido.configurar')
+  apagarLogo(@EmpresaAtual() empresaId: string, @UsuarioAtual() u: UsuarioRequisicao) {
+    return this.servico.apagarLogo(empresaId, u.id);
   }
 
   @Post('novo-link')

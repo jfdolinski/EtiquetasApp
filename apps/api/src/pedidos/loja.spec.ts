@@ -31,7 +31,7 @@ const HORARIO = horarioVazio();
 HORARIO[1] = [{ inicio: '08:00', fim: '18:00' }];
 HORARIO[2] = [{ inicio: '08:00', fim: '18:00' }];
 
-function montar(extra: Record<string, unknown> = {}, empresa: Record<string, unknown> = {}) {
+function montar(extra: Record<string, unknown> = {}, empresa: Record<string, unknown> = {}, reservados: { itens: unknown }[] = [], reservadosNaTransacao = reservados) {
   const loja = {
     empresaId: 'e1',
     ativo: true,
@@ -40,16 +40,18 @@ function montar(extra: Record<string, unknown> = {}, empresa: Record<string, unk
     dadosEm: new Date(AGORA.getTime() - 60_000),
     validadeMinutos: 120,
     quantidadeItens: 2,
+    codigoLink: 'abcdefghijkl',
+    logoEm: null,
     empresa: { razaoSocial: 'Mercado LTDA', nomeFantasia: 'Mercadinho', ativa: true, statusAssinatura: 'ATIVA', horarioFuncionamento: HORARIO, ...empresa },
     ...extra,
   };
   const tx = {
     configuracaoPedidos: { update: jest.fn(async () => ({ proximoNumero: 8 })) },
-    pedido: { create: jest.fn(async (_a: unknown) => ({ id: 'p1' })) },
+    pedido: { create: jest.fn(async (_a: unknown) => ({ id: 'p1' })), findMany: jest.fn(async () => reservadosNaTransacao) },
   };
   const prisma = {
     configuracaoPedidos: { findUnique: jest.fn(async () => loja as unknown) },
-    pedido: { count: jest.fn(async () => 0), findUnique: jest.fn(async () => null as unknown) },
+    pedido: { count: jest.fn(async () => 0), findUnique: jest.fn(async () => null as unknown), findMany: jest.fn(async () => reservados) },
     $transaction: jest.fn(async (f: (t: typeof tx) => Promise<unknown>) => f(tx)),
   };
   const auditoria = { registrar: jest.fn() };
@@ -151,6 +153,23 @@ describe('enviar o pedido', () => {
     const e = await s.criar(CODIGO, PEDIDO as never, 'ip', AGORA).catch((x) => x);
     expect(e).toBeInstanceOf(HttpException);
     expect((e as HttpException).getStatus()).toBe(429);
+  });
+});
+
+describe('reserva de estoque', () => {
+  it('o catálogo desconta o que está em pedidos abertos', async () => {
+    const { s, prisma } = montar({}, {}, [{ itens: [{ codigo: '1', quantidade: 4 }] }]);
+    const c = await s.catalogo(CODIGO, AGORA);
+    expect(c.itens[0]).toMatchObject({ codigo: '1', estoque: 1 });
+    expect(prisma.pedido.findMany).toHaveBeenCalledWith({ where: { empresaId: 'e1', situacao: { in: ['NOVO', 'EM_SEPARACAO'] } }, select: { itens: true } });
+  });
+
+  it('outro pedido levou a última unidade enquanto este entrava: recusa dentro da transação, sem gravar', async () => {
+    const { s, tx } = montar({}, {}, [], [{ itens: [{ codigo: '1', quantidade: 4 }] }]);
+    const e = await s.criar(CODIGO, PEDIDO as never, 'ip', AGORA).catch((x) => x);
+    expect(e).toBeInstanceOf(ConflictException);
+    expect((e as ConflictException).getResponse()).toMatchObject({ mudancas: [{ tipo: 'ESTOQUE', antes: 2, depois: 1 }] });
+    expect(tx.pedido.create).not.toHaveBeenCalled();
   });
 });
 
