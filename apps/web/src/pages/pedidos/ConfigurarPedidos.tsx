@@ -335,6 +335,13 @@ export function ConfigurarPedidos() {
               {atualizar.isPending ? 'Atualizando…' : 'Atualizar agora'}
             </Botao>
           )}
+          {atual.ativo && f.comFotos && (
+            <p className="mt-2 text-xs text-slate-500" data-testid="aviso-fotos">
+              {atualizar.isSuccess
+                ? 'Procurando no catálogo as fotos dos produtos que estavam sem: elas aparecem na loja em alguns minutos.'
+                : 'Produto que ganhou foto no catálogo aparece sozinho em até um dia. “Atualizar agora” procura na hora.'}
+            </p>
+          )}
           {atualizar.error && <div className="mt-2"><Alerta>{(atualizar.error as Error).message}</Alerta></div>}
         </div>
 

@@ -64,10 +64,20 @@ describe('cópia do catálogo', () => {
     expect(d.dadosEm).toBeInstanceOf(Date);
   });
 
+  it('Atualizar agora procura na hora os produtos que ainda estão sem foto', async () => {
+    const { s, fotos } = montar({ ativo: true, config: { ...CONFIG, comFotos: true, colunaCodigoBarras: 'ean' } });
+    fotos.aplicar.mockImplementationOnce(async (_e: string, itens: { codigo?: string }[]) => ({ itens, faltam: ['789'] }));
+    await s.atualizarAgora('e1').catch(() => undefined);
+    expect(fotos.aplicar).toHaveBeenCalledWith('e1', [{ nome: '', preco: '', codigo: '789' }], expect.any(Date), true);
+    await new Promise((r) => setImmediate(r));
+    expect(fotos.buscar).toHaveBeenCalledWith('e1', ['789']);
+  });
+
   it('com fotos: procura pelo código de barras e põe a foto no produto', async () => {
     const { s, prisma, fotos } = montar({ config: { ...CONFIG, comFotos: true, colunaCodigoBarras: 'ean' } });
     await s.atualizarDados('e1');
-    expect(fotos.aplicar).toHaveBeenCalledWith('e1', [{ nome: '', preco: '', codigo: '789' }]);
+    // O relógio respeita o ritmo de conferência: quem está sem foto não é procurado a cada atualização.
+    expect(fotos.aplicar).toHaveBeenCalledWith('e1', [{ nome: '', preco: '', codigo: '789' }], expect.any(Date), false);
     expect(dados(prisma.configuracaoPedidos.update).itens).toEqual([{ codigo: '1', nome: 'Arroz', precoCentavos: 2490, estoque: 3, codigoBarras: '789', foto: '/api/tv/fotos/f1' }]);
   });
 

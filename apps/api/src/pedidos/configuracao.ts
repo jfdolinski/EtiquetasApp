@@ -259,7 +259,8 @@ export class ConfiguracaoPedidosService implements OnApplicationBootstrap, OnMod
   async atualizarAgora(empresaId: string): Promise<ConfiguracaoPedidosResumo> {
     const c = await this.prisma.configuracaoPedidos.findUnique({ where: { empresaId }, select: { ativo: true } });
     if (!c?.ativo) throw new BadRequestException('Ligue o catálogo para atualizar os produtos.');
-    await this.atualizarDados(empresaId);
+    // Quem pede na hora quer ver a foto que acabou de entrar no catálogo: os sem foto são procurados já.
+    await this.atualizarDados(empresaId, true);
     return this.obter(empresaId);
   }
 
@@ -303,7 +304,7 @@ export class ConfiguracaoPedidosService implements OnApplicationBootstrap, OnMod
   }
 
   /** Falhou: guarda o motivo e mantém a cópia anterior, que sai do ar ao vencer. */
-  async atualizarDados(empresaId: string): Promise<void> {
+  async atualizarDados(empresaId: string, reverSemFoto = false): Promise<void> {
     const c = await this.prisma.configuracaoPedidos.findUnique({ where: { empresaId }, select: { consultaId: true, config: true, responsavelId: true, responsavel: { select: { ativo: true } } } });
     if (!c) return;
     try {
@@ -317,7 +318,7 @@ export class ConfiguracaoPedidosService implements OnApplicationBootstrap, OnMod
       // Sem nada aproveitável não é "produtos novos": apagar o catálogo por um erro de coluna seria pior que esperar a validade.
       if (itens.length === 0) throw new Error('A consulta não trouxe nenhum produto com código, nome, preço e estoque.');
       // O preço nunca espera a foto: entra com as já guardadas, e as outras chegam depois.
-      const { itens: comFotos, faltam } = cfg.comFotos ? await this.comFotos(empresaId, itens) : { itens, faltam: [] as string[] };
+      const { itens: comFotos, faltam } = cfg.comFotos ? await this.comFotos(empresaId, itens, reverSemFoto) : { itens, faltam: [] as string[] };
       const dadosEm = new Date();
       await this.prisma.configuracaoPedidos.update({ where: { empresaId }, data: { itens: comFotos as unknown as Prisma.InputJsonValue, quantidadeItens: itens.length, dadosEm, erro: null } });
       if (faltam.length) void this.completarFotos(empresaId, faltam, dadosEm);
@@ -327,9 +328,9 @@ export class ConfiguracaoPedidosService implements OnApplicationBootstrap, OnMod
   }
 
   /** As fotos das telas: mesma guarda por código de barras, então cada busca no catálogo vale para os dois. */
-  private async comFotos(empresaId: string, itens: ItemCatalogo[]) {
+  private async comFotos(empresaId: string, itens: ItemCatalogo[], reverSemFoto = false) {
     const comoTela = itens.map((i): ItemConteudoTela => ({ nome: '', preco: '', ...(i.codigoBarras ? { codigo: i.codigoBarras } : {}) }));
-    const { itens: achadas, faltam } = await this.fotos.aplicar(empresaId, comoTela);
+    const { itens: achadas, faltam } = await this.fotos.aplicar(empresaId, comoTela, new Date(), reverSemFoto);
     const novos = itens.map(({ foto: _antiga, ...i }, n): ItemCatalogo => (achadas[n].foto ? { ...i, foto: achadas[n].foto } : i));
     return { itens: novos, faltam };
   }
