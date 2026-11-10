@@ -39,9 +39,9 @@ func main() {
 	vi.SetFileVersion("1.0.0.0")
 	vi.SetProductVersion("1.0.0.0")
 	for chave, valor := range map[string]string{
-		version.ProductName:      "Agente de Etiquetas",
-		version.FileDescription:  "Agente de Etiquetas",
-		version.CompanyName:      "Sistema de Etiquetas",
+		version.ProductName:      "Agente Flow",
+		version.FileDescription:  "Agente Flow",
+		version.CompanyName:      "Flow",
 		version.OriginalFilename: "etiquetas-agente.exe",
 		version.InternalName:     "etiquetas-agente",
 	} {
@@ -50,7 +50,7 @@ func main() {
 	rs.SetVersionInfo(vi)
 
 	rs.SetManifest(winres.AppManifest{
-		Description:         "Agente de Etiquetas",
+		Description:         "Agente Flow",
 		Compatibility:       winres.Win10AndAbove,
 		ExecutionLevel:      winres.AsInvoker,
 		DPIAwareness:        winres.DPIPerMonitorV2,

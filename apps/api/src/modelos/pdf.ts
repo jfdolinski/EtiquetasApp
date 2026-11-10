@@ -280,7 +280,7 @@ export async function gerarPdf(layout: LayoutEtiqueta, registros: Registro[], ho
   const avisos = new Avisos();
   const doc = await PDFDocument.create();
   doc.setTitle('Etiquetas');
-  doc.setProducer('Sistema de Etiquetas');
+  doc.setProducer('Flow');
   const desenho = new DesenhoPdf(doc, new FontesPdf(doc), avisos);
 
   const pag = paginar(layout);

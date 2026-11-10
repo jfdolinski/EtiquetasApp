@@ -128,7 +128,7 @@ export class UsuariosService {
     if (count === 0) throw new NotFoundException('Pedido de cadastro não encontrado.');
     const usuario = await this.obter(empresaId, id);
     await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'cadastro.aprovar_usuario', entidade: 'Usuario', entidadeId: id, detalhes: { email: usuario.email, perfilId } });
-    void this.email.enviar(usuario.email, 'Cadastro aprovado - Etiquetas', 'Seu cadastro foi aprovado. Você já pode entrar com o e-mail e a senha que informou.');
+    void this.email.enviar(usuario.email, 'Cadastro aprovado - Flow', 'Seu cadastro foi aprovado. Você já pode entrar com o e-mail e a senha que informou.');
     return usuario;
   }
 
@@ -140,7 +140,7 @@ export class UsuariosService {
       await tx.usuario.deleteMany({ where: { id, empresaId, cadastroPendente: true } });
       await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'cadastro.recusar_usuario', entidade: 'Usuario', entidadeId: id, detalhes: { email: pedido.email } }, tx);
     });
-    void this.email.enviar(pedido.email, 'Cadastro não aprovado - Etiquetas', 'Seu pedido de cadastro não foi aprovado. Em caso de dúvida, fale com o administrador da empresa.');
+    void this.email.enviar(pedido.email, 'Cadastro não aprovado - Flow', 'Seu pedido de cadastro não foi aprovado. Em caso de dúvida, fale com o administrador da empresa.');
   }
 
   private async exigirPerfilDaEmpresa(empresaId: string, perfilId: string) {

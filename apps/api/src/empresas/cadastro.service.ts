@@ -68,7 +68,7 @@ export class CadastroService {
     await this.auditoria.registrar({ empresaId: empresa.id, usuarioId: criado.id, acao: 'cadastro.solicitar', entidade: 'Usuario', entidadeId: criado.id, detalhes: { email: u.email } });
     const aberta = !empresa.aprovacaoPendente && !empresaBloqueada(empresa);
     const destinos = aberta ? await this.email.enderecosComPermissao(empresa.id, 'usuario.editar') : await this.enderecosSuperAdmin();
-    void this.email.enviar(destinos, 'Novo cadastro aguardando aprovação - Etiquetas', `${u.email} pediu acesso ao sistema de etiquetas. Aprove ou recuse em Usuários.`);
+    void this.email.enviar(destinos, 'Novo cadastro aguardando aprovação - Flow', `${u.email} pediu acesso ao Flow. Aprove ou recuse em Usuários.`);
   }
 
   private async criarEmpresaPendente(cnpj: string, u: { email: string; nome: string; senhaHash: string }) {
@@ -85,7 +85,7 @@ export class CadastroService {
       await this.auditoria.registrar({ empresaId: empresa.id, usuarioId: usuario.id, acao: 'cadastro.solicitar', entidade: 'Empresa', entidadeId: empresa.id, detalhes: { cnpj, email: u.email, situacaoReceita: dados.situacao } }, tx);
       return empresa;
     });
-    void this.email.enviar(await this.enderecosSuperAdmin(), 'Nova empresa aguardando aprovação - Etiquetas', `${criado.razaoSocial} (${formatarCnpj(cnpj)}) se cadastrou. Aprove ou recuse em Empresas.`);
+    void this.email.enviar(await this.enderecosSuperAdmin(), 'Nova empresa aguardando aprovação - Flow', `${criado.razaoSocial} (${formatarCnpj(cnpj)}) se cadastrou. Aprove ou recuse em Empresas.`);
   }
 
   /** A busca de CNPJ fora do ar não impede o pedido: o super-admin completa os dados ao aprovar. */
@@ -141,7 +141,7 @@ export class CadastroService {
       await this.auditoria.registrar({ empresaId: id, usuarioId: autorId, acao: 'cadastro.aprovar_empresa', entidade: 'Empresa', entidadeId: id, detalhes: { administrador: primeiro?.email ?? null } }, tx);
       return primeiro;
     });
-    if (r) void this.email.enviar(r.email, 'Cadastro aprovado - Etiquetas', 'Seu cadastro foi aprovado. Você já pode entrar com o e-mail e a senha que informou.');
+    if (r) void this.email.enviar(r.email, 'Cadastro aprovado - Flow', 'Seu cadastro foi aprovado. Você já pode entrar com o e-mail e a senha que informou.');
   }
 
   /** Recusar apaga o pedido: a empresa nunca chegou a funcionar. */
@@ -154,6 +154,6 @@ export class CadastroService {
       // Sem empresaId: o registro precisa sobreviver à empresa apagada.
       await this.auditoria.registrar({ empresaId: null, usuarioId: autorId, acao: 'cadastro.recusar_empresa', entidade: 'Empresa', entidadeId: id, detalhes: { cnpj: empresa.cnpj, razaoSocial: empresa.razaoSocial } }, tx);
     });
-    void this.email.enviar(empresa.usuarios.map((u) => u.email), 'Cadastro não aprovado - Etiquetas', 'Seu pedido de cadastro não foi aprovado. Em caso de dúvida, fale com o suporte.');
+    void this.email.enviar(empresa.usuarios.map((u) => u.email), 'Cadastro não aprovado - Flow', 'Seu pedido de cadastro não foi aprovado. Em caso de dúvida, fale com o suporte.');
   }
 }

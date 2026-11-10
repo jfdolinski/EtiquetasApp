@@ -122,7 +122,7 @@ export class DespachoService implements OnApplicationBootstrap, OnModuleDestroy 
       trabalhoId: t.id,
       metodo: imp.metodo,
       endereco: imp.endereco,
-      nome: `Etiquetas - ${t.modeloNome}`.slice(0, 100),
+      nome: `Flow - ${t.modeloNome}`.slice(0, 100),
       dados: Buffer.from(t.conteudo).toString('base64'),
     };
     try {

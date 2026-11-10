@@ -1,4 +1,4 @@
-// etiquetas-agente: agente local do Sistema de Etiquetas.
+// etiquetas-agente: agente local do Flow.
 //
 //	etiquetas-agente            Windows: abre o painel (ícone ao lado do relógio); Linux: executar
 //	etiquetas-agente painel     abre o painel da bandeja (Windows)
@@ -327,8 +327,8 @@ func main() {
 func novoServico(p *programa, executavel, caminhoConfig, arquivoLog string) (service.Service, error) {
 	return service.New(p, &service.Config{
 		Name:        "EtiquetasAgente",
-		DisplayName: "Sistema de Etiquetas - Agente",
-		Description: "Conecta o Sistema de Etiquetas aos bancos do ERP e às impressoras desta rede.",
+		DisplayName: "Flow - Agente",
+		Description: "Conecta o Flow aos bancos do ERP e às impressoras desta rede.",
 		Executable:  executavel,
 		Arguments:   argumentosServico(caminhoConfig, arquivoLog),
 		Option:      service.KeyValue{"OnFailure": "restart", "Restart": "always"},

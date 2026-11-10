@@ -95,7 +95,7 @@ export class ConsultaCnpjService {
   private async consultarEm(provedor: Provedor, cnpj: string): Promise<Resultado> {
     try {
       const resposta = await fetch(provedor.url(cnpj), {
-        headers: { Accept: 'application/json', 'User-Agent': 'EtiquetasSaaS/1.0' },
+        headers: { Accept: 'application/json', 'User-Agent': 'Flow/1.0' },
         signal: AbortSignal.timeout(TEMPO_LIMITE_MS),
       });
       if (resposta.status === 404) return { tipo: 'inexistente' };

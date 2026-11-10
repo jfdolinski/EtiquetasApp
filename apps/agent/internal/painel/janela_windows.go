@@ -54,7 +54,7 @@ func (p *Painel) abrirJanela() {
 			DataPath:  filepath.Join(os.Getenv("LOCALAPPDATA"), "EtiquetasAgente", "WebView2"),
 			AutoFocus: true,
 			WindowOptions: webview2.WindowOptions{
-				Title:  "Agente de Etiquetas",
+				Title:  "Agente Flow",
 				Width:  uint(largura),
 				Height: uint(altura),
 				IconId: 1, // ícone do executável (rsrc), quando houver
@@ -65,7 +65,7 @@ func (p *Painel) abrirJanela() {
 			p.mu.Lock()
 			p.abrindo = false
 			p.mu.Unlock()
-			mensagem("Agente de Etiquetas", "Não foi possível abrir a janela do agente.\n\nInstale o Microsoft Edge WebView2 Runtime (gratuito) e tente de novo. A página de download será aberta agora.\n\nO agente continua funcionando normalmente.", true)
+			mensagem("Agente Flow", "Não foi possível abrir a janela do agente.\n\nInstale o Microsoft Edge WebView2 Runtime (gratuito) e tente de novo. A página de download será aberta agora.\n\nO agente continua funcionando normalmente.", true)
 			_ = abrir(urlWebView2)
 			return
 		}

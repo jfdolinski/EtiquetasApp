@@ -38,6 +38,6 @@ describe('TOTP', () => {
   });
 
   it('URI no formato dos aplicativos autenticadores', () => {
-    expect(uriTotp('ABC', 'ana@x.com')).toBe('otpauth://totp/Etiquetas%3Aana%40x.com?secret=ABC&issuer=Etiquetas&algorithm=SHA1&digits=6&period=30');
+    expect(uriTotp('ABC', 'ana@x.com')).toBe('otpauth://totp/Flow%3Aana%40x.com?secret=ABC&issuer=Flow&algorithm=SHA1&digits=6&period=30');
   });
 });

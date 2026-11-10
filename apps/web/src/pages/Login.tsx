@@ -38,7 +38,7 @@ export function Login() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <form onSubmit={enviar} className="w-full max-w-sm space-y-4 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         <div>
-          <h1 className="text-xl font-semibold text-blue-700">Etiquetas</h1>
+          <h1 className="text-xl font-semibold text-blue-700">Flow</h1>
           <p className="text-sm text-slate-500">{precisaCodigo ? 'Digite o código do seu aplicativo autenticador.' : 'Entre com seu e-mail e senha.'}</p>
         </div>
         {erro && <Alerta>{erro}</Alerta>}

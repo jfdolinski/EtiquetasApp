@@ -227,7 +227,7 @@ func EtiquetaDeTeste(linguagem string, dpi int, titulo string) ([]byte, error) {
 	switch linguagem {
 	case "ZPL":
 		return []byte(fmt.Sprintf("^XA^CI28^PW%d^LH0,0"+
-			"^FO%d,%d^A0N,%d,%d^FDTeste do Agente de Etiquetas^FS"+
+			"^FO%d,%d^A0N,%d,%d^FDTeste do Agente Flow^FS"+
 			"^FO%d,%d^A0N,%d,%d^FD%s^FS"+
 			"^FO%d,%d^A0N,%d,%d^FD%s^FS"+
 			"^FO%d,%d^BY2^BCN,%d,Y,N,N^FD123456789^FS^PQ1^XZ",
@@ -238,7 +238,7 @@ func EtiquetaDeTeste(linguagem string, dpi int, titulo string) ([]byte, error) {
 			esc(3), esc(20), esc(10))), nil
 	case "PPLB":
 		return []byte(fmt.Sprintf("\nN\nq%d\n"+
-			"A%d,%d,0,3,1,1,N,\"Teste do Agente de Etiquetas\"\n"+
+			"A%d,%d,0,3,1,1,N,\"Teste do Agente Flow\"\n"+
 			"A%d,%d,0,2,1,1,N,\"%s\"\n"+
 			"A%d,%d,0,2,1,1,N,\"%s\"\n"+
 			"B%d,%d,0,1,2,4,%d,B,\"123456789\"\nP1\n",
@@ -246,7 +246,7 @@ func EtiquetaDeTeste(linguagem string, dpi int, titulo string) ([]byte, error) {
 	case "PPLA":
 		// DPL, modo métrico (0,1 mm), linha medida de baixo para cima numa etiqueta de 40 mm.
 		return []byte("\x02L\r\nD11\r\nm\r\n" +
-			"1911A1003400030Teste do Agente de Etiquetas\r\n" +
+			"1911A1003400030Teste do Agente Flow\r\n" +
 			"1911A0802800030" + nome + "\r\n" +
 			"1911A0802300030" + agora + "\r\n" +
 			// Code 128 (E): largo 6, estreito 2, altura 10 mm (100), linha 5 mm, coluna 3 mm.
@@ -257,7 +257,7 @@ func EtiquetaDeTeste(linguagem string, dpi int, titulo string) ([]byte, error) {
 		b = append(b, 0x1d, 0x21, 0x11)
 		b = append(b, "TESTE\n"...)
 		b = append(b, 0x1d, 0x21, 0x00)
-		b = append(b, "Agente de Etiquetas\n"+nome+"\n"+agora+"\n"...)
+		b = append(b, "Agente Flow\n"+nome+"\n"+agora+"\n"...)
 		b = append(b, 0x1d, 0x68, 60, 0x1d, 0x77, 2, 0x1d, 0x48, 2, 0x1d, 0x6b, 73, 11, '{', 'B', '1', '2', '3', '4', '5', '6', '7', '8', '9')
 		b = append(b, "\n\n\n"...)
 		b = append(b, 0x1d, 0x56, 66, 0) // corta

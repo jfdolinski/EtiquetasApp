@@ -92,8 +92,8 @@ func corDaSituacao(s string) color.RGBA {
 func (p *Painel) aoIniciar() {
 	p.corAtual = icone.Cinza
 	systray.SetIcon(p.icone(icone.Cinza))
-	systray.SetTitle("Agente de Etiquetas")
-	systray.SetTooltip("Agente de Etiquetas")
+	systray.SetTitle("Agente Flow")
+	systray.SetTooltip("Agente Flow")
 	systray.SetOnTapped(p.abrirJanela) // clique simples abre a janela; o direito, o menu
 
 	mAbrir := systray.AddMenuItem("Abrir o painel", "Mostra a situação do agente")
@@ -175,7 +175,7 @@ func (p *Painel) acompanharNotificacoes(v Visao) {
 		gravarVistas(caminho, novas) // grava antes: um balão que falhe não vira repetição infinita
 	}
 	if excedentes > 0 {
-		_ = mostrarBalao("Agente de Etiquetas", fmt.Sprintf("Mais %d avisos: veja no painel do agente.", excedentes), "aviso")
+		_ = mostrarBalao("Agente Flow", fmt.Sprintf("Mais %d avisos: veja no painel do agente.", excedentes), "aviso")
 		time.Sleep(espacoEntreBaloes)
 	}
 	for _, n := range baloes {
@@ -186,7 +186,7 @@ func (p *Painel) acompanharNotificacoes(v Visao) {
 
 func (p *Painel) atualizarIcone(v Visao) {
 	cor := corDaSituacao(v.Situacao)
-	dica := "Agente de Etiquetas: " + v.Titulo
+	dica := "Agente Flow: " + v.Titulo
 	if v.Status != nil && v.Status.EmpresaNome != "" {
 		dica += "\n" + v.Status.EmpresaNome
 	}

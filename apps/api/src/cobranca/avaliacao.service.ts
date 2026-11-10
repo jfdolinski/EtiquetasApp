@@ -171,7 +171,7 @@ export class AvaliacaoCobrancaService implements OnApplicationBootstrap, OnModul
         // Sem SMTP o aviso continua só no sistema; e-mail falhar não interrompe a avaliação.
         void this.email
           .enderecosComPermissao(empresaId, 'empresa.ver')
-          .then((enderecos) => this.email.enviar(enderecos, 'Aviso sobre a assinatura - Etiquetas', mensagem))
+          .then((enderecos) => this.email.enviar(enderecos, 'Aviso sobre a assinatura - Flow', mensagem))
           .catch(() => undefined);
       }
     }

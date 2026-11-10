@@ -81,7 +81,7 @@ export class CepService {
 
   private async consultarEm(p: ProvedorCep, cep: string): Promise<Resultado> {
     try {
-      const r = await fetch(p.url(cep), { headers: { Accept: 'application/json', 'User-Agent': 'EtiquetasSaaS/1.0' }, signal: AbortSignal.timeout(TEMPO_LIMITE_MS) });
+      const r = await fetch(p.url(cep), { headers: { Accept: 'application/json', 'User-Agent': 'Flow/1.0' }, signal: AbortSignal.timeout(TEMPO_LIMITE_MS) });
       if (r.status === 404 || r.status === 400) return { tipo: 'inexistente' };
       if (!r.ok) return { tipo: 'falha', motivo: `HTTP ${r.status}` };
       const dados = p.converter(cep, (await r.json()) as Json);

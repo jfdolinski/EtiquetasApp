@@ -172,7 +172,7 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
     await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'notificacao.testar', entidade: 'RegraNotificacao', detalhes: { online: online.length } });
     const celulares = await this.dispositivos.avisarEmpresa(empresaId, { titulo: dados.titulo, mensagem: 'Se este aviso apareceu, as notificações estão chegando a este celular.' });
     const autor = await this.prisma.usuario.findUnique({ where: { id: autorId }, select: { email: true } });
-    const emailEnviado = autor ? await this.email.enviar(autor.email, dados.titulo, 'Se este e-mail chegou, os avisos por e-mail do sistema de etiquetas estão funcionando.') : false;
+    const emailEnviado = autor ? await this.email.enviar(autor.email, dados.titulo, 'Se este e-mail chegou, os avisos por e-mail do Flow estão funcionando.') : false;
     return {
       agentes: agentes.length,
       online: online.length,
@@ -373,7 +373,7 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
     }
     if (n.canalEmail) {
       const enderecos = await this.email.enderecosComPermissao(n.empresaId, 'notificacao.ver');
-      await this.email.enviar(enderecos, `${n.titulo} - Etiquetas`, n.mensagem);
+      await this.email.enviar(enderecos, `${n.titulo} - Flow`, n.mensagem);
     }
   }
 

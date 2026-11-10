@@ -1,4 +1,6 @@
-# Sistema de Etiquetas SaaS
+# Flow (antigo Sistema de Etiquetas)
+
+O nome que o usuário vê é **Flow** (site, e-mails, app, painel do agente, emissor das duas etapas). Por dentro continua "etiquetas" de propósito: pacotes `@etiquetas/*`, serviço e pasta `EtiquetasAgente`, `etiquetas-agente.exe`, `br.com.etiquetas.app` e o esquema `etiquetas://`. Mudar esses quebraria agentes instalados e obrigaria reinstalar o app.
 
 SaaS multiempresa que lê dados de produtos dos bancos dos ERPs dos clientes (via agente local em Go) e gera/imprime etiquetas (ZPL, PPLA/PPLB, ESC/POS, PDF).
 

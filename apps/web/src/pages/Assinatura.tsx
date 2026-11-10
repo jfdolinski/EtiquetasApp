@@ -22,7 +22,7 @@ function MinhaAssinaturaPagina() {
 
   return (
     <>
-      <Cabecalho titulo="Assinatura" descricao="Mensalidade da empresa no Sistema de Etiquetas." />
+      <Cabecalho titulo="Assinatura" descricao="Mensalidade da empresa no Flow." />
       {!assinatura ? (
         <Alerta tipo="info">Esta empresa não tem mensalidade cadastrada.</Alerta>
       ) : (

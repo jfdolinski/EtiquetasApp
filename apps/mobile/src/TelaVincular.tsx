@@ -90,7 +90,7 @@ export function TelaVincular({ aoVincular, motivo }: { aoVincular: (s: Sessao) =
 
   return (
     <ScrollView contentContainerStyle={estilos.pagina} keyboardShouldPersistTaps="handled">
-      <Text accessibilityRole="header" style={estilos.titulo}>Etiquetas</Text>
+      <Text accessibilityRole="header" style={estilos.titulo}>Flow</Text>
       {motivo ? <Alerta tipo="aviso">{motivo}</Alerta> : null}
       {erro ? <Alerta>{erro}</Alerta> : null}
 

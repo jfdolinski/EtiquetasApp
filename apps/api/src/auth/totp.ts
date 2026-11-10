@@ -67,7 +67,7 @@ export function conferirTotp(segredoBase32: string, codigo: string, agora = Date
 }
 
 export function uriTotp(segredoBase32: string, email: string): string {
-  const emissor = 'Etiquetas';
+  const emissor = 'Flow';
   return `otpauth://totp/${encodeURIComponent(`${emissor}:${email}`)}?secret=${segredoBase32}&issuer=${emissor}&algorithm=SHA1&digits=6&period=${PERIODO_S}`;
 }
 

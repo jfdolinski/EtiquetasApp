@@ -116,7 +116,7 @@ export class ContaService {
     const link = `${url}/redefinir-senha#token=${token}`;
     void this.email.enviar(
       usuario.email,
-      'Redefinição de senha - Etiquetas',
+      'Redefinição de senha - Flow',
       `Olá, ${usuario.nome}.\n\nPara criar uma nova senha, abra este link em até 1 hora:\n${link}\n\nSe não foi você quem pediu, ignore este e-mail: sua senha continua a mesma.`,
     );
     await this.auditoria.registrar({ empresaId: usuario.empresaId, usuarioId: usuario.id, acao: 'auth.pedir_redefinicao', entidade: 'Usuario', entidadeId: usuario.id });

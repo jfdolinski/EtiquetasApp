@@ -19,7 +19,7 @@ const liberarHttp = (config) =>
 
 module.exports = {
   expo: {
-    name: 'Etiquetas',
+    name: 'Flow',
     slug: 'etiquetas-app',
     version: pacote.version,
     orientation: 'portrait',

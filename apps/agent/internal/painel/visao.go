@@ -99,7 +99,7 @@ func Situacao(servico string, st *estado.Instantaneo, configAtivada bool, agora 
 	case estado.Conectado:
 		return situacao, "Conectado", "Pronto para consultar o ERP e imprimir etiquetas."
 	case estado.Conectando:
-		return situacao, "Conectando…", "Falando com o servidor do Sistema de Etiquetas."
+		return situacao, "Conectando…", "Falando com o servidor do Flow."
 	case estado.Desconectado:
 		d := detalhe
 		if d == "" {

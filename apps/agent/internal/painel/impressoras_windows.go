@@ -139,7 +139,7 @@ func (p *Painel) testarImpressora(metodo, endereco, nome, linguagem string, dpi 
 	go func() {
 		ctx, cancelar := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancelar()
-		if err := impressao.Imprimir(ctx, metodo, endereco, "Teste do Agente de Etiquetas", dados); err != nil {
+		if err := impressao.Imprimir(ctx, metodo, endereco, "Teste do Agente Flow", dados); err != nil {
 			p.definirOperacao(Operacao{Erro: "O teste não foi impresso: " + err.Error()})
 			return
 		}
