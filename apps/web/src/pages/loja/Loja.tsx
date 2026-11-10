@@ -11,6 +11,7 @@ import {
   normalizarCelular,
   normalizarCep,
   problemaNoEndereco,
+  PRECISAO_BOA_METROS,
   rotuloSituacaoPedido,
   clientePodeCancelar,
   clientePodeConfirmar,
@@ -27,6 +28,7 @@ import {
   FORMAS_PAGAMENTO,
   type CatalogoPublico,
   type EnderecoPedido,
+  type LocalizacaoPedido,
   type FaixaAgendamento,
   type FormaPagamento,
   type ItemCatalogo,
@@ -449,6 +451,63 @@ function DetalheProduto({ item, quantidade, aoMudar, aoFechar }: { item: ItemCat
   );
 }
 
+/** Pede ao navegador o ponto do cliente. Opcional: recusar não impede o pedido, e o endereço digitado continua valendo. */
+function MinhaLocalizacao({ valor, aoMudar }: { valor: LocalizacaoPedido | null; aoMudar: (l: LocalizacaoPedido | null) => void }) {
+  const [situacao, setSituacao] = useState<string | null>(null);
+  const [buscando, setBuscando] = useState(false);
+  if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return null;
+
+  const pedir = () => {
+    setBuscando(true);
+    setSituacao(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setBuscando(false);
+        aoMudar({
+          latitude: Math.round(pos.coords.latitude * 1e6) / 1e6,
+          longitude: Math.round(pos.coords.longitude * 1e6) / 1e6,
+          precisaoMetros: Math.round(pos.coords.accuracy),
+        });
+      },
+      (erro) => {
+        setBuscando(false);
+        setSituacao(
+          erro.code === erro.PERMISSION_DENIED
+            ? 'A localização foi recusada. Sem problema: o endereço abaixo basta. Para permitir depois, use o cadeado ao lado do endereço do site.'
+            : 'Não deu para achar a sua localização agora. O endereço abaixo basta.',
+        );
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 },
+    );
+  };
+
+  if (valor) {
+    const aproximada = valor.precisaoMetros > PRECISAO_BOA_METROS;
+    return (
+      <div className="rounded-md border border-green-200 bg-green-50 p-2.5 text-sm" data-testid="localizacao-cliente">
+        <p className="font-medium text-green-800">📍 Localização enviada junto com o pedido</p>
+        <p className="text-xs text-green-800">
+          {aproximada ? `Aproximada (cerca de ${valor.precisaoMetros.toLocaleString('pt-BR')} m). ` : 'Ajuda o entregador a chegar. '}
+          Preencha o endereço abaixo também.
+        </p>
+        <div className="mt-1 flex gap-3 text-xs">
+          <a className="text-blue-700 underline" href={`https://www.google.com/maps/search/?api=1&query=${valor.latitude},${valor.longitude}`} target="_blank" rel="noreferrer">Conferir no mapa</a>
+          <button type="button" className="text-slate-600 underline" onClick={() => aoMudar(null)}>Não enviar</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-1">
+      <button type="button" disabled={buscando} onClick={pedir} className="w-full rounded-md border border-blue-600 px-3 py-2.5 text-sm font-medium text-blue-700 disabled:opacity-60">
+        {buscando ? 'Procurando a sua localização…' : '📍 Usar minha localização (opcional)'}
+      </button>
+      <p className="text-xs text-slate-500">Ajuda o entregador a chegar. Só é enviada com o pedido.</p>
+      {situacao && <p className="text-xs text-amber-700" role="status">{situacao}</p>}
+    </div>
+  );
+}
+
 function Quantidade({ nome, valor, max, aoMudar, largo }: { nome: string; valor: number; max?: number; aoMudar: (q: number) => void; largo?: boolean }) {
   const limite = Math.min(max ?? MAX_QUANTIDADE_ITEM, MAX_QUANTIDADE_ITEM);
   return (
@@ -501,7 +560,9 @@ function Finalizar({
   const guardado = ler<DadosCliente>(CHAVE_CLIENTE, { nome: '', telefone: '', endereco: ENDERECO_VAZIO });
   const [nome, setNome] = useState(guardado.nome);
   const [telefone, setTelefone] = useState(guardado.telefone);
-  const [endereco, setEndereco] = useState<EnderecoPedido>({ ...ENDERECO_VAZIO, ...guardado.endereco });
+  const [endereco, setEndereco] = useState<EnderecoPedido>({ ...ENDERECO_VAZIO, ...guardado.endereco, localizacao: undefined });
+  // O ponto vale só para este pedido: não fica guardado, porque o cliente pode pedir de outro lugar.
+  const [localizacao, setLocalizacao] = useState<LocalizacaoPedido | null>(null);
   const [modalidade, setModalidade] = useState<ModalidadeEntrega>(catalogo.modalidades[0]?.modalidade ?? 'ENTREGA');
   const [faixa, setFaixa] = useState<FaixaAgendamento | null>(null);
   const [pagamento, setPagamento] = useState<FormaPagamento>('PIX');
@@ -559,7 +620,7 @@ function Finalizar({
       nome: nome.trim(),
       telefone,
       modalidade,
-      endereco: comEndereco ? endereco : null,
+      endereco: comEndereco ? { ...endereco, localizacao } : null,
       agendamento: modalidade === 'AGENDADA' ? faixa : null,
       pagamento,
       trocoParaCentavos: trocoPara_,
@@ -628,6 +689,7 @@ function Finalizar({
 
       {comEndereco && (
         <Bloco titulo="Endereço de entrega">
+          <MinhaLocalizacao valor={localizacao} aoMudar={setLocalizacao} />
           <Rotulo texto="CEP">
             <input
               className={campo}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as app from '../../../apps/mobile/src/regras';
-import { formatarCelular, formatarCentavos, ROTULO_MODALIDADE, ROTULO_PAGAMENTO, rotuloSituacaoPedido, textoEndereco, textoFaixa } from './pedidos';
+import { formatarCelular, formatarCentavos, ROTULO_MODALIDADE, ROTULO_PAGAMENTO, rotuloSituacaoPedido, linkMapa, PRECISAO_BOA_METROS, textoEndereco, textoFaixa } from './pedidos';
 import { linkWhatsApp, mensagemWhatsApp, PROXIMA_SITUACAO, rotuloAvancar } from './pedidos-painel';
 
 /** O aplicativo só importa tipos daqui: as regras de pedidos são copiadas em apps/mobile/src/regras.ts. */
@@ -25,6 +25,10 @@ describe('cópias do aplicativo', () => {
     }
     const e = { cep: '01001000', rua: 'Praça da Sé', numero: '10', semNumero: false, complemento: 'apto 2', bairro: 'Sé', cidade: 'São Paulo', uf: 'SP' };
     expect(app.textoEndereco(e)).toBe(textoEndereco(e));
+    expect(app.linkMapa(e)).toBe(linkMapa(e));
+    const comPonto = { ...e, localizacao: { latitude: -23.5, longitude: -46.6, precisaoMetros: 12 } };
+    expect(app.linkMapa(comPonto)).toBe(linkMapa(comPonto));
+    expect(app.PRECISAO_BOA_METROS).toBe(PRECISAO_BOA_METROS);
     expect(app.textoEndereco({ ...e, semNumero: true, numero: '', complemento: '' })).toBe(textoEndereco({ ...e, semNumero: true, numero: '', complemento: '' }));
     expect(app.linkWhatsApp('11987654321', 'Oi & tchau')).toBe(linkWhatsApp('11987654321', 'Oi & tchau'));
     for (const t of ['contato', 'proposta'] as const) expect(app.mensagemWhatsApp(t, { numero: 7, clienteNome: 'Maria Silva' }, 'Loja', 'https://x')).toBe(mensagemWhatsApp(t, { numero: 7, clienteNome: 'Maria Silva' }, 'Loja', 'https://x'));

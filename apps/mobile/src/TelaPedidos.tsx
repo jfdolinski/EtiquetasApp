@@ -12,6 +12,8 @@ import {
   PROXIMA_SITUACAO,
   rotuloAvancar,
   rotuloSituacaoPedido,
+  linkMapa,
+  PRECISAO_BOA_METROS,
   textoEndereco,
   textoFaixa,
   TITULO_MODALIDADE,
@@ -215,7 +217,12 @@ function DetalhePedido({ api, usuario, servidor, id, aoVoltar }: { api: Api; usu
         {p.modalidade !== 'RETIRADA' && p.endereco ? (
           <>
             <Text style={estilos.detalhe}>{textoEndereco(p.endereco)}</Text>
-            <Text accessibilityRole="link" style={estilos.link} onPress={() => void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(textoEndereco(p.endereco!))}`)}>Abrir no mapa</Text>
+            {p.endereco.localizacao ? (
+              <Text style={estilos.detalhe}>
+                📍 O cliente enviou a localização{p.endereco.localizacao.precisaoMetros > PRECISAO_BOA_METROS ? `, mas aproximada (cerca de ${p.endereco.localizacao.precisaoMetros} m): confira com o endereço.` : '.'}
+              </Text>
+            ) : null}
+            <Text accessibilityRole="link" style={estilos.link} onPress={() => void Linking.openURL(linkMapa(p.endereco!))}>Abrir no mapa</Text>
           </>
         ) : null}
         <Text style={estilos.detalhe}>

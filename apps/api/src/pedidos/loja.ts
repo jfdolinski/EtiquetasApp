@@ -26,6 +26,7 @@ import {
   lojaAberta,
   modalidadesPermitidas,
   normalizarCelular,
+  localizacaoLimpa,
   normalizarCep,
   problemaNoPedido,
   situacaoDoCatalogo,
@@ -127,7 +128,7 @@ const t = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0
 
 /** Só os campos conhecidos, aparados: o que o navegador mandar a mais não vai para o banco. */
 function enderecoLimpo(e: EnderecoPedido): EnderecoPedido {
-  return { cep: normalizarCep(e.cep) ?? '', rua: t(e.rua, 120), numero: e.semNumero ? '' : t(e.numero, 10), semNumero: e.semNumero === true, complemento: t(e.complemento, 80), bairro: t(e.bairro, 80), cidade: t(e.cidade, 80), uf: t(e.uf, 2).toUpperCase() };
+  return { cep: normalizarCep(e.cep) ?? '', rua: t(e.rua, 120), numero: e.semNumero ? '' : t(e.numero, 10), semNumero: e.semNumero === true, complemento: t(e.complemento, 80), bairro: t(e.bairro, 80), cidade: t(e.cidade, 80), uf: t(e.uf, 2).toUpperCase(), localizacao: localizacaoLimpa(e.localizacao) };
 }
 
 function momento(agora: Date) {

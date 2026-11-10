@@ -295,8 +295,20 @@ export function textoFaixa(f: { data: string; inicio: string; fim: string }): st
   return `${dia}, ${d} ${MESES[m - 1]}, ${f.inicio} às ${f.fim}`;
 }
 
-export const textoEndereco = (e: { cep: string; rua: string; numero: string; semNumero: boolean; complemento: string; bairro: string; cidade: string; uf: string }) =>
+type EnderecoApp = { cep: string; rua: string; numero: string; semNumero: boolean; complemento: string; bairro: string; cidade: string; uf: string; localizacao?: { latitude: number; longitude: number; precisaoMetros: number } | null };
+
+export const textoEndereco = (e: EnderecoApp) =>
   `${e.rua}, ${e.semNumero ? 's/n' : e.numero}${e.complemento ? ` – ${e.complemento}` : ''} – ${e.bairro}, ${e.cidade}/${e.uf} – CEP ${e.cep.length === 8 ? `${e.cep.slice(0, 5)}-${e.cep.slice(5)}` : e.cep}`;
+
+/** Link do mapa: pelo ponto do cliente quando houver, senão pelo endereço digitado (cópia de `linkMapa`). */
+export function linkMapa(e: EnderecoApp): string {
+  const l = e.localizacao;
+  if (l) return `https://www.google.com/maps/search/?api=1&query=${l.latitude},${l.longitude}`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(textoEndereco(e))}`;
+}
+
+/** Acima disso o ponto é aproximado (cópia de `PRECISAO_BOA_METROS`). */
+export const PRECISAO_BOA_METROS = 100;
 
 export const linkWhatsApp = (telefone: string, mensagem: string) => `https://wa.me/55${telefone.replace(/\D/g, '')}?text=${encodeURIComponent(mensagem)}`;
 

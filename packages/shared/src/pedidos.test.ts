@@ -29,6 +29,8 @@ import {
   itensParaRepetir,
   reservasDosPedidos,
   problemaNoEndereco,
+  localizacaoLimpa,
+  linkMapa,
   problemaNoPedido,
   rotuloSituacaoPedido,
 
@@ -393,5 +395,21 @@ describe('detalhe do produto', () => {
     expect(problemaNaConfigPedidos({ ...boa, camposDetalhe: [{ coluna: 'marca', rotulo: ' ' }] })).toMatch(/Dê um nome/);
     expect(problemaNaConfigPedidos({ ...boa, camposDetalhe: [{ coluna: 'marca', rotulo: 'A' }, { coluna: 'MARCA', rotulo: 'B' }] })).toMatch(/duas vezes/);
     expect(rotuloSugerido('data_validade')).toBe('Data validade');
+  });
+});
+
+describe('localização do cliente', () => {
+  it('aceita só coordenadas válidas e arredonda', () => {
+    expect(localizacaoLimpa({ latitude: -23.5505199999, longitude: -46.6333094, precisaoMetros: 12.7, extra: 'x' })).toEqual({ latitude: -23.55052, longitude: -46.633309, precisaoMetros: 13 });
+    expect(localizacaoLimpa(null)).toBeNull();
+    expect(localizacaoLimpa({ latitude: 91, longitude: 0, precisaoMetros: 5 })).toBeNull();
+    expect(localizacaoLimpa({ latitude: '1', longitude: 0, precisaoMetros: 5 })).toBeNull();
+    expect(localizacaoLimpa({ latitude: 1, longitude: 0, precisaoMetros: -1 })).toBeNull();
+    expect(localizacaoLimpa({ latitude: Number.NaN, longitude: 0, precisaoMetros: 1 })).toBeNull();
+  });
+  it('o mapa usa o ponto quando houver', () => {
+    const e = { cep: '01001000', rua: 'Praça da Sé', numero: '1', semNumero: false, complemento: '', bairro: 'Sé', cidade: 'São Paulo', uf: 'SP' };
+    expect(linkMapa(e)).toContain('Pra%C3%A7a%20da%20S%C3%A9');
+    expect(linkMapa({ ...e, localizacao: { latitude: -23.55, longitude: -46.63, precisaoMetros: 10 } })).toBe('https://www.google.com/maps/search/?api=1&query=-23.55,-46.63');
   });
 });

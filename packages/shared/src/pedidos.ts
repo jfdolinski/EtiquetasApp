@@ -633,6 +633,37 @@ export interface EnderecoPedido {
   bairro: string;
   cidade: string;
   uf: string;
+  /** Ponto que o celular do cliente informou, se ele permitiu. O endereço digitado continua valendo. */
+  localizacao?: LocalizacaoPedido | null;
+}
+
+/** Coordenadas do navegador (`navigator.geolocation`), com a precisão em metros. */
+export interface LocalizacaoPedido {
+  latitude: number;
+  longitude: number;
+  precisaoMetros: number;
+}
+
+/** Acima disso o ponto é aproximado (computador pela internet, celular sem GPS): o painel avisa. */
+export const PRECISAO_BOA_METROS = 100;
+
+/** Só números válidos, arredondados (6 casas ≈ 10 cm); qualquer outra coisa vira nulo. */
+export function localizacaoLimpa(l: unknown): LocalizacaoPedido | null {
+  if (!l || typeof l !== 'object') return null;
+  const { latitude, longitude, precisaoMetros } = l as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const la = num(latitude);
+  const lo = num(longitude);
+  const pr = num(precisaoMetros);
+  if (la === null || lo === null || pr === null || Math.abs(la) > 90 || Math.abs(lo) > 180 || pr < 0) return null;
+  return { latitude: Math.round(la * 1e6) / 1e6, longitude: Math.round(lo * 1e6) / 1e6, precisaoMetros: Math.min(Math.round(pr), 1_000_000) };
+}
+
+/** Link do mapa: pelo ponto do cliente quando houver, senão pelo endereço digitado. */
+export function linkMapa(e: EnderecoPedido): string {
+  const l = e.localizacao;
+  if (l) return `https://www.google.com/maps/search/?api=1&query=${l.latitude},${l.longitude}`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(textoEndereco(e))}`;
 }
 
 export const UFS = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'] as const;

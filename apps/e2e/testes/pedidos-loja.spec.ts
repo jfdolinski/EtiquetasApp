@@ -144,6 +144,65 @@ test('o cliente compra pelo celular: busca, carrinho, CEP, troco, preço que mud
   expect(erros.filter((t) => !/Failed to load resource/.test(t))).toEqual([]);
 });
 
+test('localização do cliente: opcional, vai com o pedido, e o servidor só guarda números válidos', async ({ page, context }) => {
+  const e = await criarEmpresa(tokenSuper);
+  const codigo = await lojaNoAr(e);
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: -23.5505199, longitude: -46.6333094, accuracy: 18 });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/loja/*/cep/*', (r) => r.fulfill({ json: { cep: '01001000', rua: 'Praça da Sé', bairro: 'Sé', cidade: 'São Paulo', uf: 'SP' } }));
+  const erros: string[] = [];
+  page.on('console', (m) => m.type() === 'error' && erros.push(m.text()));
+  await page.goto(`/loja/${codigo}`);
+  await page.getByRole('button', { name: 'Adicionar Arroz Tipo 1 5kg' }).click();
+  await page.getByRole('button', { name: 'Mais um Arroz Tipo 1 5kg' }).click();
+  await page.getByRole('button', { name: 'Ver carrinho' }).click();
+  await page.getByRole('button', { name: 'Continuar', exact: true }).click();
+  await page.getByLabel('Nome').fill('Maria Silva');
+  await page.getByLabel('Celular (WhatsApp)').fill('11987654321');
+
+  // Desistir antes de enviar: o ponto não vai.
+  await page.getByRole('button', { name: /Usar minha localização/ }).click();
+  const quadro = page.getByTestId('localizacao-cliente');
+  await expect(quadro).toContainText('Localização enviada junto com o pedido');
+  await expect(quadro.getByRole('link', { name: 'Conferir no mapa' })).toHaveAttribute('href', 'https://www.google.com/maps/search/?api=1&query=-23.55052,-46.633309');
+  await quadro.getByRole('button', { name: 'Não enviar' }).click();
+  await expect(quadro).toHaveCount(0);
+  await page.getByRole('button', { name: /Usar minha localização/ }).click();
+  await expect(quadro).toBeVisible();
+  // O endereço continua obrigatório.
+  await expect(page.getByRole('button', { name: /Enviar pedido/ })).toBeDisabled();
+  await page.getByLabel('CEP').fill('01001000');
+  await expect(page.getByLabel('Rua')).toHaveValue('Praça da Sé');
+  await page.getByLabel('Número', { exact: true }).fill('10');
+  await page.screenshot({ path: 'test-results/loja-localizacao.png', fullPage: true });
+  await page.getByRole('button', { name: /Enviar pedido/ }).click();
+  await expect(page.getByRole('heading', { name: 'Pedido nº 1 enviado!' })).toBeVisible();
+  const [salvo] = await sql(`SELECT endereco FROM pedidos WHERE empresa_id = $1`, [e.id]);
+  expect(salvo.endereco.localizacao).toEqual({ latitude: -23.55052, longitude: -46.633309, precisaoMetros: 18 });
+  // O ponto não fica guardado no aparelho para o próximo pedido.
+  const guardado = await page.evaluate(() => Object.keys(localStorage).map((k) => localStorage.getItem(k)).join(' '));
+  expect(guardado).not.toContain('-23.55');
+
+  // Pela API: lixo vira nulo, campo a mais some, e retirada não guarda endereço nenhum.
+  // (Detergente: o arroz já está reservado pelo pedido acima.)
+  const det = [{ codigo: '20', quantidade: 11, precoCentavos: 299 }];
+  const lixo = await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido({ itens: det, endereco: { ...ENDERECO, localizacao: { latitude: 200, longitude: 'x', precisaoMetros: 5 } } }), ip: ip() });
+  expect(lixo.status).toBe(201);
+  const extra = await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido({ itens: det, endereco: { ...ENDERECO, localizacao: { latitude: -10, longitude: -50, precisaoMetros: 3, oculto: '<script>' } } }), ip: ip() });
+  const retirada = await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido({ itens: det, modalidade: 'RETIRADA', endereco: { ...ENDERECO, localizacao: { latitude: -10, longitude: -50, precisaoMetros: 3 } } }), ip: ip() });
+  const linhas = await sql(`SELECT numero, endereco FROM pedidos WHERE empresa_id = $1 ORDER BY numero`, [e.id]);
+  expect(linhas.map((l: { endereco: { localizacao?: unknown } | null }) => (l.endereco === null ? 'sem endereço' : l.endereco.localizacao))).toEqual([
+    { latitude: -23.55052, longitude: -46.633309, precisaoMetros: 18 },
+    null,
+    { latitude: -10, longitude: -50, precisaoMetros: 3 },
+    'sem endereço',
+  ]);
+  expect(extra.status).toBe(201);
+  expect(retirada.status).toBe(201);
+  expect(erros.filter((t) => !/Failed to load resource/.test(t))).toEqual([]);
+});
+
 test('API pública: link, regras, preço nunca vem do cliente, limite por aparelho e isolamento', async () => {
   const e = await criarEmpresa(tokenSuper);
   const outra = await criarEmpresa(tokenSuper);

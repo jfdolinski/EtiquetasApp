@@ -16,6 +16,8 @@ import {
   rotuloSituacaoPedido,
   ROTULO_MODALIDADE,
   ROTULO_PAGAMENTO,
+  linkMapa,
+  PRECISAO_BOA_METROS,
   textoEndereco,
   textoFaixa,
   totaisDaProposta,
@@ -130,7 +132,8 @@ function DetalhePedido({ id }: { id: string }) {
   const proxima = PROXIMA_SITUACAO[p.situacao];
   const avancar = rotuloAvancar(p.situacao, p.modalidade);
   const aberto = p.situacao !== 'CONCLUIDO' && p.situacao !== 'CANCELADO';
-  const mapa = p.endereco ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(textoEndereco(p.endereco))}` : null;
+  const mapa = p.endereco ? linkMapa(p.endereco) : null;
+  const ponto = p.endereco?.localizacao ?? null;
 
   return (
     <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4" data-testid="detalhe-pedido">
@@ -216,7 +219,12 @@ function DetalhePedido({ id }: { id: string }) {
           {p.modalidade !== 'RETIRADA' && p.endereco && (
             <p>
               {textoEndereco(p.endereco)}{' '}
-              {mapa && <a className="text-xs text-blue-700 underline" href={mapa} target="_blank" rel="noreferrer">mapa</a>}
+              {mapa && <a className="text-xs text-blue-700 underline" href={mapa} target="_blank" rel="noreferrer">{ponto ? 'mapa (localização do cliente)' : 'mapa'}</a>}
+            </p>
+          )}
+          {p.modalidade !== 'RETIRADA' && ponto && (
+            <p className={`text-xs ${ponto.precisaoMetros > PRECISAO_BOA_METROS ? 'text-amber-700' : 'text-slate-500'}`} data-testid="localizacao-pedido">
+              📍 O cliente enviou a localização{ponto.precisaoMetros > PRECISAO_BOA_METROS ? `, mas aproximada (cerca de ${ponto.precisaoMetros.toLocaleString('pt-BR')} m): confira com o endereço.` : ` (precisão de ${ponto.precisaoMetros} m).`}
             </p>
           )}
           <p>
