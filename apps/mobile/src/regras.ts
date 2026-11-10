@@ -235,3 +235,73 @@ export function impressoraDoModelo(escolhida: string | null, padrao: string | nu
   for (const id of [escolhida, padrao]) if (id && disponiveis.some((i) => i.id === id)) return id;
   return disponiveis.length === 1 ? disponiveis[0].id : null;
 }
+
+// Pedidos: cópias de packages/shared/src/pedidos.ts e pedidos-painel.ts (o app só importa tipos de lá).
+
+export type SituacaoPedidoApp = 'NOVO' | 'EM_SEPARACAO' | 'PRONTO' | 'CONCLUIDO' | 'CANCELADO';
+export type ModalidadeApp = 'ENTREGA' | 'AGENDADA' | 'EXPRESSA' | 'RETIRADA';
+
+export const TITULO_MODALIDADE: Record<ModalidadeApp, string> = { ENTREGA: 'Entrega', AGENDADA: 'Entrega agendada', EXPRESSA: 'Entrega expressa', RETIRADA: 'Retirar no local' };
+export const TITULO_PAGAMENTO: Record<'PIX' | 'CARTAO' | 'DINHEIRO', string> = { PIX: 'Pix', CARTAO: 'Cartão na entrega', DINHEIRO: 'Dinheiro' };
+
+export function formatarCentavos(c: number): string {
+  const negativo = c < 0;
+  const abs = Math.abs(Math.round(c));
+  const inteiro = Math.floor(abs / 100).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${negativo ? '-' : ''}R$ ${inteiro},${String(abs % 100).padStart(2, '0')}`;
+}
+
+export const formatarCelular = (d: string) => (d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}` : d);
+
+export function rotuloSituacaoPedido(s: SituacaoPedidoApp, modalidade: ModalidadeApp): string {
+  switch (s) {
+    case 'NOVO':
+      return 'Recebido';
+    case 'EM_SEPARACAO':
+      return 'Em separação';
+    case 'PRONTO':
+      return modalidade === 'RETIRADA' ? 'Pronto para retirar' : 'Saiu para entrega';
+    case 'CONCLUIDO':
+      return 'Concluído';
+    default:
+      return 'Cancelado';
+  }
+}
+
+export const PROXIMA_SITUACAO: Partial<Record<SituacaoPedidoApp, SituacaoPedidoApp>> = { NOVO: 'EM_SEPARACAO', EM_SEPARACAO: 'PRONTO', PRONTO: 'CONCLUIDO' };
+
+export function rotuloAvancar(de: SituacaoPedidoApp, modalidade: ModalidadeApp): string | null {
+  switch (PROXIMA_SITUACAO[de]) {
+    case 'EM_SEPARACAO':
+      return 'Aceitar pedido';
+    case 'PRONTO':
+      return modalidade === 'RETIRADA' ? 'Avisar que está pronto' : 'Saiu para entrega';
+    case 'CONCLUIDO':
+      return modalidade === 'RETIRADA' ? 'Cliente retirou' : 'Entregue';
+    default:
+      return null;
+  }
+}
+
+export const pedidoTerminado = (s: SituacaoPedidoApp) => s === 'CONCLUIDO' || s === 'CANCELADO';
+
+const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+/** "Sex, 13 nov, 09:00 às 11:00" (sem "Hoje" e "Amanhã": o painel mostra a data). */
+export function textoFaixa(f: { data: string; inicio: string; fim: string }): string {
+  const [, m, d] = f.data.split('-').map(Number);
+  const dia = DIAS[new Date(`${f.data}T12:00:00Z`).getUTCDay()];
+  return `${dia}, ${d} ${MESES[m - 1]}, ${f.inicio} às ${f.fim}`;
+}
+
+export const textoEndereco = (e: { cep: string; rua: string; numero: string; semNumero: boolean; complemento: string; bairro: string; cidade: string; uf: string }) =>
+  `${e.rua}, ${e.semNumero ? 's/n' : e.numero}${e.complemento ? ` – ${e.complemento}` : ''} – ${e.bairro}, ${e.cidade}/${e.uf} – CEP ${e.cep.length === 8 ? `${e.cep.slice(0, 5)}-${e.cep.slice(5)}` : e.cep}`;
+
+export const linkWhatsApp = (telefone: string, mensagem: string) => `https://wa.me/55${telefone.replace(/\D/g, '')}?text=${encodeURIComponent(mensagem)}`;
+
+export function mensagemWhatsApp(tipo: 'contato' | 'proposta', p: { numero: number; clienteNome: string }, empresa: string, linkAcompanhamento: string): string {
+  const primeiro = p.clienteNome.trim().split(/\s+/)[0];
+  if (tipo === 'proposta') return `Olá, ${primeiro}! Aqui é da ${empresa}. Precisamos mudar uma coisa no seu pedido nº ${p.numero}. Confira e confirme por aqui: ${linkAcompanhamento}`;
+  return `Olá, ${primeiro}! Aqui é da ${empresa}, sobre o seu pedido nº ${p.numero}. Acompanhe por aqui: ${linkAcompanhamento}`;
+}

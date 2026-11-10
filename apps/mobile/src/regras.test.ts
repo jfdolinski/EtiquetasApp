@@ -180,3 +180,14 @@ test('busca: com parâmetro vai nele; sem parâmetro, o termo vai para o servido
   assert.deepEqual(corpoDaBusca('m', ['busca'], '789'), { modeloId: 'm', parametros: { busca: '789' } });
   assert.deepEqual(corpoDaBusca('m', [], '789'), { modeloId: 'm', parametros: {}, termo: '789' });
 });
+
+test('pedidos: valores, situação e link do WhatsApp', async () => {
+  const r = await import('./regras.ts');
+  assert.equal(r.formatarCentavos(123450), 'R$ 1.234,50');
+  assert.equal(r.formatarCelular('11987654321'), '(11) 98765-4321');
+  assert.equal(r.rotuloAvancar('NOVO', 'ENTREGA'), 'Aceitar pedido');
+  assert.equal(r.rotuloSituacaoPedido('PRONTO', 'RETIRADA'), 'Pronto para retirar');
+  assert.equal(r.pedidoTerminado('CANCELADO'), true);
+  assert.equal(r.textoFaixa({ data: '2026-11-13', inicio: '09:00', fim: '11:00' }), 'Sex, 13 nov, 09:00 às 11:00');
+  assert.equal(r.linkWhatsApp('(11) 98765-4321', 'Oi'), 'https://wa.me/5511987654321?text=Oi');
+});

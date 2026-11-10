@@ -157,8 +157,14 @@ describe('canais de celular e e-mail', () => {
   it('problema novo vai para o celular e para o e-mail quando a regra pede', async () => {
     const { servico, email, dispositivos } = montar({ regra: { canalCelular: true, canalEmail: true } });
     await servico.avaliarEmpresa(EMPRESA, agora);
-    expect(dispositivos.avisarEmpresa).toHaveBeenCalledWith(EMPRESA, expect.objectContaining({ titulo: 'Sem gerar etiquetas' }));
+    expect(dispositivos.avisarEmpresa).toHaveBeenCalledWith(EMPRESA, expect.objectContaining({ titulo: 'Sem gerar etiquetas', tela: 'avisos' }), 'notificacao.ver');
     expect(email.enviar).toHaveBeenCalledWith(['ana@x.com'], expect.stringContaining('Sem gerar etiquetas'), expect.any(String));
+  });
+
+  it('pedido novo vai ao celular de quem atende pedidos e abre a guia Pedidos', async () => {
+    const { servico, dispositivos } = montar({ regra: { evento: 'pedido_novo', limite: 0, canalCelular: true } });
+    await servico.avaliarEmpresa(EMPRESA, agora);
+    expect(dispositivos.avisarEmpresa).toHaveBeenCalledWith(EMPRESA, expect.objectContaining({ titulo: 'Pedido nº 7', tela: 'pedidos' }), 'pedido.ver');
   });
 
   it('com os canais desligados, nada sai por eles', async () => {

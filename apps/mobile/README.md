@@ -33,5 +33,6 @@ A API precisa de `FCM_CONTA_SERVICO` (JSON da conta de serviço do mesmo projeto
 
 - `src/regras.ts`: leitura do QR, versões, agrupamento. Sem React Native; testado com Node.
 - `src/api.ts`: sessão no cofre do aparelho (`expo-secure-store`) e chamadas à API.
-- `src/TelaVincular.tsx`, `TelaInicio.tsx`, `TelaLista.tsx`, `TelaAvisos.tsx`, `App.tsx`: telas.
+- `src/TelaVincular.tsx`, `TelaInicio.tsx`, `TelaLista.tsx`, `TelaAvulsa.tsx`, `TelaPedidos.tsx`, `TelaTelas.tsx`, `TelaAvisos.tsx`, `App.tsx`: telas.
+- Funções de pedidos copiadas do shared em `src/regras.ts`: `packages/shared/src/pedidos-app.test.ts` confere que continuam iguais.
 - Tipos vêm de `packages/shared` por `import type`, que some na compilação.

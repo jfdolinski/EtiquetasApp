@@ -9,7 +9,7 @@ export interface AvisoPush {
   titulo: string;
   mensagem: string;
   /** Tela que o app abre ao tocar no aviso. */
-  tela?: 'inicio' | 'lista' | 'avisos';
+  tela?: 'inicio' | 'lista' | 'avisos' | 'pedidos';
 }
 
 /** Push pelo Firebase (FCM v1), o único jeito de acordar um app Android fechado. Sem FCM_CONTA_SERVICO, nada é enviado. */

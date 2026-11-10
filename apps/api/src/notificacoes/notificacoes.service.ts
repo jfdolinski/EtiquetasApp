@@ -368,7 +368,8 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
   private async enviarAosCanais(n: Parameters<NotificacoesService['enviarAosAgentes']>[0] & { canalEmail: boolean; canalCelular: boolean }) {
     await this.enviarAosAgentes(n).catch((e) => this.log.warn(`Envio aos agentes: ${(e as Error).message}`));
     if (n.canalCelular) {
-      await this.dispositivos.avisarEmpresa(n.empresaId, { titulo: n.titulo, mensagem: n.mensagem, tela: n.evento === 'lista_pendente' ? 'lista' : 'avisos' }).catch((e) => this.log.warn(`Envio aos celulares: ${(e as Error).message}`));
+      const pedido = n.evento === 'pedido_novo';
+      await this.dispositivos.avisarEmpresa(n.empresaId, { titulo: n.titulo, mensagem: n.mensagem, tela: n.evento === 'lista_pendente' ? 'lista' : pedido ? 'pedidos' : 'avisos' }, pedido ? 'pedido.ver' : 'notificacao.ver').catch((e) => this.log.warn(`Envio aos celulares: ${(e as Error).message}`));
     }
     if (n.canalEmail) {
       const enderecos = await this.email.enderecosComPermissao(n.empresaId, 'notificacao.ver');

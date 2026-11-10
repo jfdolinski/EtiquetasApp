@@ -36,7 +36,7 @@ import {
   type SituacaoPedido,
   type TrabalhoResumo,
 } from '@etiquetas/shared';
-import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
+import { EmpresaAtual, PermitidoNoApp, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { config } from '../config';
@@ -363,18 +363,21 @@ export class PainelPedidosController {
   constructor(private readonly painel: PainelPedidosService) {}
 
   @Get()
+  @PermitidoNoApp()
   @RequerPermissao('pedido.ver')
   listar(@EmpresaAtual() empresaId: string, @Query('situacao') situacao?: string, @Query('de') de?: string, @Query('ate') ate?: string, @Query('busca') busca?: string) {
     return this.painel.listar(empresaId, { situacao: situacao as FiltroPedidos['situacao'], de, ate, busca: busca?.slice(0, 80) });
   }
 
   @Get(':id')
+  @PermitidoNoApp()
   @RequerPermissao('pedido.ver')
   obter(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.painel.obter(empresaId, id);
   }
 
   @Post(':id/situacao')
+  @PermitidoNoApp()
   @RequerPermissao('pedido.gerenciar')
   situacao(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: MudarSituacaoDto, @UsuarioAtual() u: UsuarioRequisicao) {
     return this.painel.mudarSituacao(empresaId, id, dto, u);
@@ -387,18 +390,21 @@ export class PainelPedidosController {
   }
 
   @Post(':id/proposta/desistir')
+  @PermitidoNoApp()
   @RequerPermissao('pedido.gerenciar')
   desistir(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() u: UsuarioRequisicao) {
     return this.painel.desistirDaProposta(empresaId, id, u);
   }
 
   @Get(':id/folha')
+  @PermitidoNoApp()
   @RequerPermissao('pedido.ver')
   folha(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.painel.previaFolha(empresaId, id);
   }
 
   @Post(':id/folha/imprimir')
+  @PermitidoNoApp()
   @RequerPermissao('pedido.gerenciar')
   imprimir(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() u: UsuarioRequisicao) {
     return this.painel.imprimirFolha(empresaId, id, u);

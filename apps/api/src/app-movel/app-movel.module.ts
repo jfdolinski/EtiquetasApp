@@ -3,7 +3,7 @@ import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get,
 import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
-import type { CodigoVinculoResposta, DispositivoResumo, ImprimirResposta, VincularAppResposta } from '@etiquetas/shared';
+import type { CodigoPermissao, CodigoVinculoResposta, DispositivoResumo, ImprimirResposta, VincularAppResposta } from '@etiquetas/shared';
 import { empresaBloqueada } from '../auth/acesso-empresa';
 import { AuthService } from '../auth/auth.service';
 import { AuthModule } from '../auth/auth.module';
@@ -147,13 +147,14 @@ export class DispositivosService {
   }
 
   /** Aparelhos da empresa cujo usuário pode ver as notificações. */
-  async avisarEmpresa(empresaId: string, aviso: AvisoPush): Promise<number> {
+  /** `permissao`: quem recebe. Pedido novo vai a quem atende os pedidos, mesmo sem ver as Notificações. */
+  async avisarEmpresa(empresaId: string, aviso: AvisoPush, permissao: CodigoPermissao = 'notificacao.ver'): Promise<number> {
     const aparelhos = await this.prisma.dispositivoMovel.findMany({
       where: {
         empresaId,
         revogadoEm: null,
         pushToken: { not: null },
-        usuario: { ativo: true, OR: [{ superAdmin: true }, { perfil: { permissoes: { some: { permissaoCodigo: 'notificacao.ver' } } } }] },
+        usuario: { ativo: true, OR: [{ superAdmin: true }, { perfil: { permissoes: { some: { permissaoCodigo: permissao } } } }] },
       },
       select: { pushToken: true },
     });
