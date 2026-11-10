@@ -31,6 +31,11 @@ export const PROXIMA_SITUACAO: Partial<Record<SituacaoPedido, SituacaoPedido>> =
 
 export const situacaoFinal = (s: SituacaoPedido) => s === 'CONCLUIDO' || s === 'CANCELADO';
 
+/** O cliente desiste enquanto a loja ainda não despachou (recebido ou em separação). */
+export const clientePodeCancelar = (s: SituacaoPedido) => s === 'NOVO' || s === 'EM_SEPARACAO';
+/** Depois de sair para entrega (ou ficar pronto para retirar), o cliente confirma que recebeu. */
+export const clientePodeConfirmar = (s: SituacaoPedido) => s === 'PRONTO';
+
 export function podeMudarSituacao(de: SituacaoPedido, para: SituacaoPedido): boolean {
   if (situacaoFinal(de)) return false;
   return para === 'CANCELADO' || PROXIMA_SITUACAO[de] === para;

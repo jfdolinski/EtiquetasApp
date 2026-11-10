@@ -11,6 +11,8 @@ import {
   normalizarCep,
   problemaNoEndereco,
   rotuloSituacaoPedido,
+  clientePodeCancelar,
+  clientePodeConfirmar,
   ROTULO_MODALIDADE,
   ROTULO_PAGAMENTO,
   subtotalDe,
@@ -688,6 +690,8 @@ function Acompanhamento({ codigo }: { codigo: string }) {
   const [pedido, setPedido] = useState<PedidoPublico | null>(null);
   const [erro, setErro] = useState<ErroLoja | null>(null);
   const [respondendo, setRespondendo] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
+  const [motivo, setMotivo] = useState('');
   const [erroResposta, setErroResposta] = useState<string | null>(null);
   useEffect(() => {
     let vivo = true;
@@ -709,6 +713,21 @@ function Acompanhamento({ codigo }: { codigo: string }) {
 
   if (!pedido) return erro ? <Aviso titulo="Pedido não encontrado">{erro.message}</Aviso> : <Aviso titulo="Carregando o pedido…" />;
   const atual = PASSOS.indexOf(pedido.situacao);
+  /** Cancelar ou confirmar o recebimento. A situação na tela pode estar velha: o servidor confere. */
+  const decidir = async (acao: 'cancelar' | 'recebido') => {
+    setRespondendo(true);
+    setErroResposta(null);
+    try {
+      setPedido(await pedir<PedidoPublico>(`pedido/${codigo}/${acao}`, acao === 'cancelar' ? { motivo: motivo.trim() || undefined } : {}));
+      setCancelando(false);
+    } catch (e) {
+      setErroResposta((e as Error).message);
+      setPedido(await pedir<PedidoPublico>(`pedido/${codigo}`).catch(() => pedido));
+    } finally {
+      setRespondendo(false);
+    }
+  };
+
   const responder = async (aceita: boolean) => {
     if (!pedido.proposta) return;
     setRespondendo(true);
@@ -753,7 +772,7 @@ function Acompanhamento({ codigo }: { codigo: string }) {
             <p className="text-xs text-amber-900">Recusando, o pedido fica como estava e a loja entra em contato.</p>
           </section>
         )}
-        {pedido.motivoCancelamento && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">Motivo: {pedido.motivoCancelamento}</p>}
+        {pedido.motivoCancelamento && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">{pedido.motivoCancelamento.startsWith('Cancelado pelo cliente') ? pedido.motivoCancelamento : `Motivo: ${pedido.motivoCancelamento}`}</p>}
         <Bloco titulo="Situação">
           {pedido.situacao === 'CANCELADO' ? (
             <p className="rounded-md bg-red-50 px-3 py-2 text-sm font-medium text-red-800" data-testid="situacao-pedido">Cancelado</p>
@@ -768,6 +787,34 @@ function Acompanhamento({ codigo }: { codigo: string }) {
             </ol>
           )}
         </Bloco>
+        {(clientePodeCancelar(pedido.situacao) || clientePodeConfirmar(pedido.situacao)) && (
+          <section className="space-y-2 rounded-lg bg-white p-4 shadow-sm" data-testid="acoes-cliente">
+            {erroResposta && !pedido.proposta && <p role="alert" className="text-sm text-red-800">{erroResposta}</p>}
+            {clientePodeConfirmar(pedido.situacao) && (
+              <>
+                <button type="button" disabled={respondendo} onClick={() => window.confirm(pedido.modalidade === 'RETIRADA' ? 'Confirma que já retirou o pedido?' : 'Confirma que recebeu o pedido?') && void decidir('recebido')} className="w-full rounded-full bg-emerald-600 py-3 text-base font-semibold text-white disabled:bg-slate-300">
+                  Confirmar recebimento
+                </button>
+                <p className="text-center text-xs text-slate-500">Toque quando o pedido estiver com você.</p>
+              </>
+            )}
+            {clientePodeCancelar(pedido.situacao) && !cancelando && (
+              <button type="button" onClick={() => setCancelando(true)} className="w-full rounded-full bg-white py-2.5 text-sm font-semibold text-red-700 ring-1 ring-red-200">
+                Cancelar pedido
+              </button>
+            )}
+            {clientePodeCancelar(pedido.situacao) && cancelando && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Cancelar o pedido nº {pedido.numero}?</p>
+                <textarea aria-label="Motivo (opcional)" className="w-full rounded-md border border-slate-300 px-3 py-2 text-base" rows={2} maxLength={300} placeholder="Motivo (opcional)" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+                <div className="flex gap-2">
+                  <button type="button" disabled={respondendo} onClick={() => void decidir('cancelar')} className="flex-1 rounded-full bg-red-600 py-2.5 text-sm font-semibold text-white disabled:bg-slate-300">Sim, cancelar</button>
+                  <button type="button" onClick={() => setCancelando(false)} className="flex-1 rounded-full bg-white py-2.5 text-sm font-semibold text-slate-800 ring-1 ring-slate-300">Voltar</button>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
         <Bloco titulo={ROTULO_MODALIDADE[pedido.modalidade].titulo}>
           {pedido.agendamento && <p className="text-sm">{textoFaixa(pedido.agendamento, '')}</p>}
           {pedido.endereco && <p className="text-sm text-slate-700">{textoEndereco(pedido.endereco)}</p>}

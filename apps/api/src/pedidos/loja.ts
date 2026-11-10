@@ -6,6 +6,9 @@ import type { Request } from 'express';
 import { IsArray, IsBoolean, IsDateString, IsInt, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import {
   categoriasDoCatalogo,
+  clientePodeCancelar,
+  clientePodeConfirmar,
+  LIMITE_MOTIVO_CANCELAMENTO,
   diferencasDaPropostaPedido,
   itensDaProposta,
   totaisDaProposta,
@@ -89,6 +92,13 @@ class NovoPedidoDto implements NovoPedido {
   @IsString()
   @MaxLength(2000)
   observacao: string;
+}
+
+class CancelarPeloClienteDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(LIMITE_MOTIVO_CANCELAMENTO)
+  motivo?: string;
 }
 
 class RespostaPropostaDto {
@@ -315,6 +325,31 @@ export class LojaService {
     await this.auditoria.registrar({ empresaId: p.empresaId, usuarioId: null, acao: aceita ? 'pedido.proposta_aceita' : 'pedido.proposta_recusada', entidade: 'Pedido', entidadeId: p.id, detalhes: { numero: p.numero } });
     return this.acompanhar(codigo);
   }
+
+  /**
+   * O cliente desiste (recebido ou em separação) ou confirma que recebeu (depois de sair para entrega).
+   * Só grava se a situação ainda é a que ele viu permitir: se a loja avançou no meio do caminho, recusa.
+   */
+  async decisaoDoCliente(codigo: string, acao: 'cancelar' | 'confirmar', motivo?: string): Promise<PedidoPublico> {
+    const p = CODIGO.test(codigo) ? await this.prisma.pedido.findUnique({ where: { codigoHash: sha256(codigo) }, select: { id: true, empresaId: true, numero: true, situacao: true, historico: true } }) : null;
+    if (!p) throw new NotFoundException('Pedido não encontrado. Confira o link.');
+    const situacao = p.situacao as SituacaoPedido;
+    const cancelar = acao === 'cancelar';
+    if (cancelar ? !clientePodeCancelar(situacao) : !clientePodeConfirmar(situacao)) {
+      throw new ConflictException(cancelar ? 'O pedido já saiu para entrega ou terminou: para cancelar, fale com a loja.' : 'O pedido ainda não saiu para entrega.');
+    }
+    const texto = motivo?.trim().slice(0, LIMITE_MOTIVO_CANCELAMENTO) || null;
+    const historico = [...((p.historico as unknown as EventoPedido[]) ?? []), { em: new Date().toISOString(), texto: cancelar ? `Cancelado pelo cliente${texto ? `: ${texto}` : ''}` : 'O cliente confirmou o recebimento', por: null }];
+    const { count } = await this.prisma.pedido.updateMany({
+      where: { id: p.id, situacao },
+      data: cancelar
+        ? { situacao: 'CANCELADO', motivoCancelamento: texto ? `Cancelado pelo cliente: ${texto}` : 'Cancelado pelo cliente', proposta: Prisma.DbNull, propostaEm: null, historico: historico as unknown as Prisma.InputJsonValue }
+        : { situacao: 'CONCLUIDO', historico: historico as unknown as Prisma.InputJsonValue },
+    });
+    if (count === 0) throw new ConflictException('A loja mudou o pedido enquanto você decidia. Confira de novo.');
+    await this.auditoria.registrar({ empresaId: p.empresaId, usuarioId: null, acao: cancelar ? 'pedido.cancelado_cliente' : 'pedido.recebido_cliente', entidade: 'Pedido', entidadeId: p.id, detalhes: { numero: p.numero, de: situacao, ...(texto ? { motivo: texto } : {}) } });
+    return this.acompanhar(codigo);
+  }
 }
 
 /** Tudo público: o cliente da loja não tem login. O que protege é o código aleatório de cada link. */
@@ -334,6 +369,20 @@ export class LojaController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   responder(@Param('codigo') codigo: string, @Body() dto: RespostaPropostaDto) {
     return this.loja.responder(codigo, dto.versao, dto.aceita);
+  }
+
+  @Post('pedido/:codigo/cancelar')
+  @Publico()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  cancelar(@Param('codigo') codigo: string, @Body() dto: CancelarPeloClienteDto) {
+    return this.loja.decisaoDoCliente(codigo, 'cancelar', dto.motivo);
+  }
+
+  @Post('pedido/:codigo/recebido')
+  @Publico()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  recebido(@Param('codigo') codigo: string) {
+    return this.loja.decisaoDoCliente(codigo, 'confirmar');
   }
 
   @Get(':codigo')

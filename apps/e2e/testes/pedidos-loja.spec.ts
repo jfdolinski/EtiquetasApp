@@ -210,3 +210,53 @@ test('API pública: link, regras, preço nunca vem do cliente, limite por aparel
   // O link antigo deixou de valer quando o código mudou.
   expect((await pedir('GET', `/loja/${codigo}`)).status).toBe(404);
 });
+
+test('o cliente cancela até a separação e, depois que sai, confirma o recebimento', async ({ page }) => {
+  const e = await criarEmpresa(tokenSuper);
+  const codigo = await lojaNoAr(e);
+  const novo = async () => (await pedir('POST', `/loja/${codigo}/pedidos`, { corpo: pedido(), ip: ip() })).j as { numero: number; codigo: string };
+  const situacao = (n: number, s: string) => sql(`UPDATE pedidos SET situacao = $3 WHERE empresa_id = $1 AND numero = $2`, [e.id, n, s]);
+
+  // API: cancela recebido e em separação; depois de sair, não; confirmar só depois de sair.
+  const a = await novo();
+  expect((await pedir('POST', `/loja/pedido/${a.codigo}/recebido`, { corpo: {} })).status).toBe(409);
+  const cancelado = await pedir('POST', `/loja/pedido/${a.codigo}/cancelar`, { corpo: {} });
+  expect(cancelado.j).toMatchObject({ situacao: 'CANCELADO', motivoCancelamento: 'Cancelado pelo cliente' });
+  expect((await pedir('POST', `/loja/pedido/${a.codigo}/cancelar`, { corpo: {} })).status).toBe(409);
+  const b = await novo();
+  await situacao(b.numero, 'EM_SEPARACAO');
+  expect((await pedir('POST', `/loja/pedido/${b.codigo}/cancelar`, { corpo: { motivo: 'Comprei em outro lugar' } })).j.motivoCancelamento).toBe('Cancelado pelo cliente: Comprei em outro lugar');
+  const c = await novo();
+  await situacao(c.numero, 'PRONTO');
+  expect((await pedir('POST', `/loja/pedido/${c.codigo}/cancelar`, { corpo: {} })).j.message).toMatch(/fale com a loja/);
+  expect((await pedir('POST', `/loja/pedido/${c.codigo}/recebido`, { corpo: {} })).j.situacao).toBe('CONCLUIDO');
+  expect((await pedir('POST', `/loja/pedido/${c.codigo}x/cancelar`, { corpo: {} })).status).toBe(404);
+  const [{ n }] = await sql(`SELECT count(*)::int AS n FROM logs_auditoria WHERE empresa_id = $1 AND acao IN ('pedido.cancelado_cliente', 'pedido.recebido_cliente')`, [e.id]);
+  expect(n).toBe(3);
+
+  // Pela tela, no celular.
+  await page.setViewportSize({ width: 390, height: 844 });
+  const d = await novo();
+  await page.goto(`/loja/pedido/${d.codigo}`);
+  const acoes = page.getByTestId('acoes-cliente');
+  await expect(acoes.getByRole('button', { name: 'Confirmar recebimento' })).toHaveCount(0);
+  await acoes.getByRole('button', { name: 'Cancelar pedido' }).click();
+  await acoes.getByLabel('Motivo (opcional)').fill('Pedi errado');
+  await page.screenshot({ path: 'test-results/loja-cancelar.png', fullPage: true });
+  await acoes.getByRole('button', { name: 'Sim, cancelar' }).click();
+  await expect(page.getByTestId('situacao-pedido')).toHaveText('Cancelado');
+  await expect(page.getByText('Cancelado pelo cliente: Pedi errado')).toBeVisible();
+  await expect(page.getByTestId('acoes-cliente')).toHaveCount(0);
+
+  const f = await novo();
+  await situacao(f.numero, 'PRONTO');
+  await page.goto(`/loja/pedido/${f.codigo}`);
+  await expect(page.getByTestId('acoes-cliente').getByRole('button', { name: 'Cancelar pedido' })).toHaveCount(0);
+  page.once('dialog', (x) => void x.accept());
+  await page.getByRole('button', { name: 'Confirmar recebimento' }).click();
+  await expect(page.getByTestId('situacao-pedido')).toHaveText(/Concluído/);
+  await expect(page.getByTestId('acoes-cliente')).toHaveCount(0);
+  // A loja vê no histórico que foi o cliente.
+  const [{ historico }] = await sql(`SELECT historico FROM pedidos WHERE empresa_id = $1 AND numero = $2`, [e.id, f.numero]);
+  expect(historico.at(-1)).toMatchObject({ texto: 'O cliente confirmou o recebimento', por: null });
+});
