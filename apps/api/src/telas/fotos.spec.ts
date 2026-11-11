@@ -188,3 +188,34 @@ describe('arquivo', () => {
     await expect(s.arquivo(ID)).rejects.toThrow('Foto não encontrada');
   });
 });
+
+describe('nome e categoria do catálogo (Pedidos)', () => {
+  it('guarda nome e categoria na mesma busca da foto, e conta as buscas sem os dois', async () => {
+    const { s, prisma, catalogo } = montar();
+    catalogo.produto.mockResolvedValueOnce(produto({ nome: 'Arroz Tio João 5kg', categoria: 'Mercearia' }));
+    await s.buscar('e1', [EAN]);
+    expect(prisma.fotoProdutoTela.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ nome: 'Arroz Tio João 5kg', categoria: 'Mercearia', tentativasSemDados: 0, dadosEm: expect.any(Date) }) }));
+    const sem = montar([{ id: ID, codigo: EAN, mime: 'image/png', urlOrigem: 'https://catalogo.exemplo/files/a.png', tentativasSemFoto: 0, tentativasSemDados: 2, verificadoEm: diasAtras(40) }]);
+    sem.catalogo.produto.mockResolvedValueOnce(produto({ categoria: null }));
+    await sem.s.buscar('e1', [EAN]);
+    expect(sem.prisma.fotoProdutoTela.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ nome: 'X', categoria: null, tentativasSemDados: 3 }) }));
+  });
+
+  it('com dados: procura quem nunca teve nome e categoria lidos e quem está incompleto no prazo; as telas não', async () => {
+    const item = [{ nome: 'A', preco: 'R$ 1,00', codigo: EAN }];
+    const casos: [Record<string, unknown>, boolean][] = [
+      [{ dadosEm: null }, true],
+      [{ dadosEm: diasAtras(1), nome: 'A', categoria: 'B' }, false],
+      [{ dadosEm: new Date(AGORA.getTime() - 5 * 60_000), nome: 'A', categoria: null, tentativasSemDados: 1 }, false],
+      [{ dadosEm: new Date(AGORA.getTime() - 15 * 60_000), nome: 'A', categoria: null, tentativasSemDados: 1 }, true],
+    ];
+    for (const [g, procura] of casos) {
+      const { s } = montar([{ id: ID, codigo: EAN, mime: 'image/png', tentativasSemFoto: 0, tentativasSemDados: 0, verificadoEm: diasAtras(1), nome: null, categoria: null, ...g }]);
+      expect((await s.aplicar('e1', item, AGORA, false, true)).faltam).toEqual(procura ? [EAN] : []);
+      expect((await s.aplicar('e1', item, AGORA)).faltam).toEqual([]);
+    }
+    // "Atualizar agora": incompleto é procurado na hora.
+    const { s } = montar([{ id: ID, codigo: EAN, mime: 'image/png', tentativasSemFoto: 0, tentativasSemDados: 4, verificadoEm: diasAtras(1), dadosEm: new Date(AGORA.getTime() - 60_000), nome: 'A', categoria: null }]);
+    expect((await s.aplicar('e1', item, AGORA, true, true)).faltam).toEqual([EAN]);
+  });
+});

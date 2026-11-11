@@ -272,6 +272,8 @@ export interface ImagemCatalogo {
 export interface ProdutoCatalogo {
   encontrado: boolean;
   nome: string | null;
+  /** Categoria do produto no catálogo (`category`). */
+  categoria: string | null;
   medicamento: boolean;
   imagens: ImagemCatalogo[];
   /** O catálogo não respondeu ou recusou: dá para seguir com imagem própria. */

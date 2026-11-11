@@ -40,7 +40,8 @@ describe('CatalogoService', () => {
   it('some com a imagem provisória e marca a de IA', async () => {
     pedido.mockResolvedValue(
       resposta({
-        name: 'Café',
+        name: ' Café ',
+        category: 'Mercearia',
         is_medicine: true,
         images: [
           { url: `${BASE}/files/p.png`, placeholder: true },
@@ -52,6 +53,7 @@ describe('CatalogoService', () => {
     expect(await servico.produto('e', '789')).toEqual({
       encontrado: true,
       nome: 'Café',
+      categoria: 'Mercearia',
       medicamento: true,
       imagens: [
         { url: `${BASE}/files/ia.png`, ia: true },

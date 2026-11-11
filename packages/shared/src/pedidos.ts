@@ -118,6 +118,11 @@ export interface ColunasCatalogo {
 
 export interface ConfigPedidos extends ColunasCatalogo {
   comFotos: boolean;
+  /**
+   * Nome e categoria vêm do catálogo, pelo código de barras, no lugar das colunas do ERP; produto
+   * que o catálogo ainda não tem com nome e categoria não entra na loja. Preço e estoque seguem do ERP.
+   */
+  dadosDoCatalogo: boolean;
   /** Só os produtos contam (sem a entrega). Nulo: sem mínimo. */
   pedidoMinimoCentavos: number | null;
   modalidades: Record<ModalidadeEntrega, ModalidadeConfig>;
@@ -178,6 +183,7 @@ export const CONFIG_PEDIDOS_PADRAO: ConfigPedidos = {
   colunaEstoque: null,
   colunaCodigoBarras: null,
   comFotos: false,
+  dadosDoCatalogo: false,
   pedidoMinimoCentavos: null,
   modalidades: {
     ENTREGA: { ativa: true, precoCentavos: 0 },
@@ -200,6 +206,7 @@ export function problemaNaConfigPedidos(c: ConfigPedidos): string | null {
   if (!c.colunaNome?.trim()) return 'Escolha a coluna do nome do produto.';
   if (!c.colunaPreco?.trim()) return 'Escolha a coluna do preço.';
   if (c.comFotos && !c.colunaCodigoBarras?.trim()) return 'Escolha a coluna do código de barras, usada para achar as fotos.';
+  if (c.dadosDoCatalogo && !c.colunaCodigoBarras?.trim()) return 'Escolha a coluna do código de barras, usada para achar o nome e a categoria no catálogo.';
   if (c.pedidoMinimoCentavos !== null && (!valorValido(c.pedidoMinimoCentavos) || c.pedidoMinimoCentavos === 0)) return 'Pedido mínimo inválido.';
   if ((c.mensagem ?? '').length > LIMITES_PEDIDOS.mensagem) return `A mensagem pode ter até ${LIMITES_PEDIDOS.mensagem} caracteres.`;
   if ((c.enderecoRetirada ?? '').length > LIMITES_PEDIDOS.enderecoRetirada) return `O endereço pode ter até ${LIMITES_PEDIDOS.enderecoRetirada} caracteres.`;
@@ -551,6 +558,8 @@ export interface PreviaCatalogo extends Omit<ResultadoCatalogo, 'itens'> {
   itens: ItemCatalogo[];
   total: number;
   banidos: number;
+  /** Com `dadosDoCatalogo`: ficam de fora por não ter (ainda) nome e categoria no catálogo. Os que nunca foram procurados entram quando forem achados. */
+  semCatalogo?: number;
 }
 
 // Entrega agendada ---------------------------------------------------------------------------

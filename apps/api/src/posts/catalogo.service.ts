@@ -18,6 +18,7 @@ export function tipoDaImagem(b: Buffer): string | null {
 
 interface RespostaProduto {
   name?: string;
+  category?: string;
   is_medicine?: boolean;
   images?: { url?: string; placeholder?: boolean; ai_generated?: boolean }[];
 }
@@ -124,7 +125,7 @@ export class CatalogoService {
 
   /** O ERP pode trazer o EAN com zeros à esquerda: se não achar, tenta sem eles. */
   async produto(empresaId: string, codigo: string): Promise<ProdutoCatalogo> {
-    const vazio = (aviso: string | null): ProdutoCatalogo => ({ encontrado: false, nome: null, medicamento: false, imagens: [], aviso });
+    const vazio = (aviso: string | null): ProdutoCatalogo => ({ encontrado: false, nome: null, categoria: null, medicamento: false, imagens: [], aviso });
     const base = config().catalogoUrl;
     if (!base) return vazio('O catálogo não está configurado neste servidor. Use uma imagem própria.');
     const cabecalhos = await this.cabecalhos(empresaId);
@@ -142,7 +143,8 @@ export class CatalogoService {
       const p = (await r.json().catch(() => null)) as RespostaProduto | null;
       if (!p) return vazio('O catálogo respondeu de um jeito inesperado.');
       const imagens: ImagemCatalogo[] = (p.images ?? []).filter((i) => i.url && !i.placeholder).map((i) => ({ url: i.url!, ia: !!i.ai_generated }));
-      return { encontrado: true, nome: p.name ?? null, medicamento: !!p.is_medicine, imagens, aviso: null };
+      const texto = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
+      return { encontrado: true, nome: texto(p.name, 200), categoria: texto(p.category, 80), medicamento: !!p.is_medicine, imagens, aviso: null };
     }
     return vazio(null);
   }

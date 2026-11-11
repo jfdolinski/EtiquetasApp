@@ -28,13 +28,17 @@ const MAX_NA_PREVIA = 24;
 
 export const SEM_CATALOGO = 'O catálogo não está configurado neste servidor: os produtos aparecem sem foto.';
 
-interface FotoGuardada {
+export interface FotoGuardada {
   id: string;
   mime: string | null;
   urlOrigem: string | null;
   medicamento: boolean;
   tentativasSemFoto: number;
   verificadoEm: Date;
+  nome: string | null;
+  categoria: string | null;
+  dadosEm: Date | null;
+  tentativasSemDados: number;
 }
 
 /**
@@ -55,13 +59,16 @@ export class FotosProdutoTelaService {
   private async guardadas(empresaId: string, codigos: string[]): Promise<Map<string, FotoGuardada>> {
     const lista = await this.prisma.fotoProdutoTela.findMany({
       where: { empresaId, codigo: { in: codigos } },
-      select: { id: true, codigo: true, mime: true, urlOrigem: true, medicamento: true, tentativasSemFoto: true, verificadoEm: true },
+      select: { id: true, codigo: true, mime: true, urlOrigem: true, medicamento: true, tentativasSemFoto: true, verificadoEm: true, nome: true, categoria: true, dadosEm: true, tentativasSemDados: true },
     });
     return new Map(lista.map((f) => [f.codigo, f]));
   }
 
-  /** Coloca nos itens as fotos já guardadas e diz quais códigos procurar no catálogo. */
-  async aplicar(empresaId: string, itens: ItemConteudoTela[], agora = new Date(), reverSemFoto = false) {
+  /**
+   * Coloca nos itens as fotos já guardadas e diz quais códigos procurar no catálogo. Com `comDados`
+   * (Pedidos), também procura quem ainda não tem nome e categoria lidos, no mesmo ritmo das sem foto.
+   */
+  async aplicar(empresaId: string, itens: ItemConteudoTela[], agora = new Date(), reverSemFoto = false, comDados = false) {
     const codigoDe = (i: ItemConteudoTela) => codigoParaCatalogo(i.codigo);
     const codigos = [...new Set(itens.flatMap((i) => codigoDe(i) ?? []))];
     const guardadas = codigos.length ? await this.guardadas(empresaId, codigos) : new Map<string, FotoGuardada>();
@@ -74,6 +81,11 @@ export class FotosProdutoTelaService {
       ? codigos.filter((codigo) => {
           const g = guardadas.get(codigo);
           if (!g || (reverSemFoto && !g.mime)) return true;
+          if (comDados) {
+            if (!g.dadosEm) return true;
+            const incompleto = !g.nome || !g.categoria;
+            if (incompleto && (reverSemFoto || agora.getTime() - g.dadosEm.getTime() >= esperaSemFoto(g.tentativasSemDados))) return true;
+          }
           return agora.getTime() - g.verificadoEm.getTime() >= (g.mime ? REVER_COM_FOTO_MS : esperaSemFoto(g.tentativasSemFoto));
         })
       : [];
@@ -112,7 +124,16 @@ export class FotosProdutoTelaService {
     // Sem conferir de verdade, nada muda: a foto que já está guardada continua valendo.
     if (produto.aviso) return produto.aviso;
     const agora = new Date();
-    const comum = { medicamento: produto.medicamento, verificadoEm: agora, tentativasSemFoto: 0 };
+    const completo = !!produto.nome && !!produto.categoria;
+    const comum = {
+      medicamento: produto.medicamento,
+      verificadoEm: agora,
+      tentativasSemFoto: 0,
+      nome: produto.nome,
+      categoria: produto.categoria,
+      dadosEm: agora,
+      tentativasSemDados: completo ? 0 : (atual?.tentativasSemDados ?? 0) + 1,
+    };
     // De IA não entra: num post sai com aviso na arte, e na vitrine pareceria a foto do produto.
     const escolhida = produto.imagens.find((i) => !i.ia);
     if (escolhida && atual?.mime && atual.urlOrigem === escolhida.url) {

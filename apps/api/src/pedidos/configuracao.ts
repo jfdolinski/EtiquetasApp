@@ -35,7 +35,7 @@ import { ConsultasService } from '../consultas/consultas.service';
 import { pedeParametros } from '../impressao/agendamentos.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { FotosProdutoTelaService } from '../telas/fotos';
-import { tipoDaImagem } from '../posts/catalogo.service';
+import { codigoParaCatalogo, tipoDaImagem } from '../posts/catalogo.service';
 
 const INTERVALO_VERIFICACAO_MS = 30_000;
 const MAX_POR_VERIFICACAO = 20;
@@ -78,7 +78,7 @@ class PreviaCatalogoDto {
 
   @IsOptional()
   @IsObject()
-  colunas?: Partial<ColunasCatalogo>;
+  colunas?: Partial<ColunasCatalogo> & { dadosDoCatalogo?: boolean };
 }
 
 const texto = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -102,6 +102,7 @@ function configLimpa(c: Partial<ConfigPedidos>): ConfigPedidos {
     colunaEstoque: coluna(c.colunaEstoque),
     colunaCodigoBarras: coluna(c.colunaCodigoBarras),
     comFotos: c.comFotos === true,
+    dadosDoCatalogo: c.dadosDoCatalogo === true,
     pedidoMinimoCentavos: c.pedidoMinimoCentavos === null || c.pedidoMinimoCentavos === undefined ? null : (c.pedidoMinimoCentavos as number),
     modalidades,
     mensagem: texto(c.mensagem, 1000),
@@ -274,7 +275,10 @@ export class ConfiguracaoPedidosService implements OnApplicationBootstrap, OnMod
     const col = configLimpa((dto.colunas ?? {}) as Partial<ConfigPedidos>);
     const pronto = col.colunaCodigo && col.colunaNome && col.colunaPreco;
     const resultado = pronto ? itensDoCatalogo(registros, col) : { itens: [], descartados: 0, semEstoque: 0, repetidos: 0, cortados: 0 };
-    return { ...resultado, itens: resultado.itens.slice(0, ITENS_NA_PREVIA), total: resultado.itens.length, colunas, banidos: todos.length - registros.length };
+    // Com os dados do catálogo, mostra como fica com o que já foi conferido (a prévia não gasta buscas).
+    const cfgPrevia = { ...CONFIG_PEDIDOS_PADRAO, ...col, comFotos: false };
+    const { itens, semCatalogo } = pronto && col.dadosDoCatalogo ? await this.comCatalogo(empresaId, resultado.itens, cfgPrevia) : { itens: resultado.itens, semCatalogo: undefined };
+    return { ...resultado, itens: itens.slice(0, ITENS_NA_PREVIA), total: itens.length, colunas, banidos: todos.length - registros.length, ...(semCatalogo !== undefined ? { semCatalogo } : {}) };
   }
 
   // Cópia dos produtos ---------------------------------------------------------------------
@@ -317,36 +321,52 @@ export class ConfiguracaoPedidosService implements OnApplicationBootstrap, OnMod
       const { itens } = itensDoCatalogo(registros, cfg);
       // Sem nada aproveitável não é "produtos novos": apagar o catálogo por um erro de coluna seria pior que esperar a validade.
       if (itens.length === 0) throw new Error('A consulta não trouxe nenhum produto com código, nome, preço e estoque.');
-      // O preço nunca espera a foto: entra com as já guardadas, e as outras chegam depois.
-      const { itens: comFotos, faltam } = cfg.comFotos ? await this.comFotos(empresaId, itens, reverSemFoto) : { itens, faltam: [] as string[] };
+      // O preço nunca espera o catálogo: entra com o que já está guardado, e o resto chega depois.
+      const { itens: publicados, faltam } = await this.comCatalogo(empresaId, itens, cfg, reverSemFoto);
       const dadosEm = new Date();
-      await this.prisma.configuracaoPedidos.update({ where: { empresaId }, data: { itens: comFotos as unknown as Prisma.InputJsonValue, quantidadeItens: itens.length, dadosEm, erro: null } });
-      if (faltam.length) void this.completarFotos(empresaId, faltam, dadosEm);
+      await this.prisma.configuracaoPedidos.update({ where: { empresaId }, data: { itens: publicados as unknown as Prisma.InputJsonValue, quantidadeItens: publicados.length, dadosEm, erro: null } });
+      if (faltam.length) void this.completarFotos(empresaId, itens, cfg, faltam, dadosEm);
     } catch (e) {
       await this.prisma.configuracaoPedidos.updateMany({ where: { empresaId }, data: { erro: (e as Error).message.slice(0, 500) } }).catch(() => undefined);
     }
   }
 
-  /** As fotos das telas: mesma guarda por código de barras, então cada busca no catálogo vale para os dois. */
-  private async comFotos(empresaId: string, itens: ItemCatalogo[], reverSemFoto = false) {
+  /**
+   * Fotos, nome e categoria do catálogo, pela mesma guarda das telas (código de barras): uma busca vale
+   * para tudo. Com `dadosDoCatalogo`, o nome e a categoria do catálogo substituem os do ERP e quem não
+   * tem os dois fica fora da loja até o catálogo ter.
+   */
+  private async comCatalogo(empresaId: string, itens: ItemCatalogo[], cfg: ConfigPedidos, reverSemFoto = false) {
+    if (!cfg.comFotos && !cfg.dadosDoCatalogo) return { itens, faltam: [] as string[], semCatalogo: 0 };
     const comoTela = itens.map((i): ItemConteudoTela => ({ nome: '', preco: '', ...(i.codigoBarras ? { codigo: i.codigoBarras } : {}) }));
-    const { itens: achadas, faltam } = await this.fotos.aplicar(empresaId, comoTela, new Date(), reverSemFoto);
-    const novos = itens.map(({ foto: _antiga, ...i }, n): ItemCatalogo => (achadas[n].foto ? { ...i, foto: achadas[n].foto } : i));
-    return { itens: novos, faltam };
+    const { itens: achadas, faltam, guardadas } = await this.fotos.aplicar(empresaId, comoTela, new Date(), reverSemFoto, cfg.dadosDoCatalogo);
+    let semCatalogo = 0;
+    const novos = itens.flatMap(({ foto: _antiga, ...i }, n): ItemCatalogo[] => {
+      const comFoto = cfg.comFotos && achadas[n].foto ? { ...i, foto: achadas[n].foto } : i;
+      if (!cfg.dadosDoCatalogo) return [comFoto];
+      const codigo = codigoParaCatalogo(i.codigoBarras);
+      const g = codigo ? guardadas.get(codigo) : undefined;
+      if (!g?.nome || !g.categoria) {
+        semCatalogo++;
+        return [];
+      }
+      return [{ ...comFoto, nome: g.nome, categoria: g.categoria }];
+    });
+    return { itens: novos, faltam, semCatalogo };
   }
 
-  /** Em segundo plano. Só grava se a cópia ainda é a mesma, e sem renovar `dadosEm`: foto não torna o preço mais novo. */
-  async completarFotos(empresaId: string, codigos: string[], dadosEm: Date): Promise<void> {
+  /** Em segundo plano. Só grava se a cópia ainda é a mesma, e sem renovar `dadosEm`: o catálogo não torna o preço mais novo. */
+  async completarFotos(empresaId: string, todos: ItemCatalogo[], cfg: ConfigPedidos, codigos: string[], dadosEm: Date): Promise<void> {
     try {
       await this.fotos.buscar(empresaId, codigos);
       const atual = await this.prisma.configuracaoPedidos.findUnique({ where: { empresaId }, select: { itens: true, dadosEm: true } });
       if (!atual || atual.dadosEm?.getTime() !== dadosEm.getTime()) return;
-      const antes = atual.itens as unknown as ItemCatalogo[];
-      const { itens } = await this.comFotos(empresaId, antes);
-      if (itens.every((item, i) => item.foto === antes[i].foto)) return;
-      await this.prisma.configuracaoPedidos.updateMany({ where: { empresaId, dadosEm }, data: { itens: itens as unknown as Prisma.InputJsonValue } });
+      // Parte da lista inteira do ERP: quem ficou de fora por falta de nome ou categoria pode entrar agora.
+      const { itens } = await this.comCatalogo(empresaId, todos, cfg);
+      if (JSON.stringify(itens) === JSON.stringify(atual.itens)) return;
+      await this.prisma.configuracaoPedidos.updateMany({ where: { empresaId, dadosEm }, data: { itens: itens as unknown as Prisma.InputJsonValue, quantidadeItens: itens.length } });
     } catch (e) {
-      this.log.warn(`Fotos do catálogo ${empresaId}: ${(e as Error).message}`);
+      this.log.warn(`Catálogo dos pedidos ${empresaId}: ${(e as Error).message}`);
     }
   }
 }

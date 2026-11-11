@@ -1119,19 +1119,26 @@ model ImagemTela {
 /// Foto do catálogo guardada por produto: cada busca conta no consumo da empresa, e a TV não pode depender do catálogo no ar.
 model FotoProdutoTela {
   /// Muda quando a foto muda: o arquivo fica em cache para sempre.
-  id                String   @id @default(uuid()) @db.Uuid
-  empresaId         String   @map("empresa_id") @db.Uuid
+  id                 String    @id @default(uuid()) @db.Uuid
+  empresaId          String    @map("empresa_id") @db.Uuid
   /// Código de barras na forma do catálogo (codigoParaCatalogo).
-  codigo            String
+  codigo             String
   /// Vazios: o catálogo não tem foto aproveitável, por enquanto.
-  mime              String?
-  conteudo          Bytes?
-  urlOrigem         String?  @map("url_origem")
-  medicamento       Boolean  @default(false)
+  mime               String?
+  conteudo           Bytes?
+  urlOrigem          String?   @map("url_origem")
+  medicamento        Boolean   @default(false)
   /// Buscas seguidas sem achar foto: as primeiras voltam logo, porque o catálogo pode estar cadastrando o código agora.
-  tentativasSemFoto Int      @default(0) @map("tentativas_sem_foto")
+  tentativasSemFoto  Int       @default(0) @map("tentativas_sem_foto")
+  /// Nome e categoria do catálogo (Pedidos com dados do catálogo). Vêm na mesma busca da foto.
+  nome               String?
+  categoria          String?
+  /// Quando nome e categoria foram lidos. Nulo: guardado antes de existirem, ainda não conferido.
+  dadosEm            DateTime? @map("dados_em")
+  /// Buscas seguidas sem nome ou categoria: voltam no mesmo ritmo das sem foto.
+  tentativasSemDados Int       @default(0) @map("tentativas_sem_dados")
   /// Só avança em código que algum conteúdo usa: parado há muito tempo, a faxina apaga.
-  verificadoEm      DateTime @map("verificado_em")
+  verificadoEm       DateTime  @map("verificado_em")
 
   empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
 

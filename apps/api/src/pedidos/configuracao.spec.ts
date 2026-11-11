@@ -22,7 +22,10 @@ const RESULTADO = {
 };
 const CAMPOS = RESULTADO.colunas;
 
+let guardadasNoCatalogo: [string, { nome: string | null; categoria: string | null }][] = [];
+
 function montar(registro: Record<string, unknown> = {}, consulta: Record<string, unknown> = {}) {
+  guardadasNoCatalogo = [];
   const atual = { consultaId: 'c1', config: CONFIG, responsavelId: 'u1', responsavel: { ativo: true }, ...registro };
   const tx = {
     configuracaoPedidos: { upsert: jest.fn(async () => ({})) },
@@ -42,7 +45,11 @@ function montar(registro: Record<string, unknown> = {}, consulta: Record<string,
   const consultas = { executar: jest.fn(async () => RESULTADO) };
   const banidos = { conjunto: jest.fn(async () => new Set(['791'])) };
   const fotos = {
-    aplicar: jest.fn(async (_e: string, itens: { codigo?: string }[]) => ({ itens: itens.map((i) => (i.codigo === '789' ? { ...i, foto: '/api/tv/fotos/f1' } : i)), faltam: [] as string[] })),
+    aplicar: jest.fn(async (_e: string, itens: { codigo?: string }[], _agora?: Date, _rever?: boolean, _comDados?: boolean) => ({
+      itens: itens.map((i) => (i.codigo === '789' ? { ...i, foto: '/api/tv/fotos/f1' } : i)),
+      faltam: [] as string[],
+      guardadas: new Map<string, { nome: string | null; categoria: string | null }>(guardadasNoCatalogo),
+    })),
     buscar: jest.fn(async () => null),
   };
   const auditoria = { registrar: jest.fn() };
@@ -64,11 +71,37 @@ describe('cópia do catálogo', () => {
     expect(d.dadosEm).toBeInstanceOf(Date);
   });
 
+  it('nome e categoria do catálogo: substituem os do ERP, e quem não tem fica de fora até o catálogo ter', async () => {
+    const ARROZ = '7891000100103';
+    const FEIJAO = '7891000100110';
+    const { s, prisma, consultas, fotos } = montar({ config: { ...CONFIG, dadosDoCatalogo: true, colunaCodigoBarras: 'ean' } });
+    consultas.executar.mockResolvedValueOnce({ colunas: RESULTADO.colunas, linhas: [[1, ARROZ, 'ARROZ T1', 10, 3], [2, FEIJAO, 'FEIJAO', 8, 5], [3, '123', 'SEM EAN', 5, 5]] });
+    guardadasNoCatalogo = [[ARROZ, { nome: 'Arroz Tipo 1 5kg', categoria: 'Mercearia' }], [FEIJAO, { nome: 'Feijão Carioca 1kg', categoria: null }]];
+    fotos.aplicar.mockImplementationOnce(async (_e: string, itens: { codigo?: string }[]) => ({ itens, faltam: [FEIJAO], guardadas: new Map(guardadasNoCatalogo) }));
+    // Enquanto isso, o catálogo ganha a categoria do feijão.
+    fotos.buscar.mockImplementationOnce(async () => {
+      guardadasNoCatalogo = [[ARROZ, { nome: 'Arroz Tipo 1 5kg', categoria: 'Mercearia' }], [FEIJAO, { nome: 'Feijão Carioca 1kg', categoria: 'Mercearia' }]];
+      prisma.configuracaoPedidos.findUnique.mockResolvedValueOnce({ itens: [], dadosEm: dados(prisma.configuracaoPedidos.update).dadosEm });
+      return null;
+    });
+    await s.atualizarDados('e1');
+    expect(fotos.aplicar).toHaveBeenCalledWith('e1', expect.any(Array), expect.any(Date), false, true);
+    const d = dados(prisma.configuracaoPedidos.update);
+    expect(d.itens).toEqual([{ codigo: '1', nome: 'Arroz Tipo 1 5kg', categoria: 'Mercearia', precoCentavos: 1000, estoque: 3, codigoBarras: ARROZ }]);
+    expect(d.quantidadeItens).toBe(1);
+    expect(fotos.buscar).toHaveBeenCalledWith('e1', [FEIJAO]);
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    const depois = (prisma.configuracaoPedidos.updateMany.mock.calls as unknown as [{ data: { itens: { nome: string }[]; quantidadeItens: number } }][]).at(-1)![0].data;
+    expect(depois.itens.map((i) => i.nome)).toEqual(['Arroz Tipo 1 5kg', 'Feijão Carioca 1kg']);
+    expect(depois.quantidadeItens).toBe(2);
+  });
+
   it('Atualizar agora procura na hora os produtos que ainda estão sem foto', async () => {
     const { s, fotos } = montar({ ativo: true, config: { ...CONFIG, comFotos: true, colunaCodigoBarras: 'ean' } });
-    fotos.aplicar.mockImplementationOnce(async (_e: string, itens: { codigo?: string }[]) => ({ itens, faltam: ['789'] }));
+    fotos.aplicar.mockImplementationOnce(async (_e: string, itens: { codigo?: string }[]) => ({ itens, faltam: ['789'], guardadas: new Map() }));
     await s.atualizarAgora('e1').catch(() => undefined);
-    expect(fotos.aplicar).toHaveBeenCalledWith('e1', [{ nome: '', preco: '', codigo: '789' }], expect.any(Date), true);
+    expect(fotos.aplicar).toHaveBeenCalledWith('e1', [{ nome: '', preco: '', codigo: '789' }], expect.any(Date), true, false);
     await new Promise((r) => setImmediate(r));
     expect(fotos.buscar).toHaveBeenCalledWith('e1', ['789']);
   });
@@ -77,7 +110,7 @@ describe('cópia do catálogo', () => {
     const { s, prisma, fotos } = montar({ config: { ...CONFIG, comFotos: true, colunaCodigoBarras: 'ean' } });
     await s.atualizarDados('e1');
     // O relógio respeita o ritmo de conferência: quem está sem foto não é procurado a cada atualização.
-    expect(fotos.aplicar).toHaveBeenCalledWith('e1', [{ nome: '', preco: '', codigo: '789' }], expect.any(Date), false);
+    expect(fotos.aplicar).toHaveBeenCalledWith('e1', [{ nome: '', preco: '', codigo: '789' }], expect.any(Date), false, false);
     expect(dados(prisma.configuracaoPedidos.update).itens).toEqual([{ codigo: '1', nome: 'Arroz', precoCentavos: 2490, estoque: 3, codigoBarras: '789', foto: '/api/tv/fotos/f1' }]);
   });
 

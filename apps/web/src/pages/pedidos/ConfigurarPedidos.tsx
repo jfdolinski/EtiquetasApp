@@ -56,6 +56,7 @@ interface Formulario {
   consultaId: string;
   colunas: ColunasCatalogo;
   comFotos: boolean;
+  dadosDoCatalogo: boolean;
   minimo: string;
   modalidades: Record<ModalidadeEntrega, { ativa: boolean; preco: string }>;
   mensagem: string;
@@ -78,6 +79,7 @@ function formularioDe(c: ConfiguracaoPedidosResumo): Formulario {
     consultaId: c.consultaId ?? '',
     colunas: { colunaCodigo: k.colunaCodigo, colunaNome: k.colunaNome, colunaPreco: k.colunaPreco, colunaPrecoDe: k.colunaPrecoDe, colunaUnidade: k.colunaUnidade, colunaCategoria: k.colunaCategoria, colunaEstoque: k.colunaEstoque, colunaCodigoBarras: k.colunaCodigoBarras },
     comFotos: k.comFotos,
+    dadosDoCatalogo: k.dadosDoCatalogo ?? false,
     minimo: k.pedidoMinimoCentavos ? reais(k.pedidoMinimoCentavos) : '',
     modalidades: Object.fromEntries(MODALIDADES_ENTREGA.map((m) => [m, { ativa: k.modalidades[m].ativa, preco: reais(k.modalidades[m].precoCentavos) }])) as Formulario['modalidades'],
     mensagem: k.mensagem,
@@ -99,6 +101,7 @@ function corpoDe(f: Formulario): SalvarConfiguracaoPedidos {
   const config: ConfigPedidos = {
     ...f.colunas,
     comFotos: f.comFotos,
+    dadosDoCatalogo: f.dadosDoCatalogo,
     pedidoMinimoCentavos: f.minimo.trim() ? centavosDoCampo(f.minimo) : null,
     modalidades: Object.fromEntries(MODALIDADES_ENTREGA.map((m) => [m, { ativa: f.modalidades[m].ativa, precoCentavos: f.modalidades[m].ativa ? centavosDoCampo(f.modalidades[m].preco) : 0 }])) as ConfigPedidos['modalidades'],
     mensagem: f.mensagem,
@@ -137,7 +140,7 @@ export function ConfigurarPedidos() {
   });
   const novoLink = useMutation({ mutationFn: () => api<ConfiguracaoPedidosResumo>('/pedidos/configuracao/novo-link', { metodo: 'POST' }), onSuccess: (c) => cliente.setQueryData(chave, c) });
   const atualizar = useMutation({ mutationFn: () => api<ConfiguracaoPedidosResumo>('/pedidos/configuracao/atualizar', { metodo: 'POST' }), onSuccess: (c) => cliente.setQueryData(chave, c) });
-  const previa = useMutation({ mutationFn: (x: { consultaId: string; colunas: ColunasCatalogo }) => api<PreviaCatalogo>('/pedidos/configuracao/previa', { metodo: 'POST', corpo: x }) });
+  const previa = useMutation({ mutationFn: (x: { consultaId: string; colunas: ColunasCatalogo & { dadosDoCatalogo: boolean } }) => api<PreviaCatalogo>('/pedidos/configuracao/previa', { metodo: 'POST', corpo: x }) });
 
   const consulta = consultas.find((c) => c.id === f?.consultaId);
   const colunasDaConsulta = useMemo(() => (previa.data?.colunas.length ? previa.data.colunas : (consulta?.colunas ?? [])), [previa.data, consulta]);
@@ -212,8 +215,17 @@ export function ConfigurarPedidos() {
               <span className="mt-0.5 block text-xs text-slate-500">As fotos vêm do catálogo, pelo código de barras, e são as mesmas das telas. Cada busca conta no consumo da empresa no catálogo.</span>
             </span>
           </label>
+          <label className="flex items-start gap-2 text-sm text-slate-700">
+            <input type="checkbox" className="mt-0.5" checked={f.dadosDoCatalogo} onChange={(e) => mudar({ dadosDoCatalogo: e.target.checked })} />
+            <span>
+              <span className="font-medium text-slate-900">Nome e categoria do catálogo</span>
+              <span className="mt-0.5 block text-xs text-slate-500">
+                O nome e a categoria vêm do catálogo, pelo código de barras, no lugar das colunas do sistema. Produto que o catálogo não tem com nome e categoria não aparece na loja. Preço e estoque continuam vindo do sistema. Produto novo entra depois de achado no catálogo (em alguns minutos), e cada busca conta no consumo.
+              </span>
+            </span>
+          </label>
           <div>
-            <Botao variante="secundario" disabled={!f.consultaId || previa.isPending} onClick={() => previa.mutate({ consultaId: f.consultaId, colunas: f.colunas })}>
+            <Botao variante="secundario" disabled={!f.consultaId || previa.isPending} onClick={() => previa.mutate({ consultaId: f.consultaId, colunas: { ...f.colunas, dadosDoCatalogo: f.dadosDoCatalogo } })}>
               {previa.isPending ? 'Lendo…' : 'Ler a consulta agora'}
             </Botao>
           </div>
@@ -335,11 +347,11 @@ export function ConfigurarPedidos() {
               {atualizar.isPending ? 'Atualizando…' : 'Atualizar agora'}
             </Botao>
           )}
-          {atual.ativo && f.comFotos && (
+          {atual.ativo && (f.comFotos || f.dadosDoCatalogo) && (
             <p className="mt-2 text-xs text-slate-500" data-testid="aviso-fotos">
               {atualizar.isSuccess
-                ? 'Procurando no catálogo as fotos dos produtos que estavam sem: elas aparecem na loja em alguns minutos.'
-                : 'Produto que ganhou foto no catálogo aparece sozinho em até um dia. “Atualizar agora” procura na hora.'}
+                ? 'Procurando no catálogo o que faltava (fotos, nome e categoria): aparece na loja em alguns minutos.'
+                : 'O que entrar no catálogo depois (foto, nome, categoria) aparece sozinho em até um dia. “Atualizar agora” procura na hora.'}
             </p>
           )}
           {atualizar.error && <div className="mt-2"><Alerta>{(atualizar.error as Error).message}</Alerta></div>}
@@ -386,6 +398,7 @@ function ResultadoPrevia({ previa }: { previa: PreviaCatalogo }) {
     previa.semEstoque && `${previa.semEstoque} sem estoque`,
     previa.repetidos && `${previa.repetidos} com código repetido`,
     previa.banidos && `${previa.banidos} banidos`,
+    previa.semCatalogo && `${previa.semCatalogo} sem nome e categoria no catálogo (os ainda não procurados entram quando forem achados)`,
     previa.cortados && `${previa.cortados} além do limite`,
   ].filter(Boolean);
   return (
