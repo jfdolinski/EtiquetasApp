@@ -178,6 +178,18 @@ describe('salvar a configuração', () => {
     await expect(busca.s.salvar('e1', dto() as never, 'u1')).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('coluna nova no SQL que as colunas guardadas ainda não têm: lê a consulta de novo antes de recusar', async () => {
+    const { s, consultas } = montar();
+    consultas.executar.mockResolvedValueOnce({ colunas: [...RESULTADO.colunas, { nome: 'marca' }], linhas: [] });
+    await expect(s.salvar('e1', dto({ config: { ...CONFIG, camposDetalhe: [{ coluna: 'marca', rotulo: 'Marca' }] } }) as never, 'u1')).resolves.toBeDefined();
+    expect(consultas.executar).toHaveBeenCalledWith('e1', 'c1', 'u1', {}, 1);
+    // Saiu do SQL: diz onde foi escolhida.
+    await expect(s.salvar('e1', dto({ config: { ...CONFIG, camposDetalhe: [{ coluna: 'sumiu', rotulo: 'Sumiu' }] } }) as never, 'u1')).rejects.toThrow('A consulta não traz mais a coluna “sumiu”, escolhida em Detalhe do produto.');
+    // Agente desligado: vale o que estava guardado.
+    consultas.executar.mockRejectedValueOnce(new Error('agente offline'));
+    await expect(s.salvar('e1', dto({ config: { ...CONFIG, colunaUnidade: 'un' } }) as never, 'u1')).rejects.toThrow(/“un”, escolhida em Unidade/);
+  });
+
   it('consulta de outra empresa não é encontrada', async () => {
     const { s, prisma } = montar();
     prisma.consultaSql.findFirst.mockResolvedValueOnce(null as never);

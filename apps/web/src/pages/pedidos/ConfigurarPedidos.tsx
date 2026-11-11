@@ -237,8 +237,10 @@ export function ConfigurarPedidos() {
           <p className="text-xs text-slate-500">Quando o cliente toca num produto, abre um cartão com a foto grande e estes dados da consulta. Escolha só o que o cliente pode ver: custo e margem, por exemplo, ficam de fora. Até {MAX_CAMPOS_DETALHE} campos.</p>
           {colunasDaConsulta.length === 0 && <p className="text-xs text-amber-700">Leia a consulta para escolher os campos.</p>}
           <div className="grid gap-1.5 sm:grid-cols-2">
-            {colunasDaConsulta.map((col) => {
+            {[...colunasDaConsulta, ...f.camposDetalhe.map((d) => d.coluna).filter((c) => !colunasDaConsulta.includes(c))].map((col) => {
               const escolhido = f.camposDetalhe.find((d) => d.coluna === col);
+              // Escolhida antes, mas a consulta não traz mais: aparece para poder desmarcar.
+              const sumiu = colunasDaConsulta.length > 0 && !colunasDaConsulta.includes(col);
               return (
                 <div key={col} className="flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1.5">
                   <input
@@ -248,7 +250,8 @@ export function ConfigurarPedidos() {
                     disabled={!escolhido && f.camposDetalhe.length >= MAX_CAMPOS_DETALHE}
                     onChange={(e) => mudar({ camposDetalhe: e.target.checked ? [...f.camposDetalhe, { coluna: col, rotulo: rotuloSugerido(col) }] : f.camposDetalhe.filter((d) => d.coluna !== col) })}
                   />
-                  <span className="w-28 shrink-0 truncate font-mono text-xs text-slate-600" title={col}>{col}</span>
+                  <span className={`w-28 shrink-0 truncate font-mono text-xs ${sumiu ? 'text-red-700 line-through' : 'text-slate-600'}`} title={sumiu ? `A consulta não traz mais “${col}”: desmarque` : col}>{col}</span>
+                  {sumiu && <span className="shrink-0 text-xs text-red-700">não vem mais na consulta</span>}
                   {escolhido && (
                     <input
                       aria-label={`Nome de ${col} para o cliente`}

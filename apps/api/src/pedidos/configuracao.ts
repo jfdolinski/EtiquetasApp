@@ -194,18 +194,46 @@ export class ConfiguracaoPedidosService implements OnApplicationBootstrap, OnMod
     return consulta;
   }
 
+  /**
+   * As colunas escolhidas existem na consulta? Primeiro pelas colunas guardadas ao salvar o SQL; se
+   * alguma faltar, lê a consulta de novo (1 linha), porque as guardadas podem estar velhas (SQL mudou,
+   * agente desligado quando a consulta foi salva). Sem conseguir ler, vale o que estava guardado.
+   */
+  private async conferirColunas(empresaId: string, consulta: { id: string; campos: unknown }, config: ConfigPedidos, usuarioId: string) {
+    const usadas: { coluna: string; onde: string }[] = [
+      ...(
+        [
+          [config.colunaCodigo, 'Código'],
+          [config.colunaNome, 'Nome'],
+          [config.colunaPreco, 'Preço'],
+          [config.colunaPrecoDe, 'Preço anterior'],
+          [config.colunaUnidade, 'Unidade'],
+          [config.colunaCategoria, 'Categoria'],
+          [config.colunaEstoque, 'Estoque'],
+          [config.colunaCodigoBarras, 'Código de barras'],
+        ] as [string | null, string][]
+      ).flatMap(([coluna, onde]) => (coluna ? [{ coluna, onde }] : [])),
+      ...config.camposDetalhe.map((d) => ({ coluna: d.coluna, onde: 'Detalhe do produto' })),
+    ];
+    let colunas = ((consulta.campos ?? []) as unknown as CampoDinamico[]).map((c) => c.nome.toLowerCase());
+    const falta = () => (colunas.length ? usadas.find((u) => !colunas.includes(u.coluna.toLowerCase())) : undefined);
+    if (!falta()) return;
+    try {
+      const r = await this.consultas.executar(empresaId, consulta.id, usuarioId, {}, 1);
+      colunas = r.colunas.map((c) => c.nome.toLowerCase());
+    } catch {
+      // Agente desligado: fica com as guardadas.
+    }
+    const f = falta();
+    if (f) throw new BadRequestException(`A consulta não traz mais a coluna “${f.coluna}”, escolhida em ${f.onde}. Desmarque ou escolha outra coluna e salve de novo.`);
+  }
+
   async salvar(empresaId: string, dto: SalvarConfiguracaoPedidosDto, usuarioId: string): Promise<ConfiguracaoPedidosResumo> {
     const config = configLimpa(dto.config ?? {});
     const problema = problemaNaConfigPedidos(config) ?? problemaNosPrazosPedidos(dto.intervaloMinutos, dto.validadeMinutos) ?? problemaNoHorario(dto.horario);
     if (problema) throw new BadRequestException(problema);
     const consulta = await this.consultaUtil(empresaId, dto.consultaId);
-    // Sem colunas lidas (agente desligado ao salvar a consulta) não dá para conferir: a atualização avisa.
-    const colunas = ((consulta.campos ?? []) as unknown as CampoDinamico[]).map((c) => c.nome.toLowerCase());
-    if (colunas.length) {
-      for (const col of [config.colunaCodigo, config.colunaNome, config.colunaPreco, config.colunaPrecoDe, config.colunaUnidade, config.colunaCategoria, config.colunaEstoque, config.colunaCodigoBarras, ...config.camposDetalhe.map((d) => d.coluna)]) {
-        if (col && !colunas.includes(col.toLowerCase())) throw new BadRequestException(`A consulta não tem a coluna “${col}”.`);
-      }
-    }
+    await this.conferirColunas(empresaId, consulta, config, usuarioId);
     // A impressora é da empresa e fala ESC/POS: a folha é um cupom de térmica.
     if (config.impressoraFolhaId) {
       const ok = await this.prisma.impressora.count({ where: { id: config.impressoraFolhaId, empresaId, ativo: true, linguagem: 'ESCPOS' } });
