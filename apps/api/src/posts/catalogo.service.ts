@@ -42,6 +42,9 @@ export function codigoParaCatalogo(valor: unknown): string | null {
   return base.length === 8 || base.length === 14 ? base : base.padStart(13, '0');
 }
 
+/** Toda chamada ao catálogo vai com a chave da empresa: sem ela, nada sai daqui. */
+export const SEM_CHAVE_CATALOGO = 'A empresa não tem a chave do catálogo. Cadastre em Posts, Marca da empresa, para usar fotos e dados do catálogo.';
+
 /** Sistema de catálogo: fonte das imagens dos posts. A chave de cada empresa fica cifrada e nunca vai ao navegador. */
 @Injectable()
 export class CatalogoService {
@@ -120,6 +123,11 @@ export class CatalogoService {
     }
   }
 
+  /** A empresa tem chave do catálogo? Sem ela, nenhuma busca é feita. */
+  async temChave(empresaId: string): Promise<boolean> {
+    return !!(await this.cabecalhos(empresaId))['X-Api-Key'];
+  }
+
   private async cabecalhos(empresaId: string): Promise<Record<string, string>> {
     const marca = await this.prisma.marcaPost.findUnique({ where: { empresaId }, select: { chaveCatalogoCifrada: true } });
     return marca?.chaveCatalogoCifrada ? { 'X-Api-Key': decifrar(marca.chaveCatalogoCifrada, config().chaveCriptografia) } : {};
@@ -131,6 +139,8 @@ export class CatalogoService {
     const base = config().catalogoUrl;
     if (!base) return vazio('O catálogo não está configurado neste servidor. Use uma imagem própria.');
     const cabecalhos = await this.cabecalhos(empresaId);
+    // Sem chave não pergunta: o catálogo não saberia de qual empresa é, e o consumo não seria contado.
+    if (!cabecalhos['X-Api-Key']) return vazio(SEM_CHAVE_CATALOGO);
     for (const tentativa of new Set([codigo.trim(), normalizarCodigoBarras(codigo)])) {
       if (!tentativa) continue;
       let r: Response;
@@ -164,9 +174,11 @@ export class CatalogoService {
       throw new BadRequestException('Endereço de imagem inválido.');
     }
     if (url.origin !== new URL(base).origin || !/^\/(files|img)\//.test(url.pathname)) throw new BadRequestException('Esta imagem não é do catálogo.');
+    const cabecalhos = await this.cabecalhos(empresaId);
+    if (!cabecalhos['X-Api-Key']) throw new BadRequestException(SEM_CHAVE_CATALOGO);
     let r: Response;
     try {
-      r = await fetch(url, { headers: await this.cabecalhos(empresaId), signal: AbortSignal.timeout(TEMPO_LIMITE_MS * 2), redirect: 'error' });
+      r = await fetch(url, { headers: cabecalhos, signal: AbortSignal.timeout(TEMPO_LIMITE_MS * 2), redirect: 'error' });
     } catch {
       throw new BadGatewayException('O catálogo não respondeu.');
     }

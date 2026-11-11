@@ -34,15 +34,18 @@ describe('CatalogoService', () => {
     buscaMarca.mockReset().mockResolvedValue(null);
   });
   afterAll(() => pedido.mockRestore());
+  const empresaComChave = () => buscaMarca.mockResolvedValue({ chaveCatalogoCifrada: cifrar('segredo', config().chaveCriptografia) });
 
   const resposta = (corpo: unknown, status = 200) => new Response(JSON.stringify(corpo), { status });
 
   it('produto pendente (cadastrado sozinho) não tem nome nem categoria de verdade', async () => {
+    empresaComChave();
     pedido.mockResolvedValue(resposta({ name: 'PRODUTO NÃO CADASTRADO 789', category: '', pending: true, images: [{ url: `${BASE}/padrao/10.png`, placeholder: true }] }));
     expect(await servico.produto('e', '789')).toMatchObject({ encontrado: true, nome: null, categoria: null, imagens: [] });
   });
 
   it('some com a imagem provisória e marca a de IA', async () => {
+    empresaComChave();
     pedido.mockResolvedValue(
       resposta({
         name: ' Café ',
@@ -143,6 +146,14 @@ describe('CatalogoService', () => {
     });
   });
 
+  it('sem a chave da empresa, nada vai ao catálogo: nem produto, nem imagem', async () => {
+    const r = await servico.produto('e', '7894900011517');
+    expect(r).toMatchObject({ encontrado: false, aviso: expect.stringMatching(/chave do catálogo/) });
+    await expect(servico.imagem('e', `${BASE}/files/a.png`)).rejects.toThrow(/chave do catálogo/);
+    expect(await servico.temChave('e')).toBe(false);
+    expect(pedido).not.toHaveBeenCalled();
+  });
+
   it('envia a chave da empresa e tenta sem os zeros à esquerda', async () => {
     buscaMarca.mockResolvedValue({ chaveCatalogoCifrada: cifrar('segredo', config().chaveCriptografia) });
     pedido.mockResolvedValueOnce(resposta({}, 404)).mockResolvedValueOnce(resposta({ name: 'Café', images: [] }));
@@ -153,6 +164,7 @@ describe('CatalogoService', () => {
   });
 
   it('catálogo fora do ar ou recusando não impede o post: vira aviso', async () => {
+    empresaComChave();
     pedido.mockRejectedValueOnce(new Error('rede'));
     expect((await servico.produto('e', '1')).aviso).toMatch(/não respondeu/);
     pedido.mockResolvedValueOnce(resposta({}, 403));
@@ -167,6 +179,7 @@ describe('CatalogoService', () => {
   });
 
   it('entrega a imagem do catálogo pelo tipo real e recusa o que não for imagem', async () => {
+    empresaComChave();
     pedido.mockResolvedValueOnce(new Response(PNG, { headers: { 'content-type': 'text/html' } }));
     expect(await servico.imagem('e', `${BASE}/files/a.png`)).toMatchObject({ tipo: 'image/png' });
     pedido.mockResolvedValueOnce(new Response('<svg/>', { headers: { 'content-type': 'image/png' } }));

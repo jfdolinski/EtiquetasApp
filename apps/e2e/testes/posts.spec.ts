@@ -58,25 +58,30 @@ function tamanhoPng(b: Buffer) {
   return { largura: b.readUInt32BE(16), altura: b.readUInt32BE(20) };
 }
 
-test('catálogo: tira a provisória, marca a de IA e usa a chave da empresa, sem nunca devolvê-la', async () => {
-  const r = await pedir('GET', `/posts/catalogo/${EAN}`, { token: a.adminToken });
-  expect(r.status).toBe(200);
-  expect(r.j.imagens).toEqual([{ url: `${BASE}/files/ia.png`, ia: true }, { url: `${BASE}/files/real.png`, ia: false }]);
-  expect((await pedir('GET', '/posts/catalogo/000', { token: a.adminToken })).j).toMatchObject({ encontrado: false, aviso: null });
+test('catálogo: só com a chave da empresa; tira a provisória, marca a de IA e nunca devolve a chave', async () => {
+  // Sem chave, nada vai ao catálogo.
+  const antes = chavesRecebidas.length;
+  expect((await pedir('GET', `/posts/catalogo/${EAN}`, { token: b.adminToken })).j).toMatchObject({ encontrado: false, aviso: expect.stringMatching(/chave do catálogo/) });
+  expect((await pedir('GET', `/posts/catalogo-imagem?url=${encodeURIComponent(`${BASE}/files/real.png`)}`, { token: b.adminToken })).status).toBe(400);
+  expect(chavesRecebidas.length).toBe(antes);
 
   const marca = { nome: 'Mercado A', corPrincipal: '#123456', corDestaque: '#abcdef', logoId: null };
   const salvo = await pedir('PUT', '/posts/marca', { token: a.adminToken, corpo: { ...marca, chaveCatalogo: 'chave-secreta-a' } });
   expect(salvo.status).toBe(200);
   expect(salvo.j.temChaveCatalogo).toBe(true);
   expect(JSON.stringify(salvo.j)).not.toContain('chave-secreta-a');
-  await pedir('GET', `/posts/catalogo/${EAN}`, { token: a.adminToken });
+  const r = await pedir('GET', `/posts/catalogo/${EAN}`, { token: a.adminToken });
+  expect(r.status).toBe(200);
+  expect(r.j.imagens).toEqual([{ url: `${BASE}/files/ia.png`, ia: true }, { url: `${BASE}/files/real.png`, ia: false }]);
   expect(chavesRecebidas.at(-1)).toBe('chave-secreta-a');
-  await pedir('GET', `/posts/catalogo/${EAN}`, { token: b.adminToken });
-  expect(chavesRecebidas.at(-1)).toBeUndefined();
+  expect((await pedir('GET', '/posts/catalogo/000', { token: a.adminToken })).j).toMatchObject({ encontrado: false, aviso: null });
 
   // Salvar sem mandar a chave mantém; mandar vazia remove.
   expect((await pedir('PUT', '/posts/marca', { token: a.adminToken, corpo: marca })).j.temChaveCatalogo).toBe(true);
   expect((await pedir('PUT', '/posts/marca', { token: a.adminToken, corpo: { ...marca, chaveCatalogo: '' } })).j.temChaveCatalogo).toBe(false);
+  // Os próximos testes usam o catálogo com as empresas A e B.
+  expect((await pedir('PUT', '/posts/marca', { token: a.adminToken, corpo: { ...marca, chaveCatalogo: 'chave-secreta-a' } })).j.temChaveCatalogo).toBe(true);
+  expect((await pedir('PUT', '/posts/marca', { token: b.adminToken, corpo: { ...marca, nome: 'Mercado B', chaveCatalogo: 'chave-secreta-b' } })).j.temChaveCatalogo).toBe(true);
 });
 
 test('o caminho até a imagem do catálogo só serve para o catálogo', async () => {

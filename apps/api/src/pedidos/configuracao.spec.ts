@@ -39,6 +39,7 @@ function montar(registro: Record<string, unknown> = {}, consulta: Record<string,
       findMany: jest.fn(async () => [] as unknown[]),
     },
     empresa: { findUnique: jest.fn(async () => ({ horarioFuncionamento: null })) },
+    marcaPost: { findUnique: jest.fn(async () => null) },
     consultaSql: { findFirst: jest.fn(async () => ({ id: 'c1', sql: 'SELECT 1', campos: CAMPOS, conexao: { tipo: 'POSTGRES' }, ...consulta })) },
     $transaction: jest.fn(async (f: (t: typeof tx) => Promise<unknown>) => f(tx)),
   };

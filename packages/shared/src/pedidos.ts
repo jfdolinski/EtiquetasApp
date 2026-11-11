@@ -532,6 +532,8 @@ export interface ConfiguracaoPedidosResumo {
   dadosEm: string | null;
   erro: string | null;
   responsavelNome: string | null;
+  /** O catálogo está configurado no servidor, mas a empresa não tem a chave: fotos, nome e categoria não são buscados. */
+  catalogoSemChave: boolean;
 }
 
 export interface SalvarConfiguracaoPedidos {

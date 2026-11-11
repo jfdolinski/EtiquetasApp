@@ -222,6 +222,8 @@ test('fotos: do catálogo à TV, com o agente respondendo, e cabem em todos os m
   });
   await new Promise<void>((r) => catalogo.listen(8097, r));
   const f = await criarEmpresa(await superToken());
+  // Toda busca no catálogo vai com a chave da empresa.
+  expect((await pedir('PUT', '/posts/marca', { token: f.adminToken, corpo: { nome: 'Mercado F', corPrincipal: '#123456', corDestaque: '#abcdef', logoId: null, chaveCatalogo: 'chave-f' } })).status).toBe(200);
   const nome = 'Produto com um nome extremamente comprido que o ERP cortaria em algum lugar 5kg embalagem econômica';
   // Código interno ("123"), e o mesmo EAN com zeros à esquerda, como alguns ERPs guardam.
   const codigos = [EAN_FOTO, EAN_REMEDIO, EAN_IA, EAN_SEM, '123', `0${EAN_FOTO}`, EAN_FOTO, EAN_REMEDIO, EAN_FOTO, EAN_REMEDIO, EAN_FOTO, EAN_FOTO];
@@ -251,7 +253,8 @@ test('fotos: do catálogo à TV, com o agente respondendo, e cabem em todos os m
     // Nem provisória nem de IA; código interno nem chega a perguntar; o mesmo produto, uma vez só.
     expect(pedidos.filter((p) => p.startsWith('/files/')).sort()).toEqual(['/files/arroz.png', '/files/remedio.png']);
     expect(pedidos.filter((p) => p.includes('/123'))).toEqual([]);
-    expect(pedidos.filter((p) => p === `/api/v1/barcodes/${EAN_FOTO}`)).toHaveLength(1);
+    // Um aviso de consulta (que cadastra o código no catálogo) e uma busca da foto: nunca uma por linha repetida.
+    expect(pedidos.filter((p) => p === `/api/v1/barcodes/${EAN_FOTO}`).length).toBeLessThanOrEqual(2);
 
     // O catálogo cadastrou o produto depois da primeira busca: carregar de novo acha a foto, sem esperar o prazo.
     fotoChegou = true;

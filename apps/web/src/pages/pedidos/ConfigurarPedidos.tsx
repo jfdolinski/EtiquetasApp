@@ -344,6 +344,11 @@ export function ConfigurarPedidos() {
             {atual.consultaNome && <div>Consulta: {atual.consultaNome}</div>}
             {atual.responsavelNome && <div>Roda em nome de: {atual.responsavelNome}</div>}
           </dl>
+          {atual.catalogoSemChave && (f.comFotos || f.dadosDoCatalogo) && (
+            <div className="mt-3">
+              <Alerta tipo="aviso">A empresa não tem a chave do catálogo: fotos, nome e categoria não são buscados. Cadastre a chave em Posts, Marca da empresa.</Alerta>
+            </div>
+          )}
           {atual.erro && <div className="mt-3"><Alerta tipo="aviso">Última atualização falhou: {atual.erro}</Alerta></div>}
           {atual.ativo && (
             <Botao variante="secundario" className="mt-3" disabled={atualizar.isPending} onClick={() => atualizar.mutate()}>

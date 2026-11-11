@@ -27,6 +27,7 @@ import {
   type PreviaCatalogo,
 } from '@etiquetas/shared';
 import { empresaBloqueada } from '../auth/acesso-empresa';
+import { config } from '../config';
 import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -144,16 +145,18 @@ export class ConfiguracaoPedidosService implements OnApplicationBootstrap, OnMod
   // Configuração ---------------------------------------------------------------------------
 
   async obter(empresaId: string, agora = new Date()): Promise<ConfiguracaoPedidosResumo> {
-    const [c, empresa] = await Promise.all([
+    const [c, empresa, marca] = await Promise.all([
       this.prisma.configuracaoPedidos.findUnique({
         where: { empresaId },
         select: { codigoLink: true, logoEm: true, ativo: true, consultaId: true, config: true, intervaloMinutos: true, validadeMinutos: true, quantidadeItens: true, dadosEm: true, erro: true, consulta: { select: { nome: true } }, responsavel: { select: { nome: true } } },
       }),
       this.prisma.empresa.findUnique({ where: { id: empresaId }, select: { horarioFuncionamento: true } }),
+      this.prisma.marcaPost.findUnique({ where: { empresaId }, select: { chaveCatalogoCifrada: true } }),
     ]);
+    const catalogoSemChave = !!config().catalogoUrl && !marca?.chaveCatalogoCifrada;
     const horario = (empresa?.horarioFuncionamento as HorarioFuncionamento | null) ?? horarioVazio();
     if (!c) {
-      return { codigoLink: null, logo: null, ativo: false, consultaId: null, consultaNome: null, config: CONFIG_PEDIDOS_PADRAO, intervaloMinutos: 15, validadeMinutos: 120, horario, situacao: 'DESLIGADO', quantidadeItens: 0, dadosEm: null, erro: null, responsavelNome: null };
+      return { codigoLink: null, logo: null, ativo: false, consultaId: null, consultaNome: null, config: CONFIG_PEDIDOS_PADRAO, intervaloMinutos: 15, validadeMinutos: 120, horario, situacao: 'DESLIGADO', quantidadeItens: 0, dadosEm: null, erro: null, responsavelNome: null, catalogoSemChave };
     }
     return {
       codigoLink: c.codigoLink,
@@ -170,6 +173,7 @@ export class ConfiguracaoPedidosService implements OnApplicationBootstrap, OnMod
       dadosEm: c.dadosEm?.toISOString() ?? null,
       erro: c.erro,
       responsavelNome: c.responsavel?.nome ?? null,
+      catalogoSemChave,
     };
   }
 
