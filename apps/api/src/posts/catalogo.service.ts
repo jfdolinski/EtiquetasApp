@@ -19,6 +19,8 @@ export function tipoDaImagem(b: Buffer): string | null {
 interface RespostaProduto {
   name?: string;
   category?: string;
+  /** Código cadastrado sozinho, ainda sem revisão: o nome é "PRODUTO NÃO CADASTRADO …". */
+  pending?: boolean;
   is_medicine?: boolean;
   images?: { url?: string; placeholder?: boolean; ai_generated?: boolean }[];
 }
@@ -144,7 +146,9 @@ export class CatalogoService {
       if (!p) return vazio('O catálogo respondeu de um jeito inesperado.');
       const imagens: ImagemCatalogo[] = (p.images ?? []).filter((i) => i.url && !i.placeholder).map((i) => ({ url: i.url!, ia: !!i.ai_generated }));
       const texto = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
-      return { encontrado: true, nome: texto(p.name, 200), categoria: texto(p.category, 80), medicamento: !!p.is_medicine, imagens, aviso: null };
+      // Pendente: o nome é provisório ("PRODUTO NÃO CADASTRADO …"), então vale como sem nome e sem categoria.
+      const revisado = p.pending !== true;
+      return { encontrado: true, nome: revisado ? texto(p.name, 200) : null, categoria: revisado ? texto(p.category, 80) : null, medicamento: !!p.is_medicine, imagens, aviso: null };
     }
     return vazio(null);
   }

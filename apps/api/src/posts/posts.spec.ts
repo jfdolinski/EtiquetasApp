@@ -37,6 +37,11 @@ describe('CatalogoService', () => {
 
   const resposta = (corpo: unknown, status = 200) => new Response(JSON.stringify(corpo), { status });
 
+  it('produto pendente (cadastrado sozinho) não tem nome nem categoria de verdade', async () => {
+    pedido.mockResolvedValue(resposta({ name: 'PRODUTO NÃO CADASTRADO 789', category: '', pending: true, images: [{ url: `${BASE}/padrao/10.png`, placeholder: true }] }));
+    expect(await servico.produto('e', '789')).toMatchObject({ encontrado: true, nome: null, categoria: null, imagens: [] });
+  });
+
   it('some com a imagem provisória e marca a de IA', async () => {
     pedido.mockResolvedValue(
       resposta({
