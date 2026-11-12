@@ -43,9 +43,19 @@ describe('GoogleDriveService', () => {
   });
 
   it('recusa arquivo que não está na pasta da conexão e não baixa', async () => {
-    const { chamadas } = simularGoogle(() => json({ mimeType: CSV, modifiedTime: 'x', parents: ['outra'] }));
+    const { chamadas } = simularGoogle((url) => (url.includes('/files?') ? json({ files: [{ id: 'b2', name: 'Outro' }] }) : json({ mimeType: CSV, modifiedTime: 'x', parents: ['outra'] })));
     await expect(new GoogleDriveService().ler('c1', CHAVE, PASTA, 'a1')).rejects.toThrow(/não está mais na pasta/);
     expect(chamadas.some((u) => u.includes('alt=media'))).toBe(false);
+  });
+
+  it('sem parents na resposta do Google, confere pela listagem da pasta', async () => {
+    simularGoogle((url) => {
+      if (url.includes('alt=media')) return new Response('EAN;Preço\n0789;4,99\n');
+      if (url.includes('/files?')) return json({ files: [{ id: 'a1', name: 'produtos.xlsx' }] });
+      return json({ mimeType: CSV, modifiedTime: 't1' });
+    });
+    const abas = await new GoogleDriveService().ler('c1', CHAVE, PASTA, 'a1');
+    expect([...abas.keys()]).toEqual(['CSV']);
   });
 
   it('lê CSV e só baixa de novo quando o arquivo muda', async () => {

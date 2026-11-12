@@ -73,7 +73,7 @@ export class GoogleDriveService {
       size?: string;
       trashed?: boolean;
     };
-    if (info.trashed || !info.parents?.includes(pastaId)) throw new BadRequestException('Este arquivo não está mais na pasta da conexão.');
+    if (info.trashed || !(await this.estaNaPasta(chaveJson, pastaId, arquivoId, info.parents))) throw new BadRequestException('Este arquivo não está mais na pasta da conexão.');
     if (guardado && guardado.modificadoEm === info.modifiedTime) {
       guardado.conferidoEm = Date.now();
       return guardado.abas;
@@ -88,6 +88,15 @@ export class GoogleDriveService {
     if (this.cache.size >= ARQUIVOS_EM_CACHE) this.cache.delete(this.cache.keys().next().value as string);
     this.cache.set(chave, { modificadoEm: info.modifiedTime, conferidoEm: Date.now(), abas });
     return abas;
+  }
+
+  /**
+   * O Google nem sempre devolve `parents` (arquivo compartilhado pela pasta, Drive compartilhado):
+   * sem a pasta ali, confere pela listagem da pasta, a mesma que mostrou o arquivo na tela.
+   */
+  private async estaNaPasta(chaveJson: string, pastaId: string, arquivoId: string, pais: string[] | undefined): Promise<boolean> {
+    if (pais?.includes(pastaId)) return true;
+    return (await this.listar(chaveJson, pastaId)).some((a) => a.id === arquivoId);
   }
 
   private async interpretar(mimeType: string, dados: Buffer): Promise<Map<string, TabelaPlanilha>> {
