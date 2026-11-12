@@ -86,7 +86,7 @@ describe('cópia do catálogo', () => {
       return null;
     });
     await s.atualizarDados('e1');
-    expect(fotos.aplicar).toHaveBeenCalledWith('e1', expect.any(Array), expect.any(Date), false, true);
+    expect(fotos.aplicar).toHaveBeenCalledWith('e1', expect.any(Array), expect.any(Date), false, true, true);
     const d = dados(prisma.configuracaoPedidos.update);
     expect(d.itens).toEqual([{ codigo: '1', nome: 'Arroz Tipo 1 5kg', categoria: 'Mercearia', precoCentavos: 1000, estoque: 3, codigoBarras: ARROZ }]);
     expect(d.quantidadeItens).toBe(1);
@@ -102,7 +102,7 @@ describe('cópia do catálogo', () => {
     const { s, fotos } = montar({ ativo: true, config: { ...CONFIG, comFotos: true, colunaCodigoBarras: 'ean' } });
     fotos.aplicar.mockImplementationOnce(async (_e: string, itens: { codigo?: string }[]) => ({ itens, faltam: ['789'], guardadas: new Map() }));
     await s.atualizarAgora('e1').catch(() => undefined);
-    expect(fotos.aplicar).toHaveBeenCalledWith('e1', [{ nome: '', preco: '', codigo: '789' }], expect.any(Date), true, false);
+    expect(fotos.aplicar).toHaveBeenCalledWith('e1', [{ nome: '', preco: '', codigo: '789' }], expect.any(Date), true, false, true);
     await new Promise((r) => setImmediate(r));
     expect(fotos.buscar).toHaveBeenCalledWith('e1', ['789']);
   });
@@ -111,7 +111,7 @@ describe('cópia do catálogo', () => {
     const { s, prisma, fotos } = montar({ config: { ...CONFIG, comFotos: true, colunaCodigoBarras: 'ean' } });
     await s.atualizarDados('e1');
     // O relógio respeita o ritmo de conferência: quem está sem foto não é procurado a cada atualização.
-    expect(fotos.aplicar).toHaveBeenCalledWith('e1', [{ nome: '', preco: '', codigo: '789' }], expect.any(Date), false, false);
+    expect(fotos.aplicar).toHaveBeenCalledWith('e1', [{ nome: '', preco: '', codigo: '789' }], expect.any(Date), false, false, true);
     expect(dados(prisma.configuracaoPedidos.update).itens).toEqual([{ codigo: '1', nome: 'Arroz', precoCentavos: 2490, estoque: 3, codigoBarras: '789', foto: '/api/tv/fotos/f1' }]);
   });
 

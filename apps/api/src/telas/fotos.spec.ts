@@ -189,6 +189,19 @@ describe('arquivo', () => {
   });
 });
 
+describe('loja dos Pedidos: conferência diária', () => {
+  it('quem tem foto é conferido por dia na loja (por mês nas telas), e "Atualizar agora" relê todos', async () => {
+    const item = [{ nome: 'A', preco: 'R$ 1,00', codigo: EAN }];
+    const comFoto = (dias: number) => montar([{ id: ID, codigo: EAN, mime: 'image/png', tentativasSemFoto: 0, tentativasSemDados: 0, verificadoEm: diasAtras(dias), dadosEm: diasAtras(dias), nome: 'A', categoria: 'B' }]);
+    expect((await comFoto(1.5).s.aplicar('e1', item, AGORA, false, false, true)).faltam).toEqual([EAN]);
+    expect((await comFoto(1.5).s.aplicar('e1', item, AGORA)).faltam).toEqual([]);
+    expect((await comFoto(0.1).s.aplicar('e1', item, AGORA, false, false, true)).faltam).toEqual([]);
+    expect((await comFoto(0.1).s.aplicar('e1', item, AGORA, true, false, true)).faltam).toEqual([EAN]);
+    // Nas telas, o "Carregar dados reais" continua só para quem está sem foto.
+    expect((await comFoto(0.1).s.aplicar('e1', item, AGORA, true)).faltam).toEqual([]);
+  });
+});
+
 describe('nome e categoria do catálogo (Pedidos)', () => {
   it('guarda nome e categoria na mesma busca da foto, e conta as buscas sem os dois', async () => {
     const { s, prisma, catalogo } = montar();

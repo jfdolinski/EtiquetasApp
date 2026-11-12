@@ -390,10 +390,8 @@ export function ConfigurarPedidos() {
           {atual.ativo && (f.comFotos || f.dadosDoCatalogo) && (
             <p className="mt-2 text-xs text-slate-500" data-testid="aviso-fotos">
               {atualizar.isSuccess
-                ? 'Procurando no catálogo o que faltava (fotos, nome e categoria): aparece na loja em alguns minutos.'
-                : f.dadosDoCatalogo
-                  ? 'Nome e categoria são conferidos no catálogo uma vez por dia. “Atualizar agora” relê todos na hora (cada produto conta no consumo do catálogo).'
-                  : 'O que entrar no catálogo depois (foto) aparece sozinho em até um dia. “Atualizar agora” procura na hora.'}
+                ? `Relendo o catálogo (fotos${f.dadosDoCatalogo ? ', nome e categoria' : ''}): o que mudou aparece na loja em alguns minutos.`
+                : `O que mudar no catálogo (${f.dadosDoCatalogo ? 'foto, nome, categoria' : 'foto'}) aparece sozinho em até um dia. “Atualizar agora” relê todos na hora; cada produto conta no consumo do catálogo.`}
             </p>
           )}
           {atualizar.error && <div className="mt-2"><Alerta>{(atualizar.error as Error).message}</Alerta></div>}

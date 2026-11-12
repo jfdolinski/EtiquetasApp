@@ -376,7 +376,7 @@ export class ConfiguracaoPedidosService implements OnApplicationBootstrap, OnMod
   private async comCatalogo(empresaId: string, itens: ItemCatalogo[], cfg: ConfigPedidos, reverSemFoto = false) {
     if (!cfg.comFotos && !cfg.dadosDoCatalogo) return { itens, faltam: [] as string[], semCatalogo: 0 };
     const comoTela = itens.map((i): ItemConteudoTela => ({ nome: '', preco: '', ...(i.codigoBarras ? { codigo: i.codigoBarras } : {}) }));
-    const { itens: achadas, faltam, guardadas } = await this.fotos.aplicar(empresaId, comoTela, new Date(), reverSemFoto, cfg.dadosDoCatalogo);
+    const { itens: achadas, faltam, guardadas } = await this.fotos.aplicar(empresaId, comoTela, new Date(), reverSemFoto, cfg.dadosDoCatalogo, true);
     let semCatalogo = 0;
     const novos = itens.flatMap(({ foto: _antiga, ...i }, n): ItemCatalogo[] => {
       const comFoto = cfg.comFotos && achadas[n].foto ? { ...i, foto: achadas[n].foto } : i;

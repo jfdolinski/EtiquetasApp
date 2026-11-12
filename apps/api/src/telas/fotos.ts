@@ -8,7 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 const DIA_MS = 24 * 3_600_000;
 /** Cada busca conta no consumo da empresa no catálogo: quem tem foto é conferido por mês. */
 const REVER_COM_FOTO_MS = 30 * DIA_MS;
-/** Nome e categoria (Pedidos) mudam no catálogo mais do que a foto: com os dois, confere uma vez por dia. */
+/** Na loja dos Pedidos, foto, nome e categoria são conferidos uma vez por dia (o cliente vê a troca no mesmo dia). */
 const REVER_DADOS_MS = DIA_MS;
 /**
  * Quem não tem foto pode ganhar uma: o próprio aviso de consulta cadastra o código novo por lá, ao mesmo
@@ -69,8 +69,10 @@ export class FotosProdutoTelaService {
   /**
    * Coloca nos itens as fotos já guardadas e diz quais códigos procurar no catálogo. Com `comDados`
    * (Pedidos), também procura quem ainda não tem nome e categoria lidos, no mesmo ritmo das sem foto.
+   * Com `diario` (a loja dos Pedidos), quem tem foto é conferido por dia, e não por mês, e
+   * `reverSemFoto` ("Atualizar agora") relê todos: a foto trocada no catálogo aparece na hora.
    */
-  async aplicar(empresaId: string, itens: ItemConteudoTela[], agora = new Date(), reverSemFoto = false, comDados = false) {
+  async aplicar(empresaId: string, itens: ItemConteudoTela[], agora = new Date(), reverSemFoto = false, comDados = false, diario = false) {
     const codigoDe = (i: ItemConteudoTela) => codigoParaCatalogo(i.codigo);
     const codigos = [...new Set(itens.flatMap((i) => codigoDe(i) ?? []))];
     const guardadas = codigos.length ? await this.guardadas(empresaId, codigos) : new Map<string, FotoGuardada>();
@@ -82,7 +84,7 @@ export class FotosProdutoTelaService {
     const faltam = config().catalogoUrl
       ? codigos.filter((codigo) => {
           const g = guardadas.get(codigo);
-          if (!g || (reverSemFoto && !g.mime)) return true;
+          if (!g || (reverSemFoto && (!g.mime || diario))) return true;
           if (comDados) {
             // Pedido na hora ("Atualizar agora"): relê nome e categoria de todos, para valer o que mudou no catálogo.
             if (!g.dadosEm || reverSemFoto) return true;
@@ -90,7 +92,7 @@ export class FotosProdutoTelaService {
             const desde = agora.getTime() - g.dadosEm.getTime();
             if (desde >= (incompleto ? esperaSemFoto(g.tentativasSemDados) : REVER_DADOS_MS)) return true;
           }
-          return agora.getTime() - g.verificadoEm.getTime() >= (g.mime ? REVER_COM_FOTO_MS : esperaSemFoto(g.tentativasSemFoto));
+          return agora.getTime() - g.verificadoEm.getTime() >= (g.mime ? (diario ? REVER_DADOS_MS : REVER_COM_FOTO_MS) : esperaSemFoto(g.tentativasSemFoto));
         })
       : [];
     return { itens: comFotos, faltam, guardadas };
