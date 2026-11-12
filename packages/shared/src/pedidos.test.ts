@@ -30,6 +30,13 @@ import {
   reservasDosPedidos,
   problemaNoEndereco,
   localizacaoLimpa,
+  pontoDoTexto,
+  linkMapaRetirada,
+  telefoneDaLoja,
+  observacaoLimpa,
+  LIMITE_OBSERVACAO_ITEM,
+  mensagemParaLoja,
+  linkWhatsAppDaLoja,
   linkMapa,
   problemaNoPedido,
   rotuloSituacaoPedido,
@@ -411,5 +418,45 @@ describe('localização do cliente', () => {
     const e = { cep: '01001000', rua: 'Praça da Sé', numero: '1', semNumero: false, complemento: '', bairro: 'Sé', cidade: 'São Paulo', uf: 'SP' };
     expect(linkMapa(e)).toContain('Pra%C3%A7a%20da%20S%C3%A9');
     expect(linkMapa({ ...e, localizacao: { latitude: -23.55, longitude: -46.63, precisaoMetros: 10 } })).toBe('https://www.google.com/maps/search/?api=1&query=-23.55,-46.63');
+  });
+});
+
+describe('retirada no mapa, WhatsApp da loja e observação por produto', () => {
+  it('lê as coordenadas como o Google Maps copia, ou do link', () => {
+    expect(pontoDoTexto('-23.5505199, -46.6333094')).toEqual({ latitude: -23.55052, longitude: -46.633309 });
+    expect(pontoDoTexto('https://www.google.com/maps/@-23.55,-46.63,17z')).toEqual({ latitude: -23.55, longitude: -46.63 });
+    expect(pontoDoTexto('Rua das Flores, 100')).toBeNull();
+    expect(pontoDoTexto('95, 10')).toBeNull();
+    expect(pontoDoTexto('0, 0')).toBeNull();
+    expect(linkMapaRetirada('Rua A, 10', null)).toBe('https://www.google.com/maps/search/?api=1&query=Rua%20A%2C%2010');
+    expect(linkMapaRetirada('Rua A, 10', { latitude: -23.55, longitude: -46.63 })).toBe('https://www.google.com/maps/search/?api=1&query=-23.55,-46.63');
+  });
+
+  it('WhatsApp da loja: celular ou fixo com DDD, com ou sem +55', () => {
+    expect(telefoneDaLoja('(11) 98765-4321')).toBe('11987654321');
+    expect(telefoneDaLoja('+55 11 3333-4444')).toBe('1133334444');
+    expect(telefoneDaLoja('98765-4321')).toBeNull();
+    expect(telefoneDaLoja('(11) 88765-4321')).toBeNull();
+    expect(problemaNaConfigPedidos({ ...CONFIG_PEDIDOS_PADRAO, colunaCodigo: 'c', colunaNome: 'n', colunaPreco: 'p', modalidades: { ...CONFIG_PEDIDOS_PADRAO.modalidades, RETIRADA: { ativa: false, precoCentavos: 0 } }, whatsappLoja: '123' })).toMatch(/WhatsApp/);
+  });
+
+  it('a observação do cliente vai com o produto, aparada e no limite', () => {
+    const catalogo = [{ codigo: '1', nome: 'Banana', precoCentavos: 500 }];
+    const { itens } = conferirCarrinho([{ codigo: '1', quantidade: 1, precoCentavos: 500, observacao: '  bem   maduras ' }], catalogo);
+    expect(itens[0].observacao).toBe('bem maduras');
+    expect(conferirCarrinho([{ codigo: '1', quantidade: 1, precoCentavos: 500, observacao: '   ' }], catalogo).itens[0]).not.toHaveProperty('observacao');
+    expect(observacaoLimpa('x'.repeat(500))).toHaveLength(LIMITE_OBSERVACAO_ITEM);
+  });
+
+  it('a mensagem para a loja leva o número, os produtos com a observação, o total e o link', () => {
+    const m = mensagemParaLoja(
+      { numero: 7, nome: 'Maria Silva', modalidade: 'RETIRADA', itens: [{ codigo: '1', nome: 'Banana', quantidade: 2, precoCentavos: 500, observacao: 'maduras' }], totais: totaisDoPedido([{ quantidade: 2, precoCentavos: 500 }], 0, null) },
+      'https://loja/x',
+    );
+    expect(m).toContain('Olá! Sou Maria, sobre o pedido nº 7.');
+    expect(m).toContain('• 2x Banana (maduras)');
+    expect(m).toContain('Total R$ 10,00');
+    expect(m).toContain('Acompanhamento: https://loja/x');
+    expect(linkWhatsAppDaLoja('11987654321', 'oi')).toBe('https://wa.me/5511987654321?text=oi');
   });
 });

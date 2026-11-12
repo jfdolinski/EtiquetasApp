@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   caminhoAcompanhamento,
   itensParaRepetir,
+  LIMITE_OBSERVACAO_ITEM,
+  linkMapaRetirada,
+  linkWhatsAppDaLoja,
+  mensagemParaLoja,
   centavosDe,
   faltaParaMinimo,
   formatarCelular,
@@ -123,6 +127,18 @@ function Catalogo({ codigo }: { codigo: string }) {
   const [catalogo, setCatalogo] = useState<CatalogoPublico | null>(null);
   const [erro, setErro] = useState<ErroLoja | null>(null);
   const [carrinho, setCarrinhoBruto] = useState<Carrinho>(() => ler(chaveCarrinho, {}));
+  const chaveObservacoes = `etiquetas.loja.${codigo}.observacoes`;
+  const [observacoes, setObservacoesBruto] = useState<Record<string, string>>(() => ler(chaveObservacoes, {}));
+  const setObservacoes = (o: Record<string, string>) => {
+    setObservacoesBruto(o);
+    gravar(chaveObservacoes, Object.keys(o).length ? o : null);
+  };
+  const mudarObservacao = (codigoProduto: string, texto: string) => {
+    const o = { ...observacoes };
+    if (texto) o[codigoProduto] = texto.slice(0, LIMITE_OBSERVACAO_ITEM);
+    else delete o[codigoProduto];
+    setObservacoes(o);
+  };
   // "Repetir a compra" chega aqui com ?carrinho: o cliente vê o carrinho montado e confere.
   const [etapa, setEtapa] = useState<Etapa>(() => (new URLSearchParams(window.location.search).has('carrinho') ? 'carrinho' : 'produtos'));
   const [busca, setBusca] = useState('');
@@ -211,16 +227,18 @@ function Catalogo({ codigo }: { codigo: string }) {
   if (!catalogo) return <Aviso titulo="Carregando produtos…" />;
 
   const linhas = Object.entries(carrinho)
-    .map(([k, quantidade]) => ({ item: porCodigo.get(k), quantidade }))
-    .filter((l): l is { item: ItemCatalogo; quantidade: number } => !!l.item);
+    .map(([k, quantidade]) => ({ item: porCodigo.get(k), quantidade, observacao: observacoes[k]?.trim() || undefined }))
+    .filter((l): l is { item: ItemCatalogo; quantidade: number; observacao: string | undefined } => !!l.item);
   const subtotal = subtotalDe(linhas.map((l) => ({ quantidade: l.quantidade, precoCentavos: l.item.precoCentavos })));
   const unidades = unidadesDe(linhas);
   const falta = faltaParaMinimo(subtotal, catalogo.pedidoMinimoCentavos);
   const mudarQuantidade = (i: ItemCatalogo, q: number) => {
     const c = { ...carrinho };
     const max = Math.min(i.estoque ?? MAX_QUANTIDADE_ITEM, MAX_QUANTIDADE_ITEM);
-    if (q <= 0) delete c[i.codigo];
-    else c[i.codigo] = Math.min(q, max);
+    if (q <= 0) {
+      delete c[i.codigo];
+      if (observacoes[i.codigo]) mudarObservacao(i.codigo, '');
+    } else c[i.codigo] = Math.min(q, max);
     setCarrinho(c);
   };
 
@@ -297,11 +315,16 @@ function Catalogo({ codigo }: { codigo: string }) {
           <h2 className="mt-2 text-lg font-semibold">Seu carrinho</h2>
           {linhas.length === 0 && <p className="py-8 text-center text-sm text-slate-500">O carrinho está vazio.</p>}
           <ul className="mt-3 divide-y divide-slate-200 rounded-lg bg-white shadow-sm">
-            {linhas.map(({ item, quantidade }) => (
+            {linhas.map(({ item, quantidade, observacao }) => (
               <li key={item.codigo} className="flex items-center gap-3 p-3">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{item.nome}</p>
+                  <button type="button" className="block max-w-full truncate text-left text-sm font-medium" onClick={() => abrirProduto(item.codigo)}>{item.nome}</button>
                   <p className="text-xs text-slate-500">{formatarCentavos(item.precoCentavos)}{item.unidade ? ` / ${item.unidade}` : ''}</p>
+                  {observacao ? (
+                    <p className="truncate text-xs text-amber-800" data-testid="observacao-no-carrinho">Obs.: {observacao}</p>
+                  ) : (
+                    <button type="button" className="text-xs text-blue-700 underline" onClick={() => abrirProduto(item.codigo)}>Adicionar observação</button>
+                  )}
                 </div>
                 <Quantidade nome={item.nome} valor={quantidade} max={item.estoque} aoMudar={(q) => mudarQuantidade(item, q)} />
                 <p className="w-20 text-right text-sm font-semibold">{formatarCentavos(item.precoCentavos * quantidade)}</p>
@@ -326,13 +349,21 @@ function Catalogo({ codigo }: { codigo: string }) {
           aoEnviar={(p) => {
             gravar(chavePedidos, [...ler<PedidoGuardado[]>(chavePedidos, []), { numero: p.numero, codigo: p.codigo, em: new Date().toISOString() }].slice(-10));
             setCarrinho({});
+            setObservacoes({});
             setEnviado(p);
           }}
         />
       )}
 
       {produtoAberto && porCodigo.get(produtoAberto) && (
-        <DetalheProduto item={porCodigo.get(produtoAberto)!} quantidade={carrinho[produtoAberto] ?? 0} aoMudar={(q) => mudarQuantidade(porCodigo.get(produtoAberto)!, q)} aoFechar={fecharProduto} />
+        <DetalheProduto
+          item={porCodigo.get(produtoAberto)!}
+          quantidade={carrinho[produtoAberto] ?? 0}
+          aoMudar={(q) => mudarQuantidade(porCodigo.get(produtoAberto)!, q)}
+          observacao={observacoes[produtoAberto] ?? ''}
+          aoMudarObservacao={(t) => mudarObservacao(produtoAberto, t)}
+          aoFechar={fecharProduto}
+        />
       )}
 
       {etapa !== 'dados' && unidades > 0 && (
@@ -395,7 +426,21 @@ function CartaoProduto({ item, quantidade, aoMudar, aoAbrir }: { item: ItemCatal
 }
 
 /** O cartão do produto: foto grande, preço e o que a loja escolheu mostrar da consulta. */
-function DetalheProduto({ item, quantidade, aoMudar, aoFechar }: { item: ItemCatalogo; quantidade: number; aoMudar: (q: number) => void; aoFechar: () => void }) {
+function DetalheProduto({
+  item,
+  quantidade,
+  aoMudar,
+  observacao,
+  aoMudarObservacao,
+  aoFechar,
+}: {
+  item: ItemCatalogo;
+  quantidade: number;
+  aoMudar: (q: number) => void;
+  observacao: string;
+  aoMudarObservacao: (t: string) => void;
+  aoFechar: () => void;
+}) {
   const [semFoto, setSemFoto] = useState(false);
   useEffect(() => {
     const tecla = (e: KeyboardEvent) => e.key === 'Escape' && aoFechar();
@@ -443,6 +488,20 @@ function DetalheProduto({ item, quantidade, aoMudar, aoFechar }: { item: ItemCat
               <button type="button" className="w-full rounded-full bg-blue-600 py-3 text-base font-semibold text-white" onClick={() => aoMudar(1)}>Adicionar ao carrinho</button>
             ) : (
               <Quantidade nome={item.nome} valor={quantidade} max={item.estoque} aoMudar={aoMudar} largo />
+            )}
+            {quantidade > 0 && (
+              <label className="mt-3 block text-sm">
+                <span className="font-medium text-slate-700">Observação para a loja (opcional)</span>
+                <textarea
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-base"
+                  rows={2}
+                  maxLength={LIMITE_OBSERVACAO_ITEM}
+                  placeholder="Ex.: bem maduras, sem cebola, embalar separado"
+                  value={observacao}
+                  onChange={(e) => aoMudarObservacao(e.target.value)}
+                />
+                <span className="text-xs text-slate-500">A loja pode responder no acompanhamento do pedido.</span>
+              </label>
             )}
           </div>
         </div>
@@ -508,6 +567,21 @@ function MinhaLocalizacao({ valor, aoMudar }: { valor: LocalizacaoPedido | null;
   );
 }
 
+/** Abre o mapa do celular no local de retirada: pelo ponto que a loja marcou, ou pelo endereço. */
+function BotaoMapa({ endereco, ponto }: { endereco: string; ponto: CatalogoPublico['localRetirada'] }) {
+  return (
+    <a
+      href={linkMapaRetirada(endereco, ponto)}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1.5 rounded-full border border-blue-600 px-4 py-2 text-sm font-medium text-blue-700"
+      data-testid="mapa-retirada"
+    >
+      📍 Ver no mapa
+    </a>
+  );
+}
+
 function Quantidade({ nome, valor, max, aoMudar, largo }: { nome: string; valor: number; max?: number; aoMudar: (q: number) => void; largo?: boolean }) {
   const limite = Math.min(max ?? MAX_QUANTIDADE_ITEM, MAX_QUANTIDADE_ITEM);
   return (
@@ -550,7 +624,7 @@ function Finalizar({
 }: {
   codigo: string;
   catalogo: CatalogoPublico;
-  linhas: { item: ItemCatalogo; quantidade: number }[];
+  linhas: { item: ItemCatalogo; quantidade: number; observacao?: string }[];
   subtotal: number;
   aoVoltar: () => void;
   aoMudanca: (itens: { codigo: string; quantidade: number }[]) => Promise<void>;
@@ -616,7 +690,7 @@ function Finalizar({
     setEnviando(true);
     setErro(null);
     const corpo: NovoPedido = {
-      itens: linhas.map((l) => ({ codigo: l.item.codigo, quantidade: l.quantidade, precoCentavos: l.item.precoCentavos })),
+      itens: linhas.map((l) => ({ codigo: l.item.codigo, quantidade: l.quantidade, precoCentavos: l.item.precoCentavos, ...(l.observacao ? { observacao: l.observacao } : {}) })),
       nome: nome.trim(),
       telefone,
       modalidade,
@@ -669,7 +743,12 @@ function Finalizar({
             </label>
           ))}
         </div>
-        {modalidade === 'RETIRADA' && catalogo.enderecoRetirada && <p className="text-sm text-slate-700">Retire em: <strong>{catalogo.enderecoRetirada}</strong></p>}
+        {modalidade === 'RETIRADA' && catalogo.enderecoRetirada && (
+          <div className="space-y-1.5">
+            <p className="text-sm text-slate-700">Retire em: <strong>{catalogo.enderecoRetirada}</strong></p>
+            <BotaoMapa endereco={catalogo.enderecoRetirada} ponto={catalogo.localRetirada} />
+          </div>
+        )}
         {modalidade === 'AGENDADA' && (
           <Rotulo texto="Dia e horário da entrega">
             <select className={campo} value={faixa ? `${faixa.data}|${faixa.inicio}` : ''} onChange={(e) => setFaixa(catalogo.faixas.find((f) => `${f.data}|${f.inicio}` === e.target.value) ?? null)}>
@@ -1000,15 +1079,28 @@ function Acompanhamento({ codigo }: { codigo: string }) {
         <Bloco titulo={ROTULO_MODALIDADE[pedido.modalidade].titulo}>
           {pedido.agendamento && <p className="text-sm">{textoFaixa(pedido.agendamento, '')}</p>}
           {pedido.endereco && <p className="text-sm text-slate-700">{textoEndereco(pedido.endereco)}</p>}
-          {pedido.enderecoRetirada && <p className="text-sm text-slate-700">Retire em: {pedido.enderecoRetirada}</p>}
+          {pedido.enderecoRetirada && (
+            <>
+              <p className="text-sm text-slate-700">Retire em: {pedido.enderecoRetirada}</p>
+              <BotaoMapa endereco={pedido.enderecoRetirada} ponto={pedido.localRetirada} />
+            </>
+          )}
           <p className="text-sm text-slate-700">{pedido.nome} · {formatarCelular(pedido.telefone)}</p>
         </Bloco>
         <Bloco titulo="Produtos">
           <ul className="divide-y divide-slate-100 text-sm">
             {pedido.itens.map((i) => (
-              <li key={i.codigo} className="flex justify-between gap-3 py-1.5">
-                <span>{i.quantidade}× {i.nome}</span>
-                <span className="whitespace-nowrap">{formatarCentavos(i.quantidade * i.precoCentavos)}</span>
+              <li key={i.codigo} className="py-1.5">
+                <div className="flex justify-between gap-3">
+                  <span>{i.quantidade}× {i.nome}</span>
+                  <span className="whitespace-nowrap">{formatarCentavos(i.quantidade * i.precoCentavos)}</span>
+                </div>
+                {i.observacao && <p className="text-xs text-slate-600">Sua observação: {i.observacao}</p>}
+                {i.resposta && (
+                  <p className="mt-0.5 rounded bg-blue-50 px-2 py-1 text-xs text-blue-900" data-testid="resposta-da-loja">
+                    <strong>{pedido.empresa}:</strong> {i.resposta}
+                  </p>
+                )}
               </li>
             ))}
           </ul>
@@ -1019,6 +1111,16 @@ function Acompanhamento({ codigo }: { codigo: string }) {
             <Linha rotulo="Total" valor={formatarCentavos(pedido.totais.totalCentavos)} forte />
           </dl>
         </Bloco>
+        {pedido.whatsappLoja && (
+          <a
+            href={linkWhatsAppDaLoja(pedido.whatsappLoja, mensagemParaLoja(pedido, window.location.href))}
+            target="_blank"
+            rel="noreferrer"
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-green-600 py-3 text-base font-semibold text-white"
+          >
+            Falar com a loja no WhatsApp
+          </a>
+        )}
         {pedido.codigoLoja && (
           <div className="space-y-1">
             {erroResposta && !pedido.proposta && <p role="alert" className="text-sm text-red-800">{erroResposta}</p>}

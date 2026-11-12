@@ -108,6 +108,11 @@ function configLimpa(c: Partial<ConfigPedidos>): ConfigPedidos {
     modalidades,
     mensagem: texto(c.mensagem, 1000),
     enderecoRetirada: texto(c.enderecoRetirada, 1000),
+    localRetirada:
+      c.localRetirada && typeof c.localRetirada === 'object'
+        ? { latitude: Math.round(Number(c.localRetirada.latitude) * 1e6) / 1e6, longitude: Math.round(Number(c.localRetirada.longitude) * 1e6) / 1e6 }
+        : null,
+    whatsappLoja: typeof c.whatsappLoja === 'string' ? c.whatsappLoja.replace(/\D/g, '').slice(0, 15) : '',
     agendamento: { dias: c.agendamento?.dias ?? AGENDAMENTO_PADRAO.dias, duracaoMinutos: c.agendamento?.duracaoMinutos ?? AGENDAMENTO_PADRAO.duracaoMinutos },
     impressoraFolhaId: typeof c.impressoraFolhaId === 'string' && c.impressoraFolhaId ? c.impressoraFolhaId : null,
     camposDetalhe: (Array.isArray(c.camposDetalhe) ? c.camposDetalhe : []).slice(0, 50).map((d) => ({ coluna: coluna(d?.coluna) ?? '', rotulo: texto(d?.rotulo, 100) })),

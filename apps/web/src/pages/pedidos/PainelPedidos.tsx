@@ -16,6 +16,7 @@ import {
   rotuloSituacaoPedido,
   ROTULO_MODALIDADE,
   ROTULO_PAGAMENTO,
+  LIMITE_OBSERVACAO_ITEM,
   linkMapa,
   PRECISAO_BOA_METROS,
   textoEndereco,
@@ -104,6 +105,44 @@ export function PainelPedidos() {
         </ul>
       </section>
       <section>{selecionado ? <DetalhePedido key={selecionado} id={selecionado} /> : <p className="rounded-lg border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Escolha um pedido para ver os detalhes.</p>}</section>
+    </div>
+  );
+}
+
+/** Observação do cliente sobre o produto e a resposta da loja, que aparece no acompanhamento. */
+function RespostaDoItem({ pedidoId, item, podeResponder, aoSalvar }: { pedidoId: string; item: PedidoCompleto['itens'][number]; podeResponder: boolean; aoSalvar: (p: PedidoCompleto) => void }) {
+  const [texto, setTexto] = useState(item.resposta ?? '');
+  const [editando, setEditando] = useState(false);
+  const salvar = useMutation({
+    mutationFn: () => api<PedidoCompleto>(`/pedidos/${pedidoId}/itens/resposta`, { metodo: 'POST', corpo: { codigo: item.codigo, resposta: texto } }),
+    onSuccess: (p) => {
+      setEditando(false);
+      aoSalvar(p);
+    },
+  });
+  return (
+    <div className="mt-1 space-y-1 text-xs" data-testid="observacao-item">
+      {item.observacao && <p className="rounded bg-amber-50 px-2 py-1 text-amber-900"><strong>Cliente:</strong> {item.observacao}</p>}
+      {item.resposta && !editando && (
+        <p className="rounded bg-blue-50 px-2 py-1 text-blue-900">
+          <strong>Loja:</strong> {item.resposta}
+          {podeResponder && <button type="button" className="ml-2 text-blue-700 underline" onClick={() => setEditando(true)}>mudar</button>}
+        </p>
+      )}
+      {podeResponder && (editando || !item.resposta) && (
+        <div className="flex gap-1.5">
+          <input
+            aria-label={`Responder sobre ${item.nome}`}
+            className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
+            maxLength={LIMITE_OBSERVACAO_ITEM}
+            placeholder="Responder ao cliente"
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+          />
+          <Botao variante="secundario" disabled={salvar.isPending || (!texto.trim() && !item.resposta)} onClick={() => salvar.mutate()}>{salvar.isPending ? '…' : 'Responder'}</Botao>
+        </div>
+      )}
+      {salvar.error && <p className="text-red-700">{(salvar.error as Error).message}</p>}
     </div>
   );
 }
@@ -246,8 +285,13 @@ function DetalhePedido({ id }: { id: string }) {
         </thead>
         <tbody>
           {p.itens.map((i) => (
-            <tr key={i.codigo} className="border-t border-slate-100">
-              <td className="py-1.5">{i.nome} <span className="text-xs text-slate-400">{i.codigoBarras || i.codigo}</span></td>
+            <tr key={i.codigo} className="border-t border-slate-100 align-top">
+              <td className="py-1.5">
+                {i.nome} <span className="text-xs text-slate-400">{i.codigoBarras || i.codigo}</span>
+                {(i.observacao || i.resposta) && (
+                  <RespostaDoItem pedidoId={p.id} item={i} podeResponder={podeGerenciar && p.situacao !== 'CONCLUIDO' && p.situacao !== 'CANCELADO'} aoSalvar={atualizar} />
+                )}
+              </td>
               <td className="py-1.5 text-right">{i.quantidade}</td>
               <td className="py-1.5 text-right">{formatarCentavos(i.precoCentavos)}</td>
               <td className="py-1.5 text-right">{formatarCentavos(i.precoCentavos * i.quantidade)}</td>

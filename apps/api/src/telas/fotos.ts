@@ -8,6 +8,8 @@ import { PrismaService } from '../prisma/prisma.service';
 const DIA_MS = 24 * 3_600_000;
 /** Cada busca conta no consumo da empresa no catálogo: quem tem foto é conferido por mês. */
 const REVER_COM_FOTO_MS = 30 * DIA_MS;
+/** Nome e categoria (Pedidos) mudam no catálogo mais do que a foto: com os dois, confere uma vez por dia. */
+const REVER_DADOS_MS = DIA_MS;
 /**
  * Quem não tem foto pode ganhar uma: o próprio aviso de consulta cadastra o código novo por lá, ao mesmo
  * tempo que esta busca. Por isso as primeiras tentativas voltam logo, e só depois passam a uma por dia.
@@ -82,9 +84,11 @@ export class FotosProdutoTelaService {
           const g = guardadas.get(codigo);
           if (!g || (reverSemFoto && !g.mime)) return true;
           if (comDados) {
-            if (!g.dadosEm) return true;
+            // Pedido na hora ("Atualizar agora"): relê nome e categoria de todos, para valer o que mudou no catálogo.
+            if (!g.dadosEm || reverSemFoto) return true;
             const incompleto = !g.nome || !g.categoria;
-            if (incompleto && (reverSemFoto || agora.getTime() - g.dadosEm.getTime() >= esperaSemFoto(g.tentativasSemDados))) return true;
+            const desde = agora.getTime() - g.dadosEm.getTime();
+            if (desde >= (incompleto ? esperaSemFoto(g.tentativasSemDados) : REVER_DADOS_MS)) return true;
           }
           return agora.getTime() - g.verificadoEm.getTime() >= (g.mime ? REVER_COM_FOTO_MS : esperaSemFoto(g.tentativasSemFoto));
         })

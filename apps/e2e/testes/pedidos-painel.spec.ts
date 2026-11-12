@@ -153,7 +153,10 @@ test('API: aceitar, folha na fila de impressão, proposta aceita e recusada, can
 test('pela tela: aceitar, ver a folha, propor alteração e o cliente aceitar no celular', async ({ page, browser }) => {
   const e = await criarEmpresa(tokenSuper);
   const { codigo } = await prepararLoja(e);
-  const feito = await fazerPedido(codigo, { endereco: { ...ENDERECO, localizacao: { latitude: -23.55052, longitude: -46.633309, precisaoMetros: 350 } } });
+  const feito = await fazerPedido(codigo, {
+    endereco: { ...ENDERECO, localizacao: { latitude: -23.55052, longitude: -46.633309, precisaoMetros: 350 } },
+    itens: [{ codigo: '10', quantidade: 2, precoCentavos: 2490, observacao: 'Pacotes sem amassado' }, { codigo: '11', quantidade: 1, precoCentavos: 849 }],
+  });
   const [admin] = await sql(`SELECT id FROM usuarios WHERE email = $1`, [e.adminEmail]);
   await sql(`UPDATE usuarios SET codigo_erp = '0457' WHERE id = $1`, [admin.id]);
 
@@ -170,6 +173,11 @@ test('pela tela: aceitar, ver a folha, propor alteração e o cliente aceitar no
   // O mapa vai pelo ponto do cliente, e a precisão ruim é avisada.
   await expect(detalhe.getByRole('link', { name: 'mapa (localização do cliente)' })).toHaveAttribute('href', 'https://www.google.com/maps/search/?api=1&query=-23.55052,-46.633309');
   await expect(detalhe.getByTestId('localizacao-pedido')).toContainText('aproximada (cerca de 350 m)');
+  // A observação do cliente aparece no produto, e a loja responde por ali.
+  await expect(detalhe.getByTestId('observacao-item')).toContainText('Cliente: Pacotes sem amassado');
+  await detalhe.getByLabel('Responder sobre Arroz Tipo 1 5kg').fill('Escolhemos os mais inteiros.');
+  await detalhe.getByRole('button', { name: 'Responder' }).click();
+  await expect(detalhe.getByTestId('observacao-item')).toContainText('Loja: Escolhemos os mais inteiros.');
   await detalhe.getByRole('button', { name: 'Aceitar pedido' }).click();
   await expect(detalhe.getByRole('button', { name: 'Saiu para entrega' })).toBeVisible();
 

@@ -205,7 +205,9 @@ describe('nome e categoria do catálogo (Pedidos)', () => {
     const item = [{ nome: 'A', preco: 'R$ 1,00', codigo: EAN }];
     const casos: [Record<string, unknown>, boolean][] = [
       [{ dadosEm: null }, true],
-      [{ dadosEm: diasAtras(1), nome: 'A', categoria: 'B' }, false],
+      [{ dadosEm: diasAtras(0.5), nome: 'A', categoria: 'B' }, false],
+      // Completo também é conferido por dia: a categoria pode ter mudado no catálogo.
+      [{ dadosEm: diasAtras(1.5), nome: 'A', categoria: 'B' }, true],
       [{ dadosEm: new Date(AGORA.getTime() - 5 * 60_000), nome: 'A', categoria: null, tentativasSemDados: 1 }, false],
       [{ dadosEm: new Date(AGORA.getTime() - 15 * 60_000), nome: 'A', categoria: null, tentativasSemDados: 1 }, true],
     ];
@@ -214,7 +216,9 @@ describe('nome e categoria do catálogo (Pedidos)', () => {
       expect((await s.aplicar('e1', item, AGORA, false, true)).faltam).toEqual(procura ? [EAN] : []);
       expect((await s.aplicar('e1', item, AGORA)).faltam).toEqual([]);
     }
-    // "Atualizar agora": incompleto é procurado na hora.
+    // "Atualizar agora": relê na hora, completo ou não.
+    const completo = montar([{ id: ID, codigo: EAN, mime: 'image/png', tentativasSemFoto: 0, tentativasSemDados: 0, verificadoEm: diasAtras(0.1), dadosEm: diasAtras(0.1), nome: 'A', categoria: 'B' }]);
+    expect((await completo.s.aplicar('e1', item, AGORA, true, true)).faltam).toEqual([EAN]);
     const { s } = montar([{ id: ID, codigo: EAN, mime: 'image/png', tentativasSemFoto: 0, tentativasSemDados: 4, verificadoEm: diasAtras(1), dadosEm: new Date(AGORA.getTime() - 60_000), nome: 'A', categoria: null }]);
     expect((await s.aplicar('e1', item, AGORA, true, true)).faltam).toEqual([EAN]);
   });

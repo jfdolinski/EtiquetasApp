@@ -234,9 +234,13 @@ function DetalhePedido({ api, usuario, servidor, id, aoVoltar }: { api: Api; usu
 
       <View style={estilos.cartao}>
         {p.itens.map((i) => (
-          <View key={i.codigo} style={estilos.cabeca}>
-            <Text style={[estilos.detalhe, { flexShrink: 1, color: cores.texto }]}>{i.quantidade}× {i.nome}</Text>
-            <Text style={[estilos.detalhe, { color: cores.texto }]}>{formatarCentavos(i.quantidade * i.precoCentavos)}</Text>
+          <View key={i.codigo}>
+            <View style={estilos.cabeca}>
+              <Text style={[estilos.detalhe, { flexShrink: 1, color: cores.texto }]}>{i.quantidade}× {i.nome}</Text>
+              <Text style={[estilos.detalhe, { color: cores.texto }]}>{formatarCentavos(i.quantidade * i.precoCentavos)}</Text>
+            </View>
+            {i.observacao ? <Text style={estilos.observacao}>Cliente: {i.observacao}</Text> : null}
+            {i.resposta ? <Text style={estilos.resposta}>Loja: {i.resposta}</Text> : null}
           </View>
         ))}
         <View style={[estilos.cabeca, { borderTopWidth: 1, borderTopColor: cores.borda, paddingTop: 6 }]}>
@@ -270,6 +274,8 @@ const estilos = StyleSheet.create({
   nome: { flexShrink: 1, fontSize: 15, fontWeight: '600', color: cores.texto, marginBottom: 4 },
   situacao: { fontSize: 13, fontWeight: '700' },
   detalhe: { fontSize: 14, color: cores.suave, marginBottom: 6 },
+  observacao: { fontSize: 13, color: '#92400e', backgroundColor: '#fffbeb', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, marginBottom: 4 },
+  resposta: { fontSize: 13, color: '#1e3a8a', backgroundColor: '#eff6ff', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, marginBottom: 6 },
   link: { color: cores.azul, fontSize: 14, fontWeight: '600', paddingVertical: 4, marginBottom: 4 },
   linha: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   filtro: { minHeight: 40, justifyContent: 'center', paddingHorizontal: 14, borderWidth: 1, borderColor: cores.borda, borderRadius: 20, backgroundColor: cores.branco },

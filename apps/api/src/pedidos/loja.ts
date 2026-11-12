@@ -28,6 +28,8 @@ import {
   normalizarCelular,
   localizacaoLimpa,
   normalizarCep,
+  observacaoLimpa,
+  telefoneDaLoja,
   problemaNoPedido,
   situacaoDoCatalogo,
   textoProximaAbertura,
@@ -207,6 +209,8 @@ export class LojaService {
       hoje,
       modalidades: permitidas.map((m) => ({ modalidade: m, precoCentavos: cfg.modalidades[m].precoCentavos })),
       enderecoRetirada: permitidas.includes('RETIRADA') ? cfg.enderecoRetirada : null,
+      localRetirada: permitidas.includes('RETIRADA') ? (cfg.localRetirada ?? null) : null,
+      whatsappLoja: telefoneDaLoja(cfg.whatsappLoja ?? ''),
       faixas: permitidas.includes('AGENDADA') ? faixas : [],
       pedidoMinimoCentavos: cfg.pedidoMinimoCentavos,
       itens,
@@ -280,7 +284,10 @@ ${logo ? `<meta property="og:image" content="${e(origem + logo)}">\n` : ''}<meta
     const origemHash = sha256(`${l.empresaId}:${ip}`);
     const recentes = await this.prisma.pedido.count({ where: { empresaId: l.empresaId, origemHash, criadoEm: { gte: new Date(agora.getTime() - 3600_000) } } });
     if (recentes >= MAX_PEDIDOS_POR_ORIGEM_HORA) throw new HttpException('Muitos pedidos seguidos deste aparelho. Fale com a loja ou tente mais tarde.', HttpStatus.TOO_MANY_REQUESTS);
-    const carrinho: ItemCarrinho[] = (Array.isArray(dto.itens) ? dto.itens : []).map((i) => ({ codigo: String(i?.codigo ?? ''), quantidade: Number(i?.quantidade), precoCentavos: Number(i?.precoCentavos) }));
+    const carrinho: ItemCarrinho[] = (Array.isArray(dto.itens) ? dto.itens : []).map((i) => {
+      const observacao = observacaoLimpa((i as { observacao?: unknown })?.observacao);
+      return { codigo: String(i?.codigo ?? ''), quantidade: Number(i?.quantidade), precoCentavos: Number(i?.precoCentavos), ...(observacao ? { observacao } : {}) };
+    });
     const { itens, mudancas } = conferirCarrinho(carrinho, await catalogoComReservas(this.prisma, l.empresaId, l.itens as unknown as ItemCatalogo[]));
     if (mudancas.length) recusaPorMudanca(mudancas, itens);
     const pedido: NovoPedido = { ...dto, itens: carrinho, endereco: dto.endereco ? enderecoLimpo(dto.endereco) : null, agendamento: dto.agendamento ?? null, trocoParaCentavos: dto.trocoParaCentavos ?? null, observacao: dto.observacao ?? '' };
@@ -350,6 +357,8 @@ ${logo ? `<meta property="og:image" content="${e(origem + logo)}">\n` : ''}<meta
       modalidade: p.modalidade as ModalidadeEntrega,
       endereco: p.modalidade === 'RETIRADA' ? null : ((p.endereco as unknown as EnderecoPedido | null) ?? null),
       enderecoRetirada: p.modalidade === 'RETIRADA' ? (cfg?.enderecoRetirada ?? null) : null,
+      localRetirada: p.modalidade === 'RETIRADA' ? (cfg?.localRetirada ?? null) : null,
+      whatsappLoja: telefoneDaLoja(cfg?.whatsappLoja ?? ''),
       agendamento: (p.agendamento as unknown as FaixaAgendamento | null) ?? null,
       pagamento: p.pagamento as FormaPagamento,
       trocoParaCentavos: p.trocoParaCentavos,

@@ -203,6 +203,62 @@ test('localização do cliente: opcional, vai com o pedido, e o servidor só gua
   expect(erros.filter((t) => !/Failed to load resource/.test(t))).toEqual([]);
 });
 
+test('retirada com mapa, WhatsApp da loja com o pedido, e observação por produto respondida pela loja', async ({ page }) => {
+  const e = await criarEmpresa(tokenSuper);
+  const codigo = await lojaNoAr(e, { config: { ...CONFIG, whatsappLoja: '11987654321', localRetirada: { latitude: -23.55052, longitude: -46.633309 } } });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const erros: string[] = [];
+  page.on('console', (m) => m.type() === 'error' && erros.push(m.text()));
+  await page.goto(`/loja/${codigo}`);
+
+  // No cartão do produto: adiciona e escreve a observação.
+  await page.getByRole('button', { name: 'Ver detalhes de Arroz Tipo 1 5kg' }).click();
+  const cartao = page.getByTestId('detalhe-produto');
+  await cartao.getByRole('button', { name: 'Adicionar ao carrinho' }).click();
+  await cartao.getByRole('button', { name: 'Mais um Arroz Tipo 1 5kg' }).click();
+  await cartao.getByLabel('Observação para a loja (opcional)').fill('  pacotes sem amassado  ');
+  await cartao.getByRole('button', { name: 'Fechar' }).click();
+  await page.getByRole('button', { name: 'Ver carrinho' }).click();
+  await expect(page.getByTestId('observacao-no-carrinho')).toHaveText('Obs.: pacotes sem amassado');
+  await page.getByRole('button', { name: 'Continuar', exact: true }).click();
+
+  await page.getByLabel('Nome').fill('Maria Silva');
+  await page.getByLabel('Celular (WhatsApp)').fill('11912345678');
+  await page.getByText('Retirar no local').click();
+  await expect(page.getByText('Retire em:')).toBeVisible();
+  await expect(page.getByTestId('mapa-retirada')).toHaveAttribute('href', 'https://www.google.com/maps/search/?api=1&query=-23.55052,-46.633309');
+  await page.getByRole('button', { name: /Enviar pedido/ }).click();
+  await expect(page.getByRole('heading', { name: 'Pedido nº 1 enviado!' })).toBeVisible();
+  const [salvo] = await sql(`SELECT id, itens FROM pedidos WHERE empresa_id = $1`, [e.id]);
+  expect(salvo.itens[0]).toMatchObject({ codigo: '10', quantidade: 2, observacao: 'pacotes sem amassado' });
+  // Depois de enviado, a observação não fica para o próximo pedido.
+  expect(await page.evaluate((c) => localStorage.getItem(`etiquetas.loja.${c}.observacoes`), codigo)).toBeNull();
+
+  // Acompanhamento: mapa da retirada e WhatsApp da loja com o pedido escrito.
+  await page.getByRole('link', { name: 'Acompanhar o pedido' }).click();
+  await expect(page.getByRole('heading', { name: 'Pedido nº 1' })).toBeVisible();
+  await expect(page.getByTestId('mapa-retirada')).toBeVisible();
+  const whats = await page.getByRole('link', { name: 'Falar com a loja no WhatsApp' }).getAttribute('href');
+  expect(whats).toMatch(/^https:\/\/wa\.me\/5511987654321\?text=/);
+  const texto = decodeURIComponent(whats!.split('?text=')[1]);
+  expect(texto).toContain('sobre o pedido nº 1');
+  expect(texto).toContain('2x Arroz Tipo 1 5kg (pacotes sem amassado)');
+  expect(texto).toContain('Acompanhamento: ');
+  await expect(page.getByText('Sua observação: pacotes sem amassado')).toBeVisible();
+
+  // A loja responde; o cliente vê ao recarregar. Outra empresa não consegue.
+  const outra = await criarEmpresa(tokenSuper);
+  expect((await pedir('POST', `/pedidos/${salvo.id}/itens/resposta`, { token: outra.adminToken, corpo: { codigo: '10', resposta: 'x' } })).status).toBe(404);
+  const r = await pedir('POST', `/pedidos/${salvo.id}/itens/resposta`, { token: e.adminToken, corpo: { codigo: '10', resposta: 'Separamos os mais inteiros.' } });
+  expect(r.status).toBe(201);
+  expect(r.j.itens[0].resposta).toBe('Separamos os mais inteiros.');
+  expect((await pedir('POST', `/pedidos/${salvo.id}/itens/resposta`, { token: e.adminToken, corpo: { codigo: '99', resposta: 'x' } })).status).toBe(400);
+  await page.reload();
+  await expect(page.getByTestId('resposta-da-loja')).toContainText('Separamos os mais inteiros.');
+  await page.screenshot({ path: 'test-results/loja-observacao-resposta.png', fullPage: true });
+  expect(erros.filter((t) => !/Failed to load resource/.test(t))).toEqual([]);
+});
+
 test('API pública: link, regras, preço nunca vem do cliente, limite por aparelho e isolamento', async () => {
   const e = await criarEmpresa(tokenSuper);
   const outra = await criarEmpresa(tokenSuper);

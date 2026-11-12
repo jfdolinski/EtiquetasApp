@@ -130,6 +130,10 @@ export interface ConfigPedidos extends ColunasCatalogo {
   mensagem: string;
   /** Para quem escolhe retirar. */
   enderecoRetirada: string;
+  /** Ponto exato do local de retirada, para o mapa; nulo = o mapa procura pelo endereço. */
+  localRetirada: PontoNoMapa | null;
+  /** Celular ou fixo com DDD (só dígitos) do WhatsApp da loja; vazio = sem o botão. */
+  whatsappLoja: string;
   /** Só com a entrega agendada: até quantos dias à frente e o tamanho de cada faixa de horário. */
   agendamento: ConfigAgendamento;
   /** Térmica ESC/POS que recebe a folha de lançamento. Nula: a folha só aparece na tela. */
@@ -193,6 +197,8 @@ export const CONFIG_PEDIDOS_PADRAO: ConfigPedidos = {
   },
   mensagem: '',
   enderecoRetirada: '',
+  localRetirada: null,
+  whatsappLoja: '',
   agendamento: AGENDAMENTO_PADRAO,
   impressoraFolhaId: null,
   camposDetalhe: [],
@@ -217,6 +223,8 @@ export function problemaNaConfigPedidos(c: ConfigPedidos): string | null {
   }
   if (!MODALIDADES_ENTREGA.some((m) => c.modalidades[m].ativa)) return 'Escolha ao menos uma forma de entrega.';
   if (c.modalidades.RETIRADA.ativa && !c.enderecoRetirada?.trim()) return 'Informe o endereço para quem vai retirar no local.';
+  if (c.whatsappLoja && !telefoneDaLoja(c.whatsappLoja)) return 'Informe o WhatsApp da loja com DDD, como (11) 98765-4321.';
+  if (c.localRetirada && !pontoValido(c.localRetirada)) return 'As coordenadas do local de retirada estão erradas.';
   const a = c.agendamento ?? AGENDAMENTO_PADRAO;
   if (!Number.isInteger(a.dias) || a.dias < 1 || a.dias > 30) return 'A entrega agendada pode ir de 1 a 30 dias à frente.';
   if (!(DURACOES_FAIXA as readonly number[]).includes(a.duracaoMinutos)) return 'Escolha o tamanho das faixas de horário.';
@@ -400,6 +408,8 @@ export interface ItemCarrinho {
   quantidade: number;
   /** O preço que o cliente viu: se mudou, o pedido não é gravado sem ele confirmar. */
   precoCentavos: number;
+  /** Pedido do cliente sobre este produto ("bem maduras"); a loja pode responder. */
+  observacao?: string;
 }
 
 export interface ItemConferido {
@@ -409,7 +419,19 @@ export interface ItemConferido {
   precoCentavos: number;
   unidade?: string;
   codigoBarras?: string;
+  observacao?: string;
+  /** Resposta da loja à observação do cliente. */
+  resposta?: string;
 }
+
+/** Observação do cliente e resposta da loja, por produto. */
+export const LIMITE_OBSERVACAO_ITEM = 200;
+
+/** Aparada e cortada no limite; vazia some do item. */
+export const observacaoLimpa = (v: unknown): string | undefined => {
+  const t = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, LIMITE_OBSERVACAO_ITEM) : '';
+  return t || undefined;
+};
 
 export type MudancaCarrinho =
   | { codigo: string; nome: string; tipo: 'PRECO'; antes: number; depois: number }
@@ -433,7 +455,7 @@ export function conferirCarrinho(carrinho: ItemCarrinho[], catalogo: ItemCatalog
   const somados = new Map<string, ItemCarrinho>();
   for (const c of carrinho) {
     const antes = somados.get(c.codigo);
-    somados.set(c.codigo, antes ? { ...c, quantidade: antes.quantidade + c.quantidade } : { ...c });
+    somados.set(c.codigo, antes ? { ...c, quantidade: antes.quantidade + c.quantidade, observacao: antes.observacao || c.observacao } : { ...c });
   }
   for (const c of somados.values()) {
     const p = porCodigo.get(c.codigo);
@@ -447,7 +469,8 @@ export function conferirCarrinho(carrinho: ItemCarrinho[], catalogo: ItemCatalog
       quantidade = p.estoque;
     }
     if (p.precoCentavos !== c.precoCentavos) mudancas.push({ codigo: p.codigo, nome: p.nome, tipo: 'PRECO', antes: c.precoCentavos, depois: p.precoCentavos });
-    itens.push({ codigo: p.codigo, nome: p.nome, quantidade, precoCentavos: p.precoCentavos, ...(p.unidade ? { unidade: p.unidade } : {}), ...(p.codigoBarras ? { codigoBarras: p.codigoBarras } : {}) });
+    const observacao = observacaoLimpa(c.observacao);
+    itens.push({ codigo: p.codigo, nome: p.nome, quantidade, precoCentavos: p.precoCentavos, ...(p.unidade ? { unidade: p.unidade } : {}), ...(p.codigoBarras ? { codigoBarras: p.codigoBarras } : {}), ...(observacao ? { observacao } : {}) });
   }
   return { itens, mudancas };
 }
@@ -784,6 +807,9 @@ export interface CatalogoPublico {
   hoje: string;
   modalidades: { modalidade: ModalidadeEntrega; precoCentavos: number }[];
   enderecoRetirada: string | null;
+  localRetirada: PontoNoMapa | null;
+  /** Só dígitos, com DDD; nulo sem WhatsApp configurado. */
+  whatsappLoja: string | null;
   faixas: FaixaAgendamento[];
   pedidoMinimoCentavos: number | null;
   itens: ItemCatalogo[];
@@ -804,6 +830,8 @@ export interface PedidoPublico {
   modalidade: ModalidadeEntrega;
   endereco: EnderecoPedido | null;
   enderecoRetirada: string | null;
+  localRetirada: PontoNoMapa | null;
+  whatsappLoja: string | null;
   agendamento: FaixaAgendamento | null;
   pagamento: FormaPagamento;
   trocoParaCentavos: number | null;
@@ -853,3 +881,58 @@ export function itensParaRepetir(pedido: { codigo: string; nome: string; quantid
 
 export const caminhoLogoDaLoja = (codigo: string, versao: number) => `/api/loja/${codigo}/logo?v=${versao}`;
 export const LOGO_LOJA_MAXIMO_BYTES = 1_000_000;
+
+// Mapa da retirada e WhatsApp da loja ------------------------------------------------------------
+
+export interface PontoNoMapa {
+  latitude: number;
+  longitude: number;
+}
+
+export const pontoValido = (p: PontoNoMapa) =>
+  Number.isFinite(p.latitude) && Number.isFinite(p.longitude) && Math.abs(p.latitude) <= 90 && Math.abs(p.longitude) <= 180 && !(p.latitude === 0 && p.longitude === 0);
+
+/**
+ * "-23.5505, -46.6333", como o Google Maps copia ao clicar no ponto. Também aceita o link do Maps com
+ * "@-23.55,-46.63" ou "?q=-23.55,-46.63". Nulo quando não há duas coordenadas válidas.
+ */
+export function pontoDoTexto(texto: string): PontoNoMapa | null {
+  const t = texto.trim();
+  if (!t) return null;
+  const m = t.match(/(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)/);
+  if (!m) return null;
+  const p = { latitude: Math.round(Number(m[1]) * 1e6) / 1e6, longitude: Math.round(Number(m[2]) * 1e6) / 1e6 };
+  return pontoValido(p) ? p : null;
+}
+
+export const textoDoPonto = (p: PontoNoMapa | null) => (p ? `${p.latitude}, ${p.longitude}` : '');
+
+/** O mapa do local de retirada: pelo ponto, se a loja informou, senão pelo endereço. */
+export function linkMapaRetirada(endereco: string, ponto: PontoNoMapa | null): string {
+  if (ponto) return `https://www.google.com/maps/search/?api=1&query=${ponto.latitude},${ponto.longitude}`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`;
+}
+
+/** WhatsApp da loja: celular (11 dígitos) ou fixo (10), com DDD; aceita +55 na frente. Nulo se não servir. */
+export function telefoneDaLoja(v: string): string | null {
+  let d = String(v ?? '').replace(/\D/g, '');
+  if ((d.length === 12 || d.length === 13) && d.startsWith('55')) d = d.slice(2);
+  if (d.length !== 10 && d.length !== 11) return null;
+  if (/^0/.test(d) || (d.length === 11 && d[2] !== '9')) return null;
+  return d;
+}
+
+/** O que o cliente manda à loja pelo WhatsApp: o número, os produtos e o total, com o link do acompanhamento. */
+export function mensagemParaLoja(p: Pick<PedidoPublico, 'numero' | 'nome' | 'modalidade' | 'itens' | 'totais'>, linkAcompanhamento: string): string {
+  const linhas = p.itens.map((i) => `• ${i.quantidade}x ${i.nome}${i.observacao ? ` (${i.observacao})` : ''}`);
+  return [
+    `Olá! Sou ${p.nome.trim().split(/\s+/)[0]}, sobre o pedido nº ${p.numero}.`,
+    '',
+    ...linhas,
+    '',
+    `${ROTULO_MODALIDADE[p.modalidade].titulo} · Total ${formatarCentavos(p.totais.totalCentavos)}`,
+    `Acompanhamento: ${linkAcompanhamento}`,
+  ].join('\n');
+}
+
+export const linkWhatsAppDaLoja = (telefone: string, mensagem: string) => `https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}`;

@@ -15,6 +15,7 @@ import {
   problemaNaProposta,
   rotuloSituacaoPedido,
   SITUACOES_PEDIDO,
+  observacaoLimpa,
   situacaoFinal,
   totaisDaProposta,
   totaisDoPedido,
@@ -117,6 +118,16 @@ const SELECAO = {
   aceitoPorId: true,
   aceitoPor: { select: { nome: true, codigoErp: true } },
 } satisfies Prisma.PedidoSelect;
+
+class RespostaItemDto {
+  @IsString()
+  @MaxLength(100)
+  codigo: string;
+
+  @IsString()
+  @MaxLength(1000)
+  resposta: string;
+}
 
 type PedidoLido = Prisma.PedidoGetPayload<{ select: typeof SELECAO }>;
 
@@ -278,6 +289,29 @@ export class PainelPedidosService {
     return this.obter(empresaId, id);
   }
 
+  /** Resposta da loja à observação do cliente sobre um produto. Vazia apaga. Aparece no acompanhamento. */
+  async responderItem(empresaId: string, id: string, dto: RespostaItemDto, usuario: UsuarioRequisicao): Promise<PedidoCompleto> {
+    const p = await this.ler(empresaId, id);
+    if (situacaoFinal(p.situacao as SituacaoPedido)) throw new BadRequestException('Este pedido já terminou.');
+    const itens = p.itens as unknown as ItemConferido[];
+    const item = itens.find((i) => i.codigo === dto.codigo);
+    if (!item) throw new BadRequestException('Este produto não está no pedido.');
+    const resposta = observacaoLimpa(dto.resposta);
+    if ((item.resposta ?? undefined) === resposta) return this.obter(empresaId, id);
+    const novos = itens.map((i) => {
+      if (i.codigo !== dto.codigo) return i;
+      const { resposta: _antiga, ...resto } = i;
+      return resposta ? { ...resto, resposta } : resto;
+    });
+    const nome = await this.nomeDe(usuario.id);
+    await this.gravar(p, empresaId, {
+      itens: novos as unknown as Prisma.InputJsonValue,
+      historico: [...((p.historico as unknown as EventoPedido[]) ?? []), evento(resposta ? `Resposta sobre ${item.nome}: ${resposta}` : `Resposta sobre ${item.nome} apagada`, nome)] as unknown as Prisma.InputJsonValue,
+    });
+    await this.auditoria.registrar({ empresaId, usuarioId: usuario.id, acao: 'pedido.responder_item', entidade: 'Pedido', entidadeId: id, detalhes: { numero: p.numero, codigo: item.codigo } });
+    return this.obter(empresaId, id);
+  }
+
   async desistirDaProposta(empresaId: string, id: string, usuario: UsuarioRequisicao): Promise<PedidoCompleto> {
     const p = await this.ler(empresaId, id);
     if (!p.propostaEm) throw new BadRequestException('Não há alteração esperando o cliente.');
@@ -387,6 +421,13 @@ export class PainelPedidosController {
   @RequerPermissao('pedido.gerenciar')
   propor(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: PropostaDto, @UsuarioAtual() u: UsuarioRequisicao) {
     return this.painel.propor(empresaId, id, dto, u);
+  }
+
+  @Post(':id/itens/resposta')
+  @PermitidoNoApp()
+  @RequerPermissao('pedido.gerenciar')
+  responder(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RespostaItemDto, @UsuarioAtual() u: UsuarioRequisicao) {
+    return this.painel.responderItem(empresaId, id, dto, u);
   }
 
   @Post(':id/proposta/desistir')

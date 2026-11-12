@@ -6,6 +6,8 @@ import {
   colunasSugeridasPedidos,
   MAX_CAMPOS_DETALHE,
   rotuloSugerido,
+  pontoDoTexto,
+  textoDoPonto,
   DIAS_SEMANA,
   DURACOES_FAIXA,
   formatarCentavos,
@@ -61,6 +63,9 @@ interface Formulario {
   modalidades: Record<ModalidadeEntrega, { ativa: boolean; preco: string }>;
   mensagem: string;
   enderecoRetirada: string;
+  /** Como digitado: "-23.55, -46.63" ou o link do Google Maps. */
+  localRetirada: string;
+  whatsappLoja: string;
   intervalo: string;
   validade: string;
   horario: HorarioFuncionamento;
@@ -84,6 +89,8 @@ function formularioDe(c: ConfiguracaoPedidosResumo): Formulario {
     modalidades: Object.fromEntries(MODALIDADES_ENTREGA.map((m) => [m, { ativa: k.modalidades[m].ativa, preco: reais(k.modalidades[m].precoCentavos) }])) as Formulario['modalidades'],
     mensagem: k.mensagem,
     enderecoRetirada: k.enderecoRetirada,
+    localRetirada: textoDoPonto(k.localRetirada ?? null),
+    whatsappLoja: k.whatsappLoja ?? '',
     intervalo: String(c.intervaloMinutos),
     validade: String(c.validadeMinutos),
     horario: c.horario,
@@ -106,6 +113,8 @@ function corpoDe(f: Formulario): SalvarConfiguracaoPedidos {
     modalidades: Object.fromEntries(MODALIDADES_ENTREGA.map((m) => [m, { ativa: f.modalidades[m].ativa, precoCentavos: f.modalidades[m].ativa ? centavosDoCampo(f.modalidades[m].preco) : 0 }])) as ConfigPedidos['modalidades'],
     mensagem: f.mensagem,
     enderecoRetirada: f.enderecoRetirada,
+    localRetirada: pontoDoTexto(f.localRetirada),
+    whatsappLoja: f.whatsappLoja.replace(/\D/g, ''),
     agendamento: { dias: Number(f.agDias), duracaoMinutos: f.agDuracao },
     impressoraFolhaId: f.impressoraFolhaId || null,
     camposDetalhe: f.camposDetalhe.map((d) => ({ coluna: d.coluna, rotulo: d.rotulo.trim() })),
@@ -153,7 +162,11 @@ export function ConfigurarPedidos() {
     setF({ ...f, ...parte });
   };
   const corpo = corpoDe(f);
-  const problema = !f.consultaId ? 'Escolha a consulta dos produtos.' : (problemaNaConfigPedidos(corpo.config) ?? problemaNosPrazosPedidos(corpo.intervaloMinutos, corpo.validadeMinutos) ?? problemaNoHorario(f.horario));
+  const problema = !f.consultaId
+    ? 'Escolha a consulta dos produtos.'
+    : f.localRetirada.trim() && !pontoDoTexto(f.localRetirada)
+      ? 'Não entendi as coordenadas do local de retirada. Cole como "-23.5505, -46.6333".'
+      : (problemaNaConfigPedidos(corpo.config) ?? problemaNosPrazosPedidos(corpo.intervaloMinutos, corpo.validadeMinutos) ?? problemaNoHorario(f.horario));
   const semHorario = f.horario.every((d) => d.length === 0);
   const link = atual.codigoLink ? `${window.location.origin}${caminhoCatalogo(atual.codigoLink)}` : null;
 
@@ -184,6 +197,14 @@ export function ConfigurarPedidos() {
             </span>
           </label>
           <LogoDaLoja atual={atual} aoMudar={(c) => cliente.setQueryData(chave, c)} />
+          <Campo
+            rotulo="WhatsApp da loja (opcional)"
+            inputMode="tel"
+            value={f.whatsappLoja}
+            placeholder="(11) 98765-4321"
+            onChange={(e) => mudar({ whatsappLoja: e.target.value })}
+            ajuda="Aparece no acompanhamento do pedido como “Falar com a loja no WhatsApp”, com o número do pedido, os produtos e o total já escritos."
+          />
           <Campo rotulo="Mensagem de boas-vindas" value={f.mensagem} maxLength={LIMITES_PEDIDOS.mensagem} placeholder="Pedidos até as 17h saem no mesmo dia" onChange={(e) => mudar({ mensagem: e.target.value })} />
         </Secao>
 
@@ -297,7 +318,18 @@ export function ConfigurarPedidos() {
               </Selecao>
             </div>
           )}
-          {f.modalidades.RETIRADA.ativa && <Campo rotulo="Endereço para retirada" value={f.enderecoRetirada} maxLength={LIMITES_PEDIDOS.enderecoRetirada} placeholder="Rua das Flores, 100 – Centro" onChange={(e) => mudar({ enderecoRetirada: e.target.value })} />}
+          {f.modalidades.RETIRADA.ativa && (
+            <>
+              <Campo rotulo="Endereço para retirada" value={f.enderecoRetirada} maxLength={LIMITES_PEDIDOS.enderecoRetirada} placeholder="Rua das Flores, 100 – Centro" onChange={(e) => mudar({ enderecoRetirada: e.target.value })} />
+              <Campo
+                rotulo="Local exato da retirada no mapa (opcional)"
+                value={f.localRetirada}
+                placeholder="-23.5505, -46.6333"
+                onChange={(e) => mudar({ localRetirada: e.target.value })}
+                ajuda="O cliente vê o botão “Ver no mapa”. Sem as coordenadas, o mapa procura pelo endereço. Para pegar: no Google Maps, clique com o botão direito no lugar exato e clique nos números que aparecem (eles são copiados)."
+              />
+            </>
+          )}
           <Campo rotulo="Pedido mínimo (R$, opcional)" inputMode="decimal" value={f.minimo} placeholder="Sem mínimo" onChange={(e) => mudar({ minimo: e.target.value })} ajuda="Conta só os produtos, sem a taxa de entrega." />
         </Secao>
 
@@ -359,7 +391,9 @@ export function ConfigurarPedidos() {
             <p className="mt-2 text-xs text-slate-500" data-testid="aviso-fotos">
               {atualizar.isSuccess
                 ? 'Procurando no catálogo o que faltava (fotos, nome e categoria): aparece na loja em alguns minutos.'
-                : 'O que entrar no catálogo depois (foto, nome, categoria) aparece sozinho em até um dia. “Atualizar agora” procura na hora.'}
+                : f.dadosDoCatalogo
+                  ? 'Nome e categoria são conferidos no catálogo uma vez por dia. “Atualizar agora” relê todos na hora (cada produto conta no consumo do catálogo).'
+                  : 'O que entrar no catálogo depois (foto) aparece sozinho em até um dia. “Atualizar agora” procura na hora.'}
             </p>
           )}
           {atualizar.error && <div className="mt-2"><Alerta>{(atualizar.error as Error).message}</Alerta></div>}
