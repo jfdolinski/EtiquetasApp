@@ -6,6 +6,8 @@ SaaS multiempresa que lê dados de produtos dos bancos dos ERPs dos clientes (vi
 
 **Especificação completa:** [docs/SPEC.md](docs/SPEC.md) — leia antes de iniciar qualquer fase.
 
+**Entregas (em desenho, nada implementado):** [docs/ENTREGAS.md](docs/ENTREGAS.md) — app do entregador, chamadas, créditos por diária e regras de direcionamento.
+
 ## Stack
 
 - Monorepo pnpm: `apps/api` (NestJS + Prisma + PostgreSQL), `apps/web` (React + Vite + Tailwind + Konva), `apps/agent` (Go), `packages/shared` (tipos/contratos compartilhados), `apps/e2e` (Playwright)
