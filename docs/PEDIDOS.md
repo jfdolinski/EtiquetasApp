@@ -66,9 +66,22 @@ Ordem, com títulos separando as partes:
 
 Cabeçalho só em texto (número, data, cliente, modalidade, pagamento e troco); rodapé com total de unidades, produtos, entrega e total. Códigos pelo comando nativo de código de barras da impressora (não imagem). ESC/POS ainda não testado em impressora física: conferir a primeira impressão real, inclusive a leitura no papel térmico.
 
+## Venda pelo vendedor (aplicativo)
+
+O vendedor logado no aplicativo lança o pedido do cliente: "Nova venda" na guia Pedidos. Usa a **mesma configuração** do link (produtos, preços, estoque com reservas, entregas e taxas, folha); só o que é do vendedor fica na seção "Vendas no app" da Configuração:
+
+- ligar ou desligar;
+- vender com a loja fechada (todas as formas de entrega ligadas);
+- exigir ou não o pedido mínimo;
+- desconto máximo do vendedor, em % dos produtos (0 = nenhum, até 50%).
+
+Fluxo no celular: busca por nome ou código, ou leitura do código de barras pela câmera; carrinho com quantidade e observação por produto; dados do cliente (nome, celular, entrega com CEP pela API, faixa da agendada, pagamento e troco, desconto, observação); lançar. O servidor confere tudo de novo, como no link (preço ou estoque mudou: volta com os itens para confirmar). O pedido **nasce aceito pelo vendedor** (Em separação): a folha de lançamento sai com o código dele no ERP. Depois de lançar, o vendedor manda o link do acompanhamento pelo WhatsApp (o cliente acompanha, aceita alterações e confirma o recebimento como no link) e, com `pedido.gerenciar`, imprime a folha. O carrinho em andamento fica guardado no aparelho. Limite de 60 vendas por hora por vendedor. Sem internet não vende.
+
+Painel e aplicativo marcam "Venda de Fulano", e a busca do painel acha pelo nome do vendedor. Quem tem só `pedido.vender` vê no aplicativo apenas as próprias vendas.
+
 ## Permissões
 
-`pedido.ver`, `pedido.gerenciar` (situação, propostas, cancelar, imprimir), `pedido.configurar` (link, consulta, colunas, mínimo, modalidades, horários, impressora).
+`pedido.ver`, `pedido.gerenciar` (situação, propostas, cancelar, imprimir), `pedido.vender` (lançar vendas pelo aplicativo), `pedido.configurar` (link, consulta, colunas, mínimo, modalidades, horários, impressora).
 
 ## Etapas
 

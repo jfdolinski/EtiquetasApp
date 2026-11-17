@@ -6,7 +6,8 @@ import { CepService } from './cep';
 import { ConfiguracaoPedidosController, ConfiguracaoPedidosService } from './configuracao';
 import { LojaController, LojaService } from './loja';
 import { PainelPedidosController, PainelPedidosService } from './painel';
+import { VendasController, VendasService } from './vendas';
 import { ImpressaoModule } from '../impressao/impressao.module';
 
-@Module({ imports: [ConsultasModule, BanidosModule, TelasModule, ImpressaoModule], controllers: [ConfiguracaoPedidosController, LojaController, PainelPedidosController], providers: [ConfiguracaoPedidosService, LojaService, CepService, PainelPedidosService] })
+@Module({ imports: [ConsultasModule, BanidosModule, TelasModule, ImpressaoModule], controllers: [ConfiguracaoPedidosController, VendasController, LojaController, PainelPedidosController], providers: [ConfiguracaoPedidosService, LojaService, CepService, PainelPedidosService, VendasService] })
 export class PedidosModule {}

@@ -114,7 +114,8 @@ model Usuario {
   redefinicoes         RedefinicaoSenha[]
   conteudosTela        ConteudoTela[]
   configuracoesPedidos ConfiguracaoPedidos[]
-  pedidosAceitos       Pedido[]
+  pedidosAceitos       Pedido[] @relation("PedidosAceitos")
+  pedidosVendidos      Pedido[] @relation("PedidosVendidos")
 
   @@index([empresaId])
   @@map("usuarios")
@@ -1230,15 +1231,20 @@ model Pedido {
   historico          Json      @default("[]")
   /// SHA-256 do IP de quem enviou, só para limitar pedidos seguidos.
   origemHash         String    @map("origem_hash")
+  /// LOJA (link do cliente) ou VENDEDOR (lançado no aplicativo por `vendedor`).
+  origem             String    @default("LOJA")
+  vendedorId         String?   @map("vendedor_id") @db.Uuid
   criadoEm           DateTime  @default(now()) @map("criado_em")
   atualizadoEm       DateTime  @updatedAt @map("atualizado_em")
 
   empresa   Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  aceitoPor Usuario? @relation(fields: [aceitoPorId], references: [id], onDelete: SetNull)
+  aceitoPor Usuario? @relation("PedidosAceitos", fields: [aceitoPorId], references: [id], onDelete: SetNull)
+  vendedor  Usuario? @relation("PedidosVendidos", fields: [vendedorId], references: [id], onDelete: SetNull)
 
   @@unique([empresaId, numero])
   @@index([empresaId, situacao])
   @@index([empresaId, criadoEm])
   @@index([empresaId, origemHash, criadoEm])
+  @@index([vendedorId, criadoEm])
   @@map("pedidos")
 }

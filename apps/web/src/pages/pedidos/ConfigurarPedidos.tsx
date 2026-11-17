@@ -5,6 +5,9 @@ import {
   centavosDe,
   colunasSugeridasPedidos,
   MAX_CAMPOS_DETALHE,
+  CONFIG_VENDAS_PADRAO,
+  MAX_DESCONTO_VENDEDOR_PERCENTUAL,
+  type ConfigVendas,
   rotuloSugerido,
   pontoDoTexto,
   textoDoPonto,
@@ -73,6 +76,9 @@ interface Formulario {
   agDuracao: number;
   impressoraFolhaId: string;
   camposDetalhe: CampoDetalhe[];
+  vendas: ConfigVendas;
+  /** Como digitado; vazio vale 0. */
+  descontoVendedor: string;
 }
 
 const reais = (c: number) => (c / 100).toFixed(2).replace('.', ',');
@@ -98,6 +104,8 @@ function formularioDe(c: ConfiguracaoPedidosResumo): Formulario {
     agDuracao: k.agendamento?.duracaoMinutos ?? 120,
     impressoraFolhaId: k.impressoraFolhaId ?? '',
     camposDetalhe: k.camposDetalhe ?? [],
+    vendas: { ...CONFIG_VENDAS_PADRAO, ...(k.vendas ?? {}) },
+    descontoVendedor: String(k.vendas?.descontoMaximoPercentual ?? 0),
   };
 }
 
@@ -118,6 +126,7 @@ function corpoDe(f: Formulario): SalvarConfiguracaoPedidos {
     agendamento: { dias: Number(f.agDias), duracaoMinutos: f.agDuracao },
     impressoraFolhaId: f.impressoraFolhaId || null,
     camposDetalhe: f.camposDetalhe.map((d) => ({ coluna: d.coluna, rotulo: d.rotulo.trim() })),
+    vendas: { ...f.vendas, descontoMaximoPercentual: f.descontoVendedor.trim() === '' ? 0 : Number(f.descontoVendedor.trim().replace(',', '.')) },
   };
   return { ativo: f.ativo, consultaId: f.consultaId, config, intervaloMinutos: Number(f.intervalo), validadeMinutos: Number(f.validade), horario: f.horario };
 }
@@ -348,6 +357,43 @@ export function ConfigurarPedidos() {
           </Selecao>
           <p className="text-xs text-slate-500">Uma térmica de cupom (ESC/POS, 80 mm), cadastrada em Impressoras. A folha traz, em códigos de barras, o código de quem aceitou o pedido (o “Código no ERP”, em Usuários), o telefone do cliente e um código por unidade de cada produto.</p>
           {impressoras.length === 0 && <p className="text-xs text-amber-700">Nenhuma impressora ESC/POS cadastrada.</p>}
+        </Secao>
+
+        <Secao titulo="Vendas no app">
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-0.5" checked={f.vendas.ativo} onChange={(e) => mudar({ vendas: { ...f.vendas, ativo: e.target.checked } })} />
+            <span>
+              <span className="font-medium text-slate-900">Vendedores lançam pedidos pelo aplicativo</span>
+              <span className="block text-xs text-slate-500">Quem tem a permissão “Lançar vendas pelo aplicativo” vê “Nova venda” na guia Pedidos do celular. Usa os mesmos produtos, preços, estoque, entregas e taxas daqui. O pedido já nasce aceito pelo vendedor (Em separação), e a folha de lançamento sai com o código dele no ERP.</span>
+            </span>
+          </label>
+          {f.vendas.ativo && (
+            <div className="space-y-3 pl-6">
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-0.5" checked={f.vendas.foraDoHorario} onChange={(e) => mudar({ vendas: { ...f.vendas, foraDoHorario: e.target.checked } })} />
+                <span>
+                  <span className="font-medium text-slate-900">Vender com a loja fechada</span>
+                  <span className="block text-xs text-slate-500">Todas as formas de entrega ligadas ficam disponíveis para o vendedor fora do horário de funcionamento.</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-0.5" checked={f.vendas.exigirMinimo} onChange={(e) => mudar({ vendas: { ...f.vendas, exigirMinimo: e.target.checked } })} />
+                <span>
+                  <span className="font-medium text-slate-900">Exigir o pedido mínimo</span>
+                  <span className="block text-xs text-slate-500">Desmarcado, o vendedor vende abaixo do mínimo do link.</span>
+                </span>
+              </label>
+              <Campo
+                rotulo="Desconto máximo do vendedor (% dos produtos)"
+                type="number"
+                min={0}
+                max={MAX_DESCONTO_VENDEDOR_PERCENTUAL}
+                value={f.descontoVendedor}
+                onChange={(e) => mudar({ descontoVendedor: e.target.value })}
+                ajuda={`0 = sem desconto. Até ${MAX_DESCONTO_VENDEDOR_PERCENTUAL}%. O desconto aparece no pedido, no acompanhamento do cliente e na folha.`}
+              />
+            </div>
+          )}
         </Secao>
 
         <Secao titulo="Atualização dos produtos">

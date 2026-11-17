@@ -108,3 +108,59 @@ test('sem a permissão de ver pedidos, a guia não aparece; só vendo, não há 
   await vincular(page, { ...e, adminToken: token2 });
   await expect(page.getByRole('tab', { name: 'Pedidos' })).toHaveCount(0);
 });
+
+test('Nova venda: quem só vende busca, monta o carrinho, lança com desconto e vê nas suas vendas', async ({ page }) => {
+  const e = await criarEmpresa(await superToken());
+  await lojaComPedido(e);
+  await sql(`UPDATE configuracoes_pedidos SET config = config || $2::jsonb WHERE empresa_id = $1`, [e.id, JSON.stringify({ vendas: { ativo: true, foraDoHorario: true, exigirMinimo: false, descontoMaximoPercentual: 10 } })]);
+  const perfil = await pedir('POST', '/perfis', { token: e.adminToken, corpo: { nome: `Vendedor ${randomUUID().slice(0, 6)}`, permissoes: ['pedido.vender'] } });
+  const email = `${randomUUID().slice(0, 8)}@e2e.local`;
+  await pedir('POST', '/usuarios', { token: e.adminToken, corpo: { nome: 'Vendedor Paulo', email, senha: 'SenhaUsuario123', perfilId: perfil.j.id } });
+  const token = (await pedir('POST', '/auth/login', { corpo: { email, senha: 'SenhaUsuario123' } })).j.token as string;
+  const erros: string[] = [];
+  page.on('pageerror', (x) => erros.push(x.message));
+  await vincular(page, { ...e, adminToken: token });
+
+  await page.getByRole('tab', { name: 'Pedidos' }).click();
+  await expect(page.getByRole('heading', { name: 'Minhas vendas' })).toBeVisible();
+  // O pedido do link (de outra pessoa) não aparece para quem só vende.
+  await expect(page.getByRole('button', { name: 'Pedido 1, Maria Silva' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Nova venda' }).click();
+
+  await page.getByLabel('Buscar produto').fill('arroz');
+  await page.getByRole('button', { name: 'Adicionar Arroz Tipo 1 5kg' }).click();
+  await page.getByRole('button', { name: 'Adicionar Arroz Tipo 1 5kg' }).click();
+  await expect(page.getByText('Arroz Tipo 1 5kg: 2 no carrinho.')).toBeVisible();
+  await page.getByLabel('Buscar produto').fill('feijao');
+  await page.getByRole('button', { name: 'Adicionar Feijão Carioca 1kg' }).click();
+  await page.getByLabel('Observação de Arroz Tipo 1 5kg').fill('Pacote fechado');
+  await page.screenshot({ path: 'test-results/app-venda-carrinho.png', fullPage: true });
+  await page.getByRole('button', { name: /^Continuar · 3 itens · R\$ 58,29/ }).click();
+
+  await page.getByLabel('Nome do cliente').fill('Carlos Pereira');
+  await page.getByLabel('Celular do cliente').fill('(11) 91234-5678');
+  await page.getByRole('radio', { name: 'Retirar no local' }).click();
+  await page.getByRole('radio', { name: 'Pix' }).click();
+  await expect(page.getByText('Até R$ 5,82 (10% dos produtos).')).toBeVisible();
+  await page.getByLabel('Desconto em reais').fill('2,00');
+  await expect(page.getByText('R$ 56,29')).toBeVisible();
+  await page.screenshot({ path: 'test-results/app-venda-cliente.png', fullPage: true });
+  await page.getByRole('button', { name: 'Lançar venda' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Venda lançada' })).toBeVisible();
+  await expect(page.getByText('Pedido nº 2 · Carlos Pereira')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Mandar o acompanhamento no WhatsApp' })).toBeVisible();
+  // Sem "gerenciar", não imprime a folha: quem imprime é a loja.
+  await expect(page.getByRole('button', { name: 'Imprimir a folha de lançamento' })).toHaveCount(0);
+  const [p] = await sql(`SELECT situacao, origem, desconto_centavos, total_centavos, itens FROM pedidos WHERE empresa_id = $1 AND numero = 2`, [e.id]);
+  expect(p).toMatchObject({ situacao: 'EM_SEPARACAO', origem: 'VENDEDOR', desconto_centavos: 200, total_centavos: 5629 });
+  expect(p.itens[0].observacao).toBe('Pacote fechado');
+  await page.screenshot({ path: 'test-results/app-venda-feita.png' });
+
+  await page.getByRole('link', { name: '‹ Pedidos' }).click();
+  await expect(page.getByRole('button', { name: 'Pedido 2, Carlos Pereira' })).toBeVisible();
+  // O carrinho foi esvaziado depois de lançar.
+  await page.getByRole('button', { name: 'Nova venda' }).click();
+  await expect(page.getByText('Busque ou leia o código dos produtos para adicionar.')).toBeVisible();
+  expect(erros).toEqual([]);
+});

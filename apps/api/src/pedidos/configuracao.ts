@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { IsArray, IsBoolean, IsInt, IsObject, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import {
   AGENDAMENTO_PADRAO,
+  MAX_DESCONTO_VENDEDOR_PERCENTUAL,
   caminhoLogoDaLoja,
   LOGO_LOJA_MAXIMO_BYTES,
   CONFIG_PEDIDOS_PADRAO,
@@ -115,6 +116,12 @@ function configLimpa(c: Partial<ConfigPedidos>): ConfigPedidos {
     whatsappLoja: typeof c.whatsappLoja === 'string' ? c.whatsappLoja.replace(/\D/g, '').slice(0, 15) : '',
     agendamento: { dias: c.agendamento?.dias ?? AGENDAMENTO_PADRAO.dias, duracaoMinutos: c.agendamento?.duracaoMinutos ?? AGENDAMENTO_PADRAO.duracaoMinutos },
     impressoraFolhaId: typeof c.impressoraFolhaId === 'string' && c.impressoraFolhaId ? c.impressoraFolhaId : null,
+    vendas: {
+      ativo: c.vendas?.ativo === true,
+      foraDoHorario: c.vendas?.foraDoHorario !== false,
+      exigirMinimo: c.vendas?.exigirMinimo === true,
+      descontoMaximoPercentual: Number.isInteger(c.vendas?.descontoMaximoPercentual) ? Math.min(Math.max(c.vendas!.descontoMaximoPercentual, 0), MAX_DESCONTO_VENDEDOR_PERCENTUAL) : 0,
+    },
     camposDetalhe: (Array.isArray(c.camposDetalhe) ? c.camposDetalhe : []).slice(0, 50).map((d) => ({ coluna: coluna(d?.coluna) ?? '', rotulo: texto(d?.rotulo, 100) })),
   };
 }

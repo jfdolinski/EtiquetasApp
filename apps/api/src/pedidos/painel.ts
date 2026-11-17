@@ -117,6 +117,7 @@ const SELECAO = {
   historico: true,
   aceitoPorId: true,
   aceitoPor: { select: { nome: true, codigoErp: true } },
+  vendedor: { select: { nome: true } },
 } satisfies Prisma.PedidoSelect;
 
 class RespostaItemDto {
@@ -161,13 +162,13 @@ export class PainelPedidosService {
     const busca = f.busca?.trim();
     if (busca) {
       const digitos = busca.replace(/\D/g, '');
-      where.OR = [{ clienteNome: { contains: busca, mode: 'insensitive' } }, ...(digitos ? [{ clienteTelefone: { contains: digitos } }] : []), ...(/^\d{1,9}$/.test(busca) ? [{ numero: Number(busca) }] : [])];
+      where.OR = [{ clienteNome: { contains: busca, mode: 'insensitive' } }, { vendedor: { nome: { contains: busca, mode: 'insensitive' } } }, ...(digitos ? [{ clienteTelefone: { contains: digitos } }] : []), ...(/^\d{1,9}$/.test(busca) ? [{ numero: Number(busca) }] : [])];
     }
     const lista = await this.prisma.pedido.findMany({
       where,
       orderBy: { criadoEm: 'desc' },
       take: LIMITE_LISTA,
-      select: { id: true, numero: true, situacao: true, criadoEm: true, clienteNome: true, modalidade: true, agendamento: true, totalCentavos: true, itens: true, propostaEm: true },
+      select: { id: true, numero: true, situacao: true, criadoEm: true, clienteNome: true, modalidade: true, agendamento: true, totalCentavos: true, itens: true, propostaEm: true, vendedor: { select: { nome: true } } },
     });
     return lista.map((p) => ({
       id: p.id,
@@ -180,6 +181,7 @@ export class PainelPedidosService {
       totalCentavos: p.totalCentavos,
       unidades: unidadesDe(p.itens as unknown as ItemConferido[]),
       aguardandoCliente: !!p.propostaEm,
+      vendedorNome: p.vendedor?.nome ?? null,
     }));
   }
 
@@ -226,6 +228,7 @@ export class PainelPedidosService {
       totais: totaisDoPedido(itens, p.taxaCentavos, p.trocoParaCentavos, p.descontoCentavos),
       codigoAcompanhamento: decifrar(p.codigoCifrado, config().chaveCriptografia),
       aceitoPorNome: p.aceitoPor?.nome ?? null,
+      vendedorNome: p.vendedor?.nome ?? null,
       aguardandoCliente: !!proposta,
       proposta: proposta ? { ...proposta, versao: p.propostaEm!.toISOString(), diferencas: diferencasDaPropostaPedido(estado, proposta), totais: totaisDaProposta(estado, proposta) } : null,
       respostaProposta: (p.respostaProposta as { aceita: boolean; em: string } | null) ?? null,

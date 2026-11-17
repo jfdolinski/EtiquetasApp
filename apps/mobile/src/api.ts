@@ -45,6 +45,8 @@ export class ErroApi extends Error {
   constructor(
     readonly status: number,
     mensagem: string,
+    /** O corpo da resposta, para quem precisa de mais que a mensagem (a recusa por mudança traz os itens). */
+    readonly dados: unknown = null,
   ) {
     super(mensagem);
   }
@@ -77,7 +79,7 @@ async function pedir<T>(servidor: string, caminho: string, opcoes: { metodo?: st
   const dados = (await resposta.json().catch(() => null)) as { message?: string | string[] } | null;
   if (!resposta.ok) {
     const m = dados?.message;
-    throw new ErroApi(resposta.status, Array.isArray(m) ? m.join(' ') : m || 'Erro inesperado.');
+    throw new ErroApi(resposta.status, Array.isArray(m) ? m.join(' ') : m || 'Erro inesperado.', dados);
   }
   return dados as T;
 }
@@ -121,4 +123,33 @@ export async function abrirPdfDoTrabalho(sessao: Sessao, trabalhoId: string): Pr
     headers: { Authorization: `Bearer ${sessao.token}`, 'X-Empresa-Id': sessao.empresaId },
   });
   await Sharing.shareAsync(arquivo.uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: 'Imprimir ou compartilhar as etiquetas' });
+}
+
+const ARQUIVO_VENDA = 'venda-em-andamento.json';
+
+/** A venda que está sendo montada fica no aparelho: fechar o app no meio não perde o carrinho. */
+export async function lerVendaGuardada(): Promise<string | null> {
+  try {
+    if (Platform.OS === 'web') return localStorage.getItem(`etiquetas.${ARQUIVO_VENDA}`);
+    const f = new File(Paths.document, ARQUIVO_VENDA);
+    return f.exists ? await f.text() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function guardarVenda(texto: string | null): void {
+  try {
+    if (Platform.OS === 'web') {
+      if (texto === null) localStorage.removeItem(`etiquetas.${ARQUIVO_VENDA}`);
+      else localStorage.setItem(`etiquetas.${ARQUIVO_VENDA}`, texto);
+      return;
+    }
+    const f = new File(Paths.document, ARQUIVO_VENDA);
+    if (texto === null) {
+      if (f.exists) f.delete();
+    } else f.write(texto);
+  } catch {
+    // Sem onde guardar, a venda continua na memória enquanto o app estiver aberto.
+  }
 }

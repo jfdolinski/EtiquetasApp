@@ -129,11 +129,11 @@ function origemDaRequisicao(req: Request): string {
 const t = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
 /** Só os campos conhecidos, aparados: o que o navegador mandar a mais não vai para o banco. */
-function enderecoLimpo(e: EnderecoPedido): EnderecoPedido {
+export function enderecoLimpo(e: EnderecoPedido): EnderecoPedido {
   return { cep: normalizarCep(e.cep) ?? '', rua: t(e.rua, 120), numero: e.semNumero ? '' : t(e.numero, 10), semNumero: e.semNumero === true, complemento: t(e.complemento, 80), bairro: t(e.bairro, 80), cidade: t(e.cidade, 80), uf: t(e.uf, 2).toUpperCase(), localizacao: localizacaoLimpa(e.localizacao) };
 }
 
-function momento(agora: Date) {
+export function momento(agora: Date) {
   const fuso = config().fusoHorario;
   const hoje = agoraNoFuso(agora, fuso).data;
   return { hoje, hora: horaLocal(agora, fuso), diaSemana: new Date(`${hoje}T12:00:00Z`).getUTCDay() };
@@ -155,13 +155,13 @@ const SELECAO_LOJA = {
 const logoDe = (c: { codigoLink: string; logoEm: Date | null } | null | undefined) => (c?.logoEm ? caminhoLogoDaLoja(c.codigoLink, c.logoEm.getTime()) : null);
 
 /** O estoque da cópia menos o que está em pedidos ainda não lançados no ERP. */
-async function catalogoComReservas(db: Pick<PrismaService, 'pedido'>, empresaId: string, itens: ItemCatalogo[]): Promise<ItemCatalogo[]> {
+export async function catalogoComReservas(db: Pick<PrismaService, 'pedido'>, empresaId: string, itens: ItemCatalogo[]): Promise<ItemCatalogo[]> {
   if (!itens.some((i) => i.estoque !== undefined)) return itens;
   const abertos = await db.pedido.findMany({ where: { empresaId, situacao: { in: [...SITUACOES_QUE_RESERVAM] } }, select: { itens: true } });
   return descontarReservas(itens, reservasDosPedidos(abertos.map((p) => ({ itens: p.itens as unknown as ItemConferido[] }))));
 }
 
-function recusaPorMudanca(mudancas: RecusaPorMudanca['mudancas'], itens: ItemConferido[]): never {
+export function recusaPorMudanca(mudancas: RecusaPorMudanca['mudancas'], itens: ItemConferido[]): never {
   const corpo: RecusaPorMudanca & { message: string; statusCode: number } = { statusCode: 409, message: 'Alguns produtos mudaram desde que você os escolheu. Confira e envie de novo.', mudancas, itens };
   throw new ConflictException(corpo);
 }

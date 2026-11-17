@@ -20,6 +20,7 @@ import {
   TITULO_PAGAMENTO,
   type SituacaoPedidoApp,
 } from './regras';
+import { TelaVenda } from './TelaVenda';
 import { Alerta, Botao, cores } from './ui';
 
 const INTERVALO_MS = 30_000;
@@ -30,6 +31,9 @@ const COR_SITUACAO: Record<SituacaoPedidoApp, string> = { NOVO: cores.aviso, EM_
  * WhatsApp e mandar a folha para a térmica. Propor alteração é no site, onde cabe a tabela inteira.
  */
 export function TelaPedidos({ api, usuario, servidor }: { api: Api; usuario: UsuarioLogado; servidor: string }) {
+  const podeVer = usuario.superAdmin || usuario.permissoes.includes('pedido.ver');
+  const podeVender = usuario.superAdmin || usuario.permissoes.includes('pedido.vender');
+  const [vendendo, setVendendo] = useState(false);
   const [aberto, setAberto] = useState<string | null>(null);
   const [soAbertos, setSoAbertos] = useState(true);
   const [pedidos, setPedidos] = useState<PedidoResumo[]>([]);
@@ -39,22 +43,24 @@ export function TelaPedidos({ api, usuario, servidor }: { api: Api; usuario: Usu
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      setPedidos(await api<PedidoResumo[]>(`/pedidos${soAbertos ? '?situacao=ABERTOS' : ''}`));
+      // Quem só vende vê as próprias vendas, não os pedidos dos outros.
+      setPedidos(await api<PedidoResumo[]>(podeVer ? `/pedidos${soAbertos ? '?situacao=ABERTOS' : ''}` : '/pedidos/venda/minhas'));
       setErro(null);
     } catch (e) {
       setErro((e as Error).message);
     } finally {
       setCarregando(false);
     }
-  }, [api, soAbertos]);
+  }, [api, soAbertos, podeVer]);
 
   useEffect(() => {
-    if (aberto) return;
+    if (aberto || vendendo) return;
     void carregar();
     const t = setInterval(() => void carregar(), INTERVALO_MS);
     return () => clearInterval(t);
-  }, [carregar, aberto]);
+  }, [carregar, aberto, vendendo]);
 
+  if (vendendo) return <TelaVenda api={api} usuario={usuario} servidor={servidor} aoSair={() => setVendendo(false)} />;
   if (aberto) return <DetalhePedido api={api} usuario={usuario} servidor={servidor} id={aberto} aoVoltar={() => setAberto(null)} />;
 
   const novos = pedidos.filter((p) => p.situacao === 'NOVO').length;
@@ -67,23 +73,27 @@ export function TelaPedidos({ api, usuario, servidor }: { api: Api; usuario: Usu
       refreshControl={<RefreshControl refreshing={carregando} onRefresh={() => void carregar()} />}
       ListHeaderComponent={
         <>
-          <Text accessibilityRole="header" style={estilos.titulo}>Pedidos</Text>
-          <Text style={estilos.sub}>{novos ? `${novos} esperando alguém aceitar` : 'Nenhum pedido esperando'}</Text>
-          <View style={estilos.linha}>
-            <Filtro rotulo="Em aberto" ativo={soAbertos} aoTocar={() => setSoAbertos(true)} />
-            <Filtro rotulo="Todos" ativo={!soAbertos} aoTocar={() => setSoAbertos(false)} />
-          </View>
+          <Text accessibilityRole="header" style={estilos.titulo}>{podeVer ? 'Pedidos' : 'Minhas vendas'}</Text>
+          {podeVer ? <Text style={estilos.sub}>{novos ? `${novos} esperando alguém aceitar` : 'Nenhum pedido esperando'}</Text> : <Text style={estilos.sub}>As suas últimas vendas lançadas pelo aplicativo.</Text>}
+          {podeVender ? <View style={{ marginBottom: 12 }}><Botao titulo="Nova venda" onPress={() => setVendendo(true)} /></View> : null}
+          {podeVer ? (
+            <View style={estilos.linha}>
+              <Filtro rotulo="Em aberto" ativo={soAbertos} aoTocar={() => setSoAbertos(true)} />
+              <Filtro rotulo="Todos" ativo={!soAbertos} aoTocar={() => setSoAbertos(false)} />
+            </View>
+          ) : null}
           {erro ? <Alerta>{erro}</Alerta> : null}
         </>
       }
       ListEmptyComponent={!carregando ? <Text style={estilos.vazio}>Nenhum pedido.</Text> : undefined}
       renderItem={({ item: p }) => (
-        <Pressable accessibilityRole="button" accessibilityLabel={`Pedido ${p.numero}, ${p.clienteNome}`} onPress={() => setAberto(p.id)} style={estilos.cartao}>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Pedido ${p.numero}, ${p.clienteNome}`} disabled={!podeVer} onPress={() => setAberto(p.id)} style={estilos.cartao}>
           <View style={estilos.cabeca}>
             <Text style={estilos.nome} numberOfLines={1}>nº {p.numero} · {p.clienteNome}</Text>
             <Text style={[estilos.situacao, { color: COR_SITUACAO[p.situacao] }]}>{rotuloSituacaoPedido(p.situacao, p.modalidade)}</Text>
           </View>
           <Text style={estilos.detalhe}>{TITULO_MODALIDADE[p.modalidade]}{p.agendamento ? ` · ${textoFaixa(p.agendamento)}` : ''}</Text>
+          {p.vendedorNome && podeVer ? <Text style={[estilos.detalhe, { color: cores.azul }]}>Venda de {p.vendedorNome}</Text> : null}
           <View style={estilos.cabeca}>
             <Text style={estilos.detalhe}>{p.unidades} {p.unidades === 1 ? 'item' : 'itens'} · {formatarCentavos(p.totalCentavos)}</Text>
             {p.aguardandoCliente ? <Text style={[estilos.detalhe, { color: cores.aviso }]}>Esperando o cliente</Text> : null}
@@ -166,7 +176,7 @@ function DetalhePedido({ api, usuario, servidor, id, aoVoltar }: { api: Api; usu
         <Text accessibilityRole="header" style={estilos.titulo}>Pedido nº {p.numero}</Text>
         <Text style={[estilos.situacao, { color: COR_SITUACAO[p.situacao], marginTop: 8 }]}>{rotuloSituacaoPedido(p.situacao, p.modalidade)}</Text>
       </View>
-      {p.aceitoPorNome ? <Text style={estilos.sub}>Aceito por {p.aceitoPorNome}</Text> : null}
+      {p.vendedorNome ? <Text style={estilos.sub}>Venda de {p.vendedorNome} pelo aplicativo</Text> : p.aceitoPorNome ? <Text style={estilos.sub}>Aceito por {p.aceitoPorNome}</Text> : null}
       {erro ? <Alerta>{erro}</Alerta> : null}
       {aviso ? <Alerta tipo="ok">{aviso}</Alerta> : null}
 

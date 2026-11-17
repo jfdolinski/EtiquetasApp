@@ -77,7 +77,7 @@ export function PainelPedidos() {
               <option key={f.rotulo} value={f.valor}>{f.rotulo}</option>
             ))}
           </Selecao>
-          <Campo rotulo="Buscar" placeholder="Nº, nome ou telefone" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          <Campo rotulo="Buscar" placeholder="Nº, nome, telefone ou vendedor" value={busca} onChange={(e) => setBusca(e.target.value)} />
           <Campo rotulo="De" type="date" value={filtro.de ?? ''} onChange={(e) => setFiltro({ ...filtro, de: e.target.value || undefined })} />
           <Campo rotulo="Até" type="date" value={filtro.ate ?? ''} onChange={(e) => setFiltro({ ...filtro, ate: e.target.value || undefined })} />
         </div>
@@ -93,6 +93,7 @@ export function PainelPedidos() {
                     {formatarData(p.criadoEm)} · {ROTULO_MODALIDADE[p.modalidade].titulo}
                     {p.agendamento ? ` · ${textoFaixa(p.agendamento, '')}` : ''}
                   </span>
+                  {p.vendedorNome && <span className="block text-xs text-indigo-700">Venda de {p.vendedorNome}</span>}
                 </span>
                 <span className="flex shrink-0 flex-col items-end gap-1">
                   <Selo cor={COR_SITUACAO[p.situacao]}>{rotuloSituacaoPedido(p.situacao, p.modalidade)}</Selo>
@@ -179,7 +180,9 @@ function DetalhePedido({ id }: { id: string }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Pedido nº {p.numero}</h2>
-          <p className="text-xs text-slate-500">Recebido em {formatarData(p.criadoEm)}{p.aceitoPorNome ? ` · aceito por ${p.aceitoPorNome}` : ''}</p>
+          <p className="text-xs text-slate-500">
+            {p.vendedorNome ? `Venda de ${p.vendedorNome} pelo aplicativo em ${formatarData(p.criadoEm)}` : `Recebido em ${formatarData(p.criadoEm)}${p.aceitoPorNome ? ` · aceito por ${p.aceitoPorNome}` : ''}`}
+          </p>
         </div>
         <Selo cor={COR_SITUACAO[p.situacao]}>{rotuloSituacaoPedido(p.situacao, p.modalidade)}</Selo>
       </div>

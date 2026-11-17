@@ -75,7 +75,8 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
   const podeVerAvisos = usuario.superAdmin || usuario.permissoes.includes('notificacao.ver');
   const podeImprimir = usuario.superAdmin || usuario.permissoes.includes('imprimir');
   const podeVerTelas = usuario.superAdmin || usuario.permissoes.includes('tela.ver');
-  const podeVerPedidos = usuario.superAdmin || usuario.permissoes.includes('pedido.ver');
+  // Quem só vende também tem a guia: lá ficam a Nova venda e as vendas dele.
+  const podeVerPedidos = usuario.superAdmin || usuario.permissoes.includes('pedido.ver') || usuario.permissoes.includes('pedido.vender');
 
   const api = useMemo(() => clienteDa(sessao, () => encerrar('Este celular foi desvinculado. Para usar de novo, leia outro QR code.')), [sessao, encerrar]);
 

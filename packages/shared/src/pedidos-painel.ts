@@ -167,6 +167,8 @@ export interface PedidoResumo {
   unidades: number;
   /** Uma proposta da loja espera a resposta do cliente. */
   aguardandoCliente: boolean;
+  /** Quem lançou pelo aplicativo; nulo no pedido que veio do link. */
+  vendedorNome: string | null;
 }
 
 export interface PedidoCompleto extends PedidoResumo {

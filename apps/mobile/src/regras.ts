@@ -317,3 +317,103 @@ export function mensagemWhatsApp(tipo: 'contato' | 'proposta', p: { numero: numb
   if (tipo === 'proposta') return `Olá, ${primeiro}! Aqui é da ${empresa}. Precisamos mudar uma coisa no seu pedido nº ${p.numero}. Confira e confirme por aqui: ${linkAcompanhamento}`;
   return `Olá, ${primeiro}! Aqui é da ${empresa}, sobre o seu pedido nº ${p.numero}. Acompanhe por aqui: ${linkAcompanhamento}`;
 }
+
+// Venda pelo aplicativo: cópias de packages/shared/src/pedidos.ts (conferidas em pedidos-app.test.ts).
+
+export interface ItemCatalogoApp {
+  codigo: string;
+  nome: string;
+  precoCentavos: number;
+  precoDeCentavos?: number;
+  unidade?: string;
+  categoria?: string;
+  estoque?: number;
+  codigoBarras?: string;
+  foto?: string;
+}
+
+const simplificarBusca = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const semZerosAEsquerda = (t: string) => t.replace(/^0+(?=\d)/, '');
+
+/** Só dígitos procura primeiro o código ou o código de barras exatos; senão, as palavras sem acento. */
+export function buscarNoCatalogo<T extends ItemCatalogoApp>(itens: readonly T[], termo: string, limite = 30): T[] {
+  const t = termo.trim();
+  if (!t) return [];
+  if (/^\d+$/.test(t)) {
+    const c = semZerosAEsquerda(t);
+    const iguais = itens.filter((i) => semZerosAEsquerda(i.codigo) === c || (!!i.codigoBarras && semZerosAEsquerda(i.codigoBarras) === c));
+    if (iguais.length) return iguais.slice(0, limite);
+  }
+  const palavras = simplificarBusca(t).split(/\s+/).filter(Boolean);
+  return itens.filter((i) => {
+    const texto = simplificarBusca(`${i.nome} ${i.codigo} ${i.codigoBarras ?? ''} ${i.categoria ?? ''}`);
+    return palavras.every((p) => texto.includes(p));
+  }).slice(0, limite);
+}
+
+export const descontoMaximoCentavos = (subtotalCentavos: number, percentual: number) => Math.floor((subtotalCentavos * percentual) / 100);
+
+export function normalizarCelular(v: string): string | null {
+  let d = (v ?? '').replace(/\D/g, '');
+  if (d.length === 13 && d.startsWith('55')) d = d.slice(2);
+  if (!/^[1-9][1-9]9\d{8}$/.test(d)) return null;
+  return d;
+}
+
+export function normalizarCep(v: string): string | null {
+  const d = (v ?? '').replace(/\D/g, '');
+  return /^\d{8}$/.test(d) && d !== '00000000' ? d : null;
+}
+
+/** "4,99", "R$ 1.234,56" ou "4.99" em centavos; nulo se não for número (cópia de `centavosDe`). */
+export function centavosDoTexto(v: string): number | null {
+  let s = v.trim().replace(/^R\$\s*/i, '');
+  if (!/^-?[\d.,]+$/.test(s) || !/\d/.test(s)) return null;
+  const ultimaVirgula = s.lastIndexOf(',');
+  const ultimoPonto = s.lastIndexOf('.');
+  if (ultimaVirgula > ultimoPonto) s = s.replace(/\./g, '').replace(',', '.');
+  else s = s.replace(/,/g, '');
+  const n = Number(s);
+  return Number.isFinite(n) ? Math.round(n * 100) : null;
+}
+
+export type MudancaApp = { codigo: string; nome: string; tipo: 'PRECO' | 'ESTOQUE'; antes: number; depois: number } | { codigo: string; nome: string; tipo: 'SUMIU' };
+
+export function textoDaMudanca(m: MudancaApp): string {
+  if (m.tipo === 'SUMIU') return `Um produto do carrinho (${m.nome}) não está mais disponível.`;
+  if (m.tipo === 'ESTOQUE') return `${m.nome}: só ${m.depois === 1 ? 'resta 1' : `restam ${m.depois}`}.`;
+  return `${m.nome}: o preço mudou de ${formatarCentavos(m.antes)} para ${formatarCentavos(m.depois)}.`;
+}
+
+/** Um produto do carrinho do vendedor. */
+export interface ItemVendaApp {
+  codigo: string;
+  nome: string;
+  precoCentavos: number;
+  quantidade: number;
+  estoque?: number;
+  observacao?: string;
+}
+
+export const MAX_QUANTIDADE_ITEM = 999;
+
+/** Soma ao que já está no carrinho, sem passar do estoque nem do máximo; o aviso diz quando parou. */
+export function somarAoCarrinho(carrinho: readonly ItemVendaApp[], item: ItemCatalogoApp, quantos = 1): { carrinho: ItemVendaApp[]; aviso: string | null } {
+  const limite = Math.min(item.estoque ?? MAX_QUANTIDADE_ITEM, MAX_QUANTIDADE_ITEM);
+  const atual = carrinho.find((i) => i.codigo === item.codigo);
+  const desejada = (atual?.quantidade ?? 0) + quantos;
+  const quantidade = Math.max(0, Math.min(desejada, limite));
+  const aviso = desejada > limite ? `${item.nome}: ${item.estoque !== undefined && item.estoque <= MAX_QUANTIDADE_ITEM ? `só há ${limite} em estoque` : `até ${limite} por pedido`}.` : null;
+  if (quantidade === 0) return { carrinho: carrinho.filter((i) => i.codigo !== item.codigo), aviso };
+  const novo: ItemVendaApp = { ...atual, codigo: item.codigo, nome: item.nome, precoCentavos: item.precoCentavos, quantidade, ...(item.estoque !== undefined ? { estoque: item.estoque } : {}) };
+  return { carrinho: atual ? carrinho.map((i) => (i.codigo === item.codigo ? novo : i)) : [...carrinho, novo], aviso };
+}
+
+/** Depois da recusa por mudança: o carrinho fica com o preço e a quantidade que o servidor conferiu. */
+export function carrinhoConferido(carrinho: readonly ItemVendaApp[], conferidos: readonly { codigo: string; quantidade: number; precoCentavos: number }[]): ItemVendaApp[] {
+  const porCodigo = new Map(conferidos.map((c) => [c.codigo, c]));
+  return carrinho.flatMap((i) => {
+    const c = porCodigo.get(i.codigo);
+    return c && c.quantidade > 0 ? [{ ...i, quantidade: c.quantidade, precoCentavos: c.precoCentavos }] : [];
+  });
+}

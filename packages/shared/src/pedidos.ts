@@ -140,6 +140,31 @@ export interface ConfigPedidos extends ColunasCatalogo {
   impressoraFolhaId: string | null;
   /** Colunas a mais que o cliente vê ao abrir o produto, com o nome que ele lê. Só as escolhidas: o SQL pode ter custo. */
   camposDetalhe: CampoDetalhe[];
+  /** O vendedor lançando pedidos pelo aplicativo, com a mesma cópia dos produtos e as mesmas reservas. */
+  vendas: ConfigVendas;
+}
+
+/** Só o que muda para o vendedor; produtos, preços, entrega e taxas são os do link. */
+export interface ConfigVendas {
+  ativo: boolean;
+  /** Vende com a loja fechada: todas as formas de entrega ligadas ficam disponíveis. */
+  foraDoHorario: boolean;
+  /** O pedido mínimo do link vale também para o vendedor. */
+  exigirMinimo: boolean;
+  /** Desconto que o vendedor pode dar, em % dos produtos; 0 = nenhum. */
+  descontoMaximoPercentual: number;
+}
+
+export const CONFIG_VENDAS_PADRAO: ConfigVendas = { ativo: false, foraDoHorario: true, exigirMinimo: false, descontoMaximoPercentual: 0 };
+export const MAX_DESCONTO_VENDEDOR_PERCENTUAL = 50;
+/** Por vendedor: acima disso é engano (botão repetido) ou abuso que trava o estoque da loja. */
+export const MAX_VENDAS_POR_HORA_VENDEDOR = 60;
+
+export function problemaNaConfigVendas(v: ConfigVendas): string | null {
+  if (typeof v?.ativo !== 'boolean' || typeof v.foraDoHorario !== 'boolean' || typeof v.exigirMinimo !== 'boolean') return 'Configuração das vendas no aplicativo inválida.';
+  const d = v.descontoMaximoPercentual;
+  if (!Number.isInteger(d) || d < 0 || d > MAX_DESCONTO_VENDEDOR_PERCENTUAL) return `O desconto do vendedor vai de 0 a ${MAX_DESCONTO_VENDEDOR_PERCENTUAL}%, em números inteiros.`;
+  return null;
 }
 
 export interface CampoDetalhe {
@@ -202,6 +227,7 @@ export const CONFIG_PEDIDOS_PADRAO: ConfigPedidos = {
   agendamento: AGENDAMENTO_PADRAO,
   impressoraFolhaId: null,
   camposDetalhe: [],
+  vendas: CONFIG_VENDAS_PADRAO,
 };
 
 const valorValido = (v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= LIMITES_PEDIDOS.valorMaximoCentavos;
@@ -236,7 +262,7 @@ export function problemaNaConfigPedidos(c: ConfigPedidos): string | null {
     if (d.rotulo.length > MAX_ROTULO_DETALHE) return `O nome do campo “${d.coluna}” pode ter até ${MAX_ROTULO_DETALHE} caracteres.`;
   }
   if (new Set(campos.map((d) => d.coluna.toLowerCase())).size !== campos.length) return 'Uma coluna aparece duas vezes no detalhe do produto.';
-  return null;
+  return problemaNaConfigVendas(c.vendas ?? CONFIG_VENDAS_PADRAO);
 }
 
 export function problemaNosPrazosPedidos(intervaloMinutos: number, validadeMinutos: number): string | null {
@@ -936,3 +962,80 @@ export function mensagemParaLoja(p: Pick<PedidoPublico, 'numero' | 'nome' | 'mod
 }
 
 export const linkWhatsAppDaLoja = (telefone: string, mensagem: string) => `https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}`;
+
+// Venda pelo aplicativo (vendedor) --------------------------------------------------------------
+
+/** O vendedor manda o mesmo que o cliente, mais o desconto (dentro do limite da configuração). */
+export interface NovaVenda extends NovoPedido {
+  descontoCentavos: number;
+}
+
+/** O que o vendedor vê: o catálogo do link com as reservas, mais o código de barras para a câmera. */
+export interface CatalogoVenda {
+  empresa: string;
+  aberta: boolean;
+  hoje: string;
+  modalidades: { modalidade: ModalidadeEntrega; precoCentavos: number }[];
+  enderecoRetirada: string | null;
+  faixas: FaixaAgendamento[];
+  /** Nulo quando o vendedor não precisa respeitar o mínimo. */
+  pedidoMinimoCentavos: number | null;
+  descontoMaximoPercentual: number;
+  itens: ItemCatalogo[];
+  categorias: string[];
+  dadosEm: string;
+}
+
+export interface VendaCriada {
+  id: string;
+  numero: number;
+  /** O código do acompanhamento, para o vendedor mandar ao cliente. */
+  codigo: string;
+}
+
+/** Arredondado para baixo: o limite nunca passa da porcentagem configurada. */
+export const descontoMaximoCentavos = (subtotalCentavos: number, percentual: number) => Math.floor((subtotalCentavos * percentual) / 100);
+
+/** O vendedor pode vender com a loja fechada e sem o mínimo, conforme a configuração. */
+export function contextoDaVenda(ctx: ContextoPedido, v: ConfigVendas): ContextoPedido {
+  return { ...ctx, aberta: ctx.aberta || v.foraDoHorario, pedidoMinimoCentavos: v.exigirMinimo ? ctx.pedidoMinimoCentavos : null };
+}
+
+/** `ctx` já passou por `contextoDaVenda`. O troco é conferido com o total já com o desconto. */
+export function problemaNaVenda(p: NovaVenda, itens: ItemConferido[], ctx: ContextoPedido, v: ConfigVendas): string | null {
+  const r = problemaNoPedido({ ...p, trocoParaCentavos: null }, itens, ctx);
+  if (r) return r === 'Informe o seu nome.' ? 'Informe o nome do cliente.' : r;
+  const subtotal = subtotalDe(itens);
+  const d = p.descontoCentavos ?? 0;
+  if (!Number.isInteger(d) || d < 0) return 'Desconto inválido.';
+  const maximo = descontoMaximoCentavos(subtotal, v.descontoMaximoPercentual);
+  if (d > maximo) return maximo === 0 ? 'Esta loja não permite desconto do vendedor.' : `O desconto pode ser de até ${formatarCentavos(maximo)} (${v.descontoMaximoPercentual}% dos produtos).`;
+  if (p.pagamento === 'DINHEIRO' && p.trocoParaCentavos !== null && p.trocoParaCentavos !== undefined) {
+    if (!Number.isInteger(p.trocoParaCentavos) || p.trocoParaCentavos > LIMITES_PEDIDOS.valorMaximoCentavos) return 'Valor do troco inválido.';
+    const total = Math.max(0, subtotal + ctx.modalidades[p.modalidade].precoCentavos - d);
+    if (p.trocoParaCentavos < total) return `O troco precisa ser para um valor igual ou maior que o total, ${formatarCentavos(total)}.`;
+  }
+  return null;
+}
+
+const simplificarBusca = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const semZerosAEsquerda = (t: string) => t.replace(/^0+(?=\d)/, '');
+
+/**
+ * Busca do vendedor: só dígitos procura primeiro o código ou o código de barras exatos (o que a câmera
+ * lê); senão, todas as palavras no nome, código ou categoria, sem acento.
+ */
+export function buscarNoCatalogo(itens: ItemCatalogo[], termo: string, limite = 30): ItemCatalogo[] {
+  const t = termo.trim();
+  if (!t) return [];
+  if (/^\d+$/.test(t)) {
+    const c = semZerosAEsquerda(t);
+    const iguais = itens.filter((i) => semZerosAEsquerda(i.codigo) === c || (!!i.codigoBarras && semZerosAEsquerda(i.codigoBarras) === c));
+    if (iguais.length) return iguais.slice(0, limite);
+  }
+  const palavras = simplificarBusca(t).split(/\s+/).filter(Boolean);
+  return itens.filter((i) => {
+    const texto = simplificarBusca(`${i.nome} ${i.codigo} ${i.codigoBarras ?? ''} ${i.categoria ?? ''}`);
+    return palavras.every((p) => texto.includes(p));
+  }).slice(0, limite);
+}
