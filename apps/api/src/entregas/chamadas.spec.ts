@@ -8,10 +8,11 @@ import type { MapasService } from './mapas';
 
 const SE = { lat: -23.5505, lon: -46.6333 };
 const PAULISTA = { lat: -23.5614, lon: -46.6559 };
+const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const parada = (p: { lat: number; lon: number }) => ({ ...p, endereco: 'Rua A, 1', contato: '', telefone: '', instrucoes: '' });
 
 function montar(chamada: Record<string, unknown>) {
-  const c = { id: 'c1', entregadorId: 'e1', tipo: 'ENTREGA', situacao: 'ACEITA', origem: parada(SE), destino: parada(PAULISTA), serieEsperada: null, codigoConfirmacao: '1234', tentativasCodigo: 0, paradaAtual: 0, paradas: [], ...chamada };
+  const c = { id: 'c1', entregadorId: 'e1', tipo: 'ENTREGA', situacao: 'ACEITA', origem: parada(SE), destino: parada(PAULISTA), serieEsperada: null, codigoConfirmacao: '1234', tentativasCodigo: 0, paradaAtual: 0, paradas: [], esperaToleranciaMinutos: 10, esperaPorBlocoCentavos: 0, chegouNoPontoEm: null, devolucao: null, checklists: {}, ...chamada };
   const tx = {
     chamadaEntrega: { updateMany: jest.fn(async () => ({ count: 1 })) },
     fotoChamada: { create: jest.fn(async () => ({})) },
@@ -33,7 +34,7 @@ describe('etapas da chamada', () => {
     await expect(montar({}).s.avancar('e1', 'c1', { para: 'NA_COLETA', ...PAULISTA, precisao: 10 })).rejects.toBeInstanceOf(BadRequestException);
     const { s, tx } = montar({});
     await s.avancar('e1', 'c1', { para: 'NA_COLETA', lat: SE.lat + 0.0005, lon: SE.lon, precisao: 10 });
-    expect(tx.chamadaEntrega.updateMany).toHaveBeenCalledWith({ where: { id: 'c1', situacao: 'ACEITA', entregadorId: 'e1' }, data: { situacao: 'NA_COLETA' } });
+    expect(tx.chamadaEntrega.updateMany).toHaveBeenCalledWith({ where: { id: 'c1', situacao: 'ACEITA', entregadorId: 'e1' }, data: { situacao: 'NA_COLETA', chegouNoPontoEm: expect.any(Date) } });
   });
 
   it('não pula etapa nem aceita GPS falso', async () => {
@@ -41,13 +42,39 @@ describe('etapas da chamada', () => {
     await expect(montar({}).s.avancar('e1', 'c1', { para: 'NA_COLETA', ...SE, simulada: true })).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('máquina pede a série, e a esperada precisa conferir', async () => {
-    const na = { situacao: 'NA_COLETA', tipo: 'DEVOLUCAO_MAQUINA' };
+  it('máquina pede a série e o checklist; série diferente com foto vira ocorrência', async () => {
+    const na = { situacao: 'NA_COLETA', tipo: 'DEVOLUCAO_MAQUINA', checklists: {} };
+    const lista = { carregador: true, bobina: false, chip: true, estado: 'BOA' as const, observacao: '' };
     await expect(montar(na).s.avancar('e1', 'c1', { para: 'COLETADA', ...SE })).rejects.toThrow(/série/);
-    await expect(montar({ ...na, serieEsperada: 'ABC123' }).s.avancar('e1', 'c1', { para: 'COLETADA', ...SE, serie: 'abc-124' })).rejects.toThrow(/não confere/);
+    await expect(montar(na).s.avancar('e1', 'c1', { para: 'COLETADA', ...SE, serie: 'abc-123' })).rejects.toThrow(/checklist/);
+    await expect(montar({ ...na, serieEsperada: 'ABC123' }).s.avancar('e1', 'c1', { para: 'COLETADA', ...SE, serie: 'abc-124', checklist: lista })).rejects.toThrow(/não confere/);
+    const dif = montar({ ...na, serieEsperada: 'ABC123' });
+    await dif.s.avancar('e1', 'c1', { para: 'COLETADA', ...SE, serie: 'abc-124', checklist: lista, foto: PNG });
+    expect(dif.tx.chamadaEntrega.updateMany).toHaveBeenCalledWith({ where: { id: 'c1', situacao: 'NA_COLETA', entregadorId: 'e1' }, data: { situacao: 'OCORRENCIA', ocorrencia: expect.objectContaining({ motivo: 'SERIE_DIFERENTE', serieLida: 'ABC124', situacaoAnterior: 'NA_COLETA' }) } });
+    expect(dif.tx.fotoChamada.create).toHaveBeenCalledWith({ data: expect.objectContaining({ etapa: 'OCORRENCIA' }) });
     const { s, tx } = montar({ ...na, serieEsperada: 'ABC123' });
-    await s.avancar('e1', 'c1', { para: 'COLETADA', ...SE, serie: 'abc-123' });
-    expect(tx.chamadaEntrega.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { situacao: 'COLETADA', coletadaEm: expect.any(Date), serieColetada: 'ABC123' } }));
+    await s.avancar('e1', 'c1', { para: 'COLETADA', ...SE, serie: 'abc-123', checklist: lista, foto: PNG });
+    expect(tx.chamadaEntrega.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { situacao: 'COLETADA', coletadaEm: expect.any(Date), serieColetada: 'ABC123', checklists: { COLETA: lista } } }));
+  });
+
+  it('espera além da tolerância soma ao valor em blocos de 10 min', async () => {
+    const chegou = new Date(Date.now() - 34 * 60_000);
+    const { s, tx } = montar({ situacao: 'NO_DESTINO', chegouNoPontoEm: chegou, esperaToleranciaMinutos: 10, esperaPorBlocoCentavos: 250 });
+    await s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...PAULISTA, codigo: '1234' });
+    expect(tx.chamadaEntrega.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ situacao: 'CONCLUIDA', esperaMinutos: { increment: 20 }, esperaCentavos: { increment: 500 }, valorCentavos: { increment: 500 } }) }));
+    expect(tx.$executeRaw).toHaveBeenCalled();
+    const sem = montar({ situacao: 'NA_COLETA', chegouNoPontoEm: new Date(Date.now() - 15 * 60_000), esperaToleranciaMinutos: 10, esperaPorBlocoCentavos: 250 });
+    await sem.s.avancar('e1', 'c1', { para: 'COLETADA', ...SE });
+    expect(sem.tx.chamadaEntrega.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { situacao: 'COLETADA', coletadaEm: expect.any(Date) } }));
+  });
+
+  it('devolvendo: o destino é a origem e o código é o da empresa; a chamada termina inteira', async () => {
+    const dev = { situacao: 'NO_DESTINO', devolucao: { em: '', metros: 1000, valorCentavos: 550, motivo: 'Cliente ausente' }, codigoDevolucao: '4321' };
+    await expect(montar({ ...dev, situacao: 'COLETADA' }).s.avancar('e1', 'c1', { para: 'NO_DESTINO', ...PAULISTA })).rejects.toThrow(/não está no destino/);
+    await expect(montar(dev).s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...SE, codigo: '1234' })).rejects.toThrow(/Código errado/);
+    const { s, tx } = montar(dev);
+    await s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...SE, codigo: '4321' });
+    expect(tx.chamadaEntrega.updateMany).toHaveBeenCalledWith({ where: { id: 'c1', situacao: 'NO_DESTINO' }, data: expect.objectContaining({ situacao: 'CONCLUIDA', chegouNoPontoEm: null }) });
   });
 
   it('entrega exige o código e conta as tentativas', async () => {
@@ -57,19 +84,19 @@ describe('etapas da chamada', () => {
     await expect(montar({ situacao: 'NO_DESTINO', tentativasCodigo: 5 }).s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...PAULISTA, codigo: '1234' })).rejects.toBeInstanceOf(ForbiddenException);
     const ok = montar({ situacao: 'NO_DESTINO' });
     await ok.s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...PAULISTA, codigo: '1234' });
-    expect(ok.tx.chamadaEntrega.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { situacao: 'CONCLUIDA', concluidaEm: expect.any(Date) } }));
+    expect(ok.tx.chamadaEntrega.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { chegouNoPontoEm: null, situacao: 'CONCLUIDA', concluidaEm: expect.any(Date) } }));
   });
 
   it('com várias paradas, entregar a primeira passa para a próxima, com o código dela', async () => {
     const extra = { ordem: 1, parada: parada(SE), codigoConfirmacao: '9999', entregueEm: null };
     const { s, tx } = montar({ situacao: 'NO_DESTINO', paradas: [extra] });
     await s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...PAULISTA, codigo: '1234' });
-    expect(tx.chamadaEntrega.updateMany).toHaveBeenCalledWith({ where: { id: 'c1', situacao: 'NO_DESTINO', paradaAtual: 0 }, data: { situacao: 'COLETADA', paradaAtual: 1, tentativasCodigo: 0 } });
+    expect(tx.chamadaEntrega.updateMany).toHaveBeenCalledWith({ where: { id: 'c1', situacao: 'NO_DESTINO', paradaAtual: 0 }, data: { chegouNoPontoEm: null, situacao: 'COLETADA', paradaAtual: 1, tentativasCodigo: 0 } });
     // Na segunda parada, o código é o dela e a chegada é no ponto dela.
     const segunda = montar({ situacao: 'NO_DESTINO', paradaAtual: 1, paradas: [extra] });
     await expect(segunda.s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...SE, codigo: '1234' })).rejects.toThrow(/Código errado/);
     await segunda.s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...SE, codigo: '9999' });
-    expect(segunda.tx.chamadaEntrega.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { situacao: 'CONCLUIDA', concluidaEm: expect.any(Date) } }));
+    expect(segunda.tx.chamadaEntrega.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { chegouNoPontoEm: null, situacao: 'CONCLUIDA', concluidaEm: expect.any(Date) } }));
     expect(segunda.tx.paradaExtraChamada.updateMany).toHaveBeenCalledWith({ where: { chamadaId: 'c1', ordem: 1 }, data: { entregueEm: expect.any(Date) } });
     await expect(montar({ situacao: 'COLETADA', paradaAtual: 1, paradas: [extra] }).s.avancar('e1', 'c1', { para: 'NO_DESTINO', ...PAULISTA })).rejects.toThrow(/não está no destino/);
   });
@@ -79,8 +106,7 @@ describe('etapas da chamada', () => {
     await expect(montar({ situacao: 'NO_DESTINO', fotoEntrega: true }).s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...PAULISTA, codigo: '1234' })).rejects.toThrow(/foto da entrega/);
     const extra = { ordem: 1, parada: parada(SE), codigoConfirmacao: '9999', entregueEm: null };
     const { s, tx } = montar({ situacao: 'NO_DESTINO', fotoEntrega: true, paradaAtual: 1, paradas: [extra] });
-    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-    await s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...SE, codigo: '9999', foto: png });
+    await s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...SE, codigo: '9999', foto: PNG });
     expect(tx.fotoChamada.create).toHaveBeenCalledWith({ data: expect.objectContaining({ etapa: 'ENTREGA_1' }) });
   });
 

@@ -7,6 +7,10 @@ import {
   pixCopiaECola,
   problemaNoPacote,
   problemaNosParametrosEntregas,
+  problemaNoPadraoDaPlataforma,
+  TIPOS_CHAMADA,
+  type PrecoTipo,
+  type TabelaPrecos,
   saldoDeDiarias,
   type CreditosEntregador,
   type MovimentoDiarias,
@@ -16,7 +20,7 @@ import {
   type PedidoCreditoResumo,
   type SituacaoPedidoCredito,
 } from '@etiquetas/shared';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { imagemDoDataUrl } from './imagens';
@@ -58,6 +62,25 @@ const SELECAO_PEDIDO = {
   decididoEm: true,
 } as const;
 
+/** Só os campos conhecidos de cada tipo (o corpo é JSON livre). */
+export function tabelaLimpa(t: TabelaPrecos): TabelaPrecos {
+  const limpo = {} as TabelaPrecos;
+  for (const tipo of TIPOS_CHAMADA) {
+    const p = (t?.[tipo] ?? {}) as Partial<PrecoTipo>;
+    const opcional = (v: unknown) => (v === undefined || v === null || v === '' ? undefined : Number(v));
+    limpo[tipo] = {
+      baseCentavos: Number(p.baseCentavos),
+      porKmCentavos: Number(p.porKmCentavos),
+      kmIncluso: Number(p.kmIncluso),
+      ...(opcional(p.porParadaCentavos) !== undefined ? { porParadaCentavos: opcional(p.porParadaCentavos) } : {}),
+      ...(opcional(p.taxaCancelamentoCentavos) !== undefined ? { taxaCancelamentoCentavos: opcional(p.taxaCancelamentoCentavos) } : {}),
+      ...(opcional(p.esperaToleranciaMinutos) !== undefined ? { esperaToleranciaMinutos: opcional(p.esperaToleranciaMinutos) } : {}),
+      ...(opcional(p.esperaPorBlocoCentavos) !== undefined ? { esperaPorBlocoCentavos: opcional(p.esperaPorBlocoCentavos) } : {}),
+    };
+  }
+  return limpo;
+}
+
 /** Créditos do entregador: pacotes de diárias, compra por Pix confirmada à mão e extrato. */
 @Injectable()
 export class CreditosService {
@@ -71,7 +94,7 @@ export class CreditosService {
   async parametros(): Promise<ParametrosEntregasPlataforma> {
     const p = await this.prisma.parametrosEntregas.findUnique({ where: { id: 1 } });
     if (!p) return { ...PARAMETROS_ENTREGAS_PADRAO };
-    return { pixChave: p.pixChave, pixNome: p.pixNome, pixCidade: p.pixCidade, diariasBonusCadastro: p.diariasBonusCadastro, validadeBonusDias: p.validadeBonusDias };
+    return { pixChave: p.pixChave, pixNome: p.pixNome, pixCidade: p.pixCidade, diariasBonusCadastro: p.diariasBonusCadastro, validadeBonusDias: p.validadeBonusDias, tabelaPadrao: (p.tabelaPadrao as unknown as TabelaPrecos | null) ?? null, valorMinimoCentavos: p.valorMinimoCentavos };
   }
 
   async salvarParametros(dados: ParametrosEntregasPlataforma, autorId: string): Promise<ParametrosEntregasPlataforma> {
@@ -81,11 +104,14 @@ export class CreditosService {
       pixCidade: dados.pixCidade.trim(),
       diariasBonusCadastro: dados.diariasBonusCadastro,
       validadeBonusDias: dados.validadeBonusDias,
+      tabelaPadrao: dados.tabelaPadrao ? tabelaLimpa(dados.tabelaPadrao) : null,
+      valorMinimoCentavos: dados.valorMinimoCentavos ?? 0,
     };
-    const problema = problemaNosParametrosEntregas(p);
+    const problema = problemaNosParametrosEntregas(p) ?? problemaNoPadraoDaPlataforma(p.tabelaPadrao, p.valorMinimoCentavos);
     if (problema) throw new BadRequestException(problema);
-    await this.prisma.parametrosEntregas.upsert({ where: { id: 1 }, create: { id: 1, ...p }, update: p });
-    await this.auditoria.registrar({ empresaId: null, usuarioId: autorId, acao: 'entregas.parametros', entidade: 'ParametrosEntregas', detalhes: { pix: pixConfigurado(p), diariasBonusCadastro: p.diariasBonusCadastro } });
+    const linha = { ...p, tabelaPadrao: p.tabelaPadrao ? (p.tabelaPadrao as never) : Prisma.DbNull };
+    await this.prisma.parametrosEntregas.upsert({ where: { id: 1 }, create: { id: 1, ...linha }, update: linha });
+    await this.auditoria.registrar({ empresaId: null, usuarioId: autorId, acao: 'entregas.parametros', entidade: 'ParametrosEntregas', detalhes: { pix: pixConfigurado(p), diariasBonusCadastro: p.diariasBonusCadastro, tabelaPadrao: p.tabelaPadrao as never, valorMinimoCentavos: p.valorMinimoCentavos } });
     return p;
   }
 

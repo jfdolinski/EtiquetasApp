@@ -3,6 +3,7 @@
 
 import type { MotivoOcorrencia, SituacaoChamada, TipoChamada } from '../../../packages/shared/src/entregas-chamadas';
 import type { DadosCadastroEntregador, SituacaoEntregador, SituacaoPedidoCredito, TipoDocumentoEntregador, TipoVeiculo } from '../../../packages/shared/src/entregas';
+import type { ChecklistMaquina, EstadoMaquina } from '../../../packages/shared/src/entregas-servico';
 
 export const TIPOS_VEICULO: TipoVeiculo[] = ['MOTO', 'CARRO', 'BICICLETA', 'A_PE'];
 export const ROTULO_VEICULO: Record<TipoVeiculo, string> = { MOTO: 'Moto', CARRO: 'Carro', BICICLETA: 'Bicicleta', A_PE: 'A pé' };
@@ -154,4 +155,24 @@ export const formatarKm = (metros: number) => `${(metros / 1000).toLocaleString(
 
 export function linkNavegacao(p: { lat: number; lon: number }): string {
   return `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}`;
+}
+
+// Etapa 10 (cópias de entregas-servico.ts): checklist da maquininha e espera.
+export const ESPERA_BLOCO_MINUTOS = 10;
+export const ESTADOS_MAQUINA: EstadoMaquina[] = ['BOA', 'AVARIADA'];
+export const ROTULO_ESTADO_MAQUINA: Record<EstadoMaquina, string> = { BOA: 'Em bom estado', AVARIADA: 'Com avaria' };
+export const ITENS_CHECKLIST: { chave: 'carregador' | 'bobina' | 'chip'; rotulo: string }[] = [
+  { chave: 'carregador', rotulo: 'Carregador' },
+  { chave: 'bobina', rotulo: 'Bobina' },
+  { chave: 'chip', rotulo: 'Chip' },
+];
+export const LIMITE_OBSERVACAO_CHECKLIST = 300;
+
+export function problemaNoChecklist(c: Partial<ChecklistMaquina> | null | undefined): string | null {
+  if (!c) return 'Preencha o checklist da máquina.';
+  for (const i of ITENS_CHECKLIST) if (typeof c[i.chave] !== 'boolean') return `Marque se veio ${i.rotulo.toLowerCase()}.`;
+  if (!ESTADOS_MAQUINA.includes(c.estado as EstadoMaquina)) return 'Informe o estado da máquina.';
+  if (c.estado === 'AVARIADA' && !(c.observacao ?? '').trim()) return 'Descreva a avaria.';
+  if ((c.observacao ?? '').length > LIMITE_OBSERVACAO_CHECKLIST) return 'Observação longa demais.';
+  return null;
 }

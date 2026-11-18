@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Injectable, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, IsObject } from 'class-validator';
 import {
   formatarCpf,
   saldoDeDiarias,
@@ -8,6 +8,7 @@ import {
   type EntregadorResumo,
   type PacoteCredito,
   type ParametrosEntregasPlataforma,
+  type TabelaPrecos,
   type PedidoCreditoAdmin,
   type SituacaoEntregador,
   type SituacaoPedidoCredito,
@@ -46,6 +47,9 @@ class ParametrosDto {
   @IsString() @MaxLength(40) pixCidade: string;
   @IsInt() diariasBonusCadastro: number;
   @IsInt() validadeBonusDias: number;
+  /** Nula = volta para a tabela do código. */
+  @IsOptional() @IsObject() tabelaPadrao?: TabelaPrecos | null;
+  @IsOptional() @IsInt() valorMinimoCentavos?: number;
 }
 
 class FiltroEntregadoresDto {
@@ -172,7 +176,7 @@ export class EntregadoresAdminController {
 
   @Put('parametros')
   salvarParametros(@Body() dto: ParametrosDto, @UsuarioAtual() u: UsuarioRequisicao): Promise<ParametrosEntregasPlataforma> {
-    return this.creditos.salvarParametros(dto, u.id);
+    return this.creditos.salvarParametros({ ...dto, tabelaPadrao: dto.tabelaPadrao ?? null, valorMinimoCentavos: dto.valorMinimoCentavos ?? 0 }, u.id);
   }
 
   @Get('pacotes')

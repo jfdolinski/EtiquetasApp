@@ -5,10 +5,7 @@ import {
   problemaNaTabelaPrecos,
   problemaNosAdicionais,
   RAIO_ATENDIMENTO_MAXIMO_KM,
-  ROTULO_TIPO_CHAMADA,
-  TIPOS_CHAMADA,
   type TabelaPrecos,
-  type TipoChamada,
   ROTULO_SITUACAO_MAPA,
   ROTULO_VEICULO,
   type ConfigEntregasEmpresa,
@@ -27,20 +24,21 @@ import { Direcionamento } from './Direcionamento';
 import { EntregadoresDaEmpresa } from './EntregadoresDaEmpresa';
 import { Financeiro } from './Financeiro';
 import { Maquinas } from './Maquinas';
+import { PedidosErp } from './PedidosErp';
+import { TabelaPrecosEditor } from './TabelaPrecosEditor';
 import { MapaEntregadores } from './MapaEntregadores';
 
-type Aba = 'chamadas' | 'mapa' | 'demanda' | 'maquinas' | 'entregadores' | 'financeiro' | 'direcionamento' | 'configuracao';
+type Aba = 'chamadas' | 'pedidos-erp' | 'mapa' | 'demanda' | 'maquinas' | 'entregadores' | 'financeiro' | 'direcionamento' | 'configuracao';
 type RespostaConfig = { config: ConfigEntregasEmpresa; mapa: ConfigMapa };
 
 const ATUALIZAR_MS = 20_000;
-const reais = (c: number) => (c / 100).toFixed(2).replace('.', ',');
-const centavos = (t: string) => Math.round(Number(t.trim().replace(/\./g, '').replace(',', '.')) * 100);
 
 /** Chamadas de coleta e entrega e os entregadores online perto da empresa (docs/ENTREGAS.md). */
 export function Entregas() {
   const { pode } = useAuth();
   const abas: { id: Aba; rotulo: string }[] = [
     { id: 'chamadas', rotulo: 'Chamadas' },
+    { id: 'pedidos-erp', rotulo: 'Pedidos do ERP' },
     { id: 'mapa', rotulo: 'Mapa' },
     { id: 'demanda', rotulo: 'Demanda' },
     { id: 'maquinas', rotulo: 'Máquinas' },
@@ -49,6 +47,8 @@ export function Entregas() {
     ...(pode('entrega.configurar') ? [{ id: 'direcionamento' as const, rotulo: 'Direcionamento' }, { id: 'configuracao' as const, rotulo: 'Configuração' }] : []),
   ];
   const [aba, setAba] = useState<Aba>('chamadas');
+  // Abrir uma chamada vindo de outra aba (Pedidos do ERP).
+  const [abrir, setAbrir] = useState<string | null>(null);
   const config = useQuery({ queryKey: ['entregas-config'], queryFn: () => api<RespostaConfig>('/entregas/config') });
 
   return (
@@ -64,7 +64,17 @@ export function Entregas() {
         </div>
       )}
       {config.error && <Alerta>{config.error.message}</Alerta>}
-      {config.data && aba === 'chamadas' && <Chamadas config={config.data.config} mapa={config.data.mapa} />}
+      {config.data && aba === 'chamadas' && <Chamadas key={abrir ?? ''} config={config.data.config} mapa={config.data.mapa} abrir={abrir} />}
+      {config.data && aba === 'pedidos-erp' && (
+        <PedidosErp
+          config={config.data.config}
+          mapa={config.data.mapa}
+          abrirChamada={(id) => {
+            setAbrir(id);
+            setAba('chamadas');
+          }}
+        />
+      )}
       {config.data && aba === 'mapa' && <PainelMapa mapa={config.data.mapa} configurar={pode('entrega.configurar') ? () => setAba('configuracao') : null} />}
       {config.data && aba === 'demanda' && <Demanda mapa={config.data.mapa} />}
       {aba === 'maquinas' && <Maquinas />}
@@ -125,12 +135,11 @@ function Configuracao({ inicial, mapa, aoSalvar }: { inicial: ConfigEntregasEmpr
   const cliente = useQueryClient();
   const [base, setBase] = useState<(Ponto & { endereco: string }) | null>(inicial.base);
   const [raio, setRaio] = useState(String(inicial.raioAtendimentoKm));
-  const [precos, setPrecos] = useState(() => Object.fromEntries(TIPOS_CHAMADA.map((t) => [t, { base: reais(inicial.precos[t].baseCentavos), porKm: reais(inicial.precos[t].porKmCentavos), km: String(inicial.precos[t].kmIncluso), porParada: reais(inicial.precos[t].porParadaCentavos ?? 0), taxa: reais(inicial.precos[t].taxaCancelamentoCentavos ?? 0) }])) as Record<TipoChamada, { base: string; porKm: string; km: string; porParada: string; taxa: string }>);
+  const [tabela, setTabela] = useState<TabelaPrecos>(inicial.precos);
   const [fotos, setFotos] = useState(inicial.fotos);
   const [adicionais, setAdicionais] = useState(inicial.adicionais);
   const [segundos, setSegundos] = useState(String(inicial.segundosParaAceitar));
   const [chamar, setChamar] = useState(inicial.chamarAoAceitarPedido);
-  const tabela = Object.fromEntries(TIPOS_CHAMADA.map((t) => [t, { baseCentavos: centavos(precos[t].base), porKmCentavos: centavos(precos[t].porKm), kmIncluso: Number(precos[t].km.replace(',', '.')), porParadaCentavos: centavos(precos[t].porParada || '0'), taxaCancelamentoCentavos: centavos(precos[t].taxa || '0') }])) as TabelaPrecos;
   const problemaPrecos = problemaNaTabelaPrecos(tabela);
   const [busca, setBusca] = useState('');
   const [resultados, setResultados] = useState<ResultadoEndereco[] | null>(null);
@@ -193,15 +202,7 @@ function Configuracao({ inicial, mapa, aoSalvar }: { inicial: ConfigEntregasEmpr
         <div className="space-y-2">
           <div className="text-sm font-medium">Valor para o entregador</div>
           <p className="text-xs text-slate-500">Base (cobre os km inclusos) + cada km a mais. O entregador vê o valor antes de aceitar.</p>
-          {TIPOS_CHAMADA.map((t) => (
-            <div key={t} className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              <Campo rotulo={`${ROTULO_TIPO_CHAMADA[t]}: base (R$)`} inputMode="decimal" value={precos[t].base} onChange={(e) => setPrecos({ ...precos, [t]: { ...precos[t], base: e.target.value } })} />
-              <Campo rotulo="Por km (R$)" inputMode="decimal" value={precos[t].porKm} onChange={(e) => setPrecos({ ...precos, [t]: { ...precos[t], porKm: e.target.value } })} />
-              <Campo rotulo="Km inclusos" inputMode="decimal" value={precos[t].km} onChange={(e) => setPrecos({ ...precos, [t]: { ...precos[t], km: e.target.value } })} />
-              <Campo rotulo="Taxa se cancelar após o aceite (R$)" inputMode="decimal" value={precos[t].taxa} onChange={(e) => setPrecos({ ...precos, [t]: { ...precos[t], taxa: e.target.value } })} />
-              {t === 'ENTREGA' && <Campo rotulo="Por parada extra (R$)" inputMode="decimal" value={precos[t].porParada} onChange={(e) => setPrecos({ ...precos, [t]: { ...precos[t], porParada: e.target.value } })} />}
-            </div>
-          ))}
+          <TabelaPrecosEditor inicial={inicial.precos} mudar={setTabela} />
           {problemaPrecos && <Alerta tipo="aviso">{problemaPrecos}</Alerta>}
         </div>
         <Campo rotulo="Segundos para o entregador aceitar" type="number" min={LIMITES_SEGUNDOS_PARA_ACEITAR.minimo} max={LIMITES_SEGUNDOS_PARA_ACEITAR.maximo} value={segundos} onChange={(e) => setSegundos(e.target.value)} ajuda="Sem resposta nesse tempo, a oferta expira e você escolhe outro." />

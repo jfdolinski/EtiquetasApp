@@ -3,6 +3,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { pedir, sql, superToken } from './apoio';
 import { deslocar, empresaComBase, entregadorOnline, PNG } from './apoio-entregas';
 
+const LISTA = { carregador: true, bobina: false, chip: true, estado: 'BOA', observacao: '' };
+
 /**
  * Entregas, etapa 8: desistência do entregador, taxa de deslocamento no cancelamento, foto
  * obrigatória, máquinas com cada entregador, rastro e a senha esquecida do entregador.
@@ -58,8 +60,8 @@ test('API: desistência, foto obrigatória, máquina com o entregador, rastro e 
   await aceitar(ch2.id);
   await av(ch2.id, { para: 'NA_COLETA', ...D, precisao: 5 });
   expect((await av(ch2.id, { para: 'COLETADA', ...D, serie: 'MAQ-1234' })).j.message).toBe('Tire a foto da coleta para continuar.');
-  const app = (await av(ch2.id, { para: 'COLETADA', ...D, serie: 'MAQ-1234', foto: PNG })).j;
-  expect(app).toMatchObject({ situacao: 'COLETADA', pedeFotoColeta: true, pedeFotoEntrega: false });
+  const app = (await av(ch2.id, { para: 'COLETADA', ...D, serie: 'MAQ-1234', foto: PNG, checklist: LISTA })).j;
+  expect(app).toMatchObject({ situacao: 'COLETADA', pedeFotoColeta: true, pedeFotoEntrega: true, pedeChecklist: true });
   expect((await pedir('POST', `/entregador/chamadas/${ch2.id}/desistir`, { token: ent.token, corpo: { motivo: '' } })).j.message).toMatch(/registre uma ocorrência/);
 
   // A empresa vê a máquina com o entregador, a foto e o caminho.
@@ -120,7 +122,7 @@ test('Site: máquinas com o entregador, foto da coleta, aviso da taxa e a págin
   const of = await pedir('GET', '/entregador/oferta', { token: ent.token });
   await pedir('POST', `/entregador/ofertas/${of.j.id}/aceitar`, { token: ent.token });
   await pedir('POST', `/entregador/chamadas/${ch.id}/avancar`, { token: ent.token, corpo: { para: 'NA_COLETA', ...D, precisao: 5 } });
-  await pedir('POST', `/entregador/chamadas/${ch.id}/avancar`, { token: ent.token, corpo: { para: 'COLETADA', ...D, serie: 'POS-9988', foto: PNG } });
+  await pedir('POST', `/entregador/chamadas/${ch.id}/avancar`, { token: ent.token, corpo: { para: 'COLETADA', ...D, serie: 'POS-9988', foto: PNG, checklist: LISTA } });
 
   const erros: string[] = [];
   page.on('pageerror', (x) => erros.push(x.message));

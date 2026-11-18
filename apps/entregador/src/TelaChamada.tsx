@@ -5,7 +5,44 @@ import type { Api } from './api';
 import { escolherImagem } from './imagens';
 import { LeitorCodigo } from './LeitorCodigo';
 import { posicaoAtual } from './localizacao';
-import { formatarCelular, formatarCentavos, formatarKm, linkNavegacao, MOTIVOS_OCORRENCIA, normalizarSerie, PROXIMA_ETAPA, ROTULO_MOTIVO_OCORRENCIA, ROTULO_SITUACAO_CHAMADA, ROTULO_TIPO_CHAMADA } from './regras';
+import { ESPERA_BLOCO_MINUTOS, ESTADOS_MAQUINA, formatarCelular, formatarCentavos, formatarKm, ITENS_CHECKLIST, linkNavegacao, MOTIVOS_OCORRENCIA, normalizarSerie, problemaNoChecklist, PROXIMA_ETAPA, ROTULO_ESTADO_MAQUINA, ROTULO_MOTIVO_OCORRENCIA, ROTULO_SITUACAO_CHAMADA, ROTULO_TIPO_CHAMADA } from './regras';
+import type { ChecklistMaquina } from '../../../packages/shared/src/entregas-servico';
+
+const CHECKLIST_VAZIO: ChecklistMaquina = { carregador: false, bobina: false, chip: false, estado: 'BOA', observacao: '' };
+
+/** Minutos no local desde o "cheguei" (atualiza a cada 30 s). */
+function useMinutosNoLocal(desde: string | null | undefined): number | null {
+  const [agora, setAgora] = useState(() => Date.now());
+  useEffect(() => {
+    if (!desde) return;
+    const t = setInterval(() => setAgora(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, [desde]);
+  return desde ? Math.max(0, Math.floor((agora - new Date(desde).getTime()) / 60_000)) : null;
+}
+
+/** Maquininha: o que veio junto e o estado, na coleta e na entrega. */
+function Checklist({ valor, mudar }: { valor: ChecklistMaquina; mudar: (c: ChecklistMaquina) => void }) {
+  return (
+    <View style={{ gap: 8 }}>
+      <Texto>Confira a máquina:</Texto>
+      {ITENS_CHECKLIST.map((i) => (
+        <Pressable key={i.chave} accessibilityRole="checkbox" accessibilityState={{ checked: valor[i.chave] }} onPress={() => mudar({ ...valor, [i.chave]: !valor[i.chave] })} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}>
+          <Text style={{ fontSize: 20, color: valor[i.chave] ? cores.ok : cores.suave }}>{valor[i.chave] ? '☑' : '☐'}</Text>
+          <Text style={{ color: cores.texto }}>Veio {i.rotulo.toLowerCase()}</Text>
+        </Pressable>
+      ))}
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {ESTADOS_MAQUINA.map((e) => (
+          <Pressable key={e} accessibilityRole="radio" accessibilityState={{ selected: valor.estado === e }} onPress={() => mudar({ ...valor, estado: e })} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: cores.borda, backgroundColor: valor.estado === e ? cores.azul : 'transparent' }}>
+            <Text style={{ color: valor.estado === e ? cores.branco : cores.texto }}>{ROTULO_ESTADO_MAQUINA[e]}</Text>
+          </Pressable>
+        ))}
+      </View>
+      {valor.estado === 'AVARIADA' && <Campo rotulo="Qual a avaria?" value={valor.observacao} onChangeText={(v) => mudar({ ...valor, observacao: v })} multiline />}
+    </View>
+  );
+}
 import { Emergencia } from './Emergencia';
 import { aplicarLocal, etapasGuardadas, guardarEtapa, semInternet } from './fila';
 import { ErroApi } from './api';
@@ -90,6 +127,7 @@ function Parada({ titulo, p, ativa }: { titulo: string; p: ParadaChamada; ativa:
 /** Chamada aceita: as etapas, uma de cada vez. */
 export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: ChamadaEntregador; aoMudar: (c: ChamadaEntregador | null) => void }) {
   const [serie, setSerie] = useState('');
+  const [checklist, setChecklist] = useState<ChecklistMaquina>(CHECKLIST_VAZIO);
   const [codigo, setCodigo] = useState('');
   const [lendo, setLendo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -113,6 +151,11 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
   const etapa = PROXIMA_ETAPA[chamada.situacao];
   const pedeFoto = (etapa?.para === 'COLETADA' && chamada.pedeFotoColeta) || (etapa?.para === 'CONCLUIDA' && chamada.pedeFotoEntrega);
   const indoColetar = chamada.situacao === 'ACEITA' || chamada.situacao === 'NA_COLETA';
+  // Maquininha: série, checklist e foto na coleta e na entrega do destino principal (na devolução à origem, não).
+  const pedeMaquina = !!chamada.pedeChecklist && !chamada.devolvendo && (etapa?.para === 'COLETADA' || (etapa?.para === 'CONCLUIDA' && (chamada.paradaAtual ?? 0) === 0));
+  const pedeSerie = pedeMaquina || (etapa?.para === 'COLETADA' && chamada.pedeSerie && !chamada.devolvendo);
+  const noLocal = chamada.situacao === 'NA_COLETA' || chamada.situacao === 'NO_DESTINO';
+  const minutosNoLocal = useMinutosNoLocal(noLocal ? chamada.chegouNoPontoEm : null);
 
   if (lendo) return <LeitorCodigo aoLer={(c) => { setSerie(normalizarSerie(c)); setLendo(false); }} aoCancelar={() => setLendo(false)} />;
 
@@ -121,11 +164,15 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
     setErro(null);
     setOcupado(true);
     try {
-      // A empresa pode exigir a foto da coleta ou da entrega.
+      if (pedeMaquina) {
+        const problema = problemaNoChecklist(checklist);
+        if (problema) return setErro(problema);
+      }
+      // A empresa pode exigir a foto da coleta ou da entrega (a maquininha sempre pede).
       const foto = pedeFoto ? await escolherImagem(Platform.OS === 'web' ? 'galeria' : 'camera') : null;
       if (pedeFoto && !foto) return setErro(etapa.para === 'COLETADA' ? 'Tire a foto da coleta para continuar.' : 'Tire a foto da entrega para continuar.');
       const p = await posicaoAtual();
-      const corpo = { para: etapa.para, lat: p.coords.latitude, lon: p.coords.longitude, precisao: p.coords.accuracy ?? null, simulada: p.mocked === true, serie: serie || undefined, codigo: codigo || undefined, foto: foto ?? undefined, em: new Date().toISOString() };
+      const corpo = { para: etapa.para, lat: p.coords.latitude, lon: p.coords.longitude, precisao: p.coords.accuracy ?? null, simulada: p.mocked === true, serie: serie || undefined, codigo: codigo || undefined, foto: foto ?? undefined, checklist: pedeMaquina ? checklist : undefined, em: new Date().toISOString() };
       let c: ChamadaEntregador;
       try {
         // Com outra etapa ainda esperando a internet, esta vai para a fila também, na ordem.
@@ -138,6 +185,8 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
         c = aplicarLocal(chamada, etapa.para);
       }
       setCodigo('');
+      setSerie('');
+      setChecklist(CHECKLIST_VAZIO);
       aoMudar(c);
     } catch (e) {
       setErro((e as Error).message);
@@ -195,12 +244,24 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
 
       {chamada.situacao === 'OCORRENCIA' && (
         <Alerta tipo="aviso">
-          Ocorrência registrada{chamada.ocorrencia ? `: ${ROTULO_MOTIVO_OCORRENCIA[chamada.ocorrencia.motivo]}` : ''}. Aguarde a empresa decidir: seguir, liberar você ou cancelar.
+          Ocorrência registrada{chamada.ocorrencia ? `: ${ROTULO_MOTIVO_OCORRENCIA[chamada.ocorrencia.motivo]}` : ''}. Aguarde a empresa decidir: seguir, liberar você, devolver à origem ou cancelar.
         </Alerta>
       )}
+      {chamada.devolvendo && chamada.situacao !== 'CONCLUIDA' && (
+        <Alerta tipo="aviso">A entrega não deu certo: leve de volta para a coleta. Ao chegar, peça o código à empresa. A volta já está somada ao valor.</Alerta>
+      )}
+      {minutosNoLocal !== null && chamada.espera && chamada.espera.porBlocoCentavos > 0 && (
+        <Alerta tipo="ok">
+          No local há {minutosNoLocal} min.{' '}
+          {minutosNoLocal < chamada.espera.toleranciaMinutos
+            ? `Depois de ${chamada.espera.toleranciaMinutos} min, cada ${ESPERA_BLOCO_MINUTOS} min de espera somam ${formatarCentavos(chamada.espera.porBlocoCentavos)}.`
+            : `Espera até agora: ${formatarCentavos(Math.floor((minutosNoLocal - chamada.espera.toleranciaMinutos) / ESPERA_BLOCO_MINUTOS) * chamada.espera.porBlocoCentavos)}.`}
+        </Alerta>
+      )}
+      {(chamada.esperaCentavos ?? 0) > 0 && <Texto suave>Espera já somada: {formatarCentavos(chamada.esperaCentavos!)}</Texto>}
 
       <Parada titulo="Coleta" p={chamada.origem} ativa={indoColetar} />
-      <Parada titulo={(chamada.destinos?.length ?? 1) > 1 ? `Entrega ${(chamada.paradaAtual ?? 0) + 1} de ${chamada.destinos!.length}` : 'Destino'} p={chamada.destino} ativa={!indoColetar} />
+      <Parada titulo={chamada.devolvendo ? 'Devolver em' : (chamada.destinos?.length ?? 1) > 1 ? `Entrega ${(chamada.paradaAtual ?? 0) + 1} de ${chamada.destinos!.length}` : 'Destino'} p={chamada.destino} ativa={!indoColetar} />
       {(chamada.destinos?.length ?? 1) > 1 && (
         <Cartao>
           {chamada.destinos!.map((d) => (
@@ -212,20 +273,25 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
         </Cartao>
       )}
 
-      {etapa?.para === 'COLETADA' && chamada.pedeSerie && (
+      {pedeSerie && (
         <Cartao>
           <Campo rotulo="Número de série da máquina" value={serie} onChangeText={(v) => setSerie(normalizarSerie(v))} autoCapitalize="characters" />
           {Platform.OS !== 'web' && <Botao titulo="Ler com a câmera" variante="secundario" onPress={() => setLendo(true)} />}
+          {pedeMaquina && <Checklist valor={checklist} mudar={setChecklist} />}
         </Cartao>
       )}
       {etapa?.para === 'CONCLUIDA' && (
         <Cartao>
-          <Campo rotulo="Código do destinatário" value={codigo} onChangeText={(v) => setCodigo(v.replace(/\D/g, '').slice(0, 4))} keyboardType="number-pad" ajuda="Peça o código de 4 números que a empresa mandou para quem recebe." />
+          {chamada.devolvendo ? (
+            <Campo rotulo="Código da empresa" value={codigo} onChangeText={(v) => setCodigo(v.replace(/\D/g, '').slice(0, 4))} keyboardType="number-pad" ajuda="Quem recebe de volta na empresa vê o código no sistema." />
+          ) : (
+            <Campo rotulo="Código do destinatário" value={codigo} onChangeText={(v) => setCodigo(v.replace(/\D/g, '').slice(0, 4))} keyboardType="number-pad" ajuda="Peça o código de 4 números que a empresa mandou para quem recebe." />
+          )}
         </Cartao>
       )}
 
       {erro && <Alerta>{erro}</Alerta>}
-      {etapa && <Botao titulo={pedeFoto ? `Tirar foto e ${etapa.rotulo.toLowerCase()}` : etapa.rotulo} onPress={() => void avancar()} ocupado={ocupado} />}
+      {etapa && <Botao titulo={(() => { const r = chamada.devolvendo && etapa.para === 'CONCLUIDA' ? 'Devolvi' : etapa.rotulo; return pedeFoto ? `Tirar foto e ${r.toLowerCase()}` : r; })()} onPress={() => void avancar()} ocupado={ocupado} />}
       {(chamada.situacao === 'ACEITA' || chamada.situacao === 'NA_COLETA') && (
         <View style={{ marginTop: 12 }}>
           {desistindo ? (

@@ -175,6 +175,8 @@ export class FechamentoService {
       extraMotivo: c.extraMotivo,
       contestacaoAberta: c.contestacoes.length > 0,
       cancelada: c.situacao === 'CANCELADA',
+      esperaCentavos: c.esperaCentavos,
+      devolucaoCentavos: (c.devolucao as { valorCentavos?: number } | null)?.valorCentavos ?? 0,
     };
   }
 
@@ -375,6 +377,8 @@ export class FechamentoService {
         extraMotivo: c.extraMotivo,
         situacao: c.fechamento ? 'PAGO' : 'A_RECEBER',
         cancelada: c.situacao === 'CANCELADA',
+        esperaCentavos: c.esperaCentavos,
+        devolucaoCentavos: (c.devolucao as { valorCentavos?: number } | null)?.valorCentavos ?? 0,
         pagoEm: c.fechamento?.pagoEm.toISOString().slice(0, 10) ?? null,
         fechamentoId: c.fechamentoId,
         contestacao: ct ? { id: ct.id, mensagem: ct.mensagem, criadoEm: ct.criadoEm.toISOString(), resposta: ct.resposta, respondidaEm: ct.respondidaEm?.toISOString() ?? null } : null,

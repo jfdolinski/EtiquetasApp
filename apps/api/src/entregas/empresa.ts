@@ -56,6 +56,8 @@ class PrecoTipoDto {
   @IsNumber() @Min(0) kmIncluso: number;
   @IsOptional() @IsInt() @Min(0) porParadaCentavos?: number;
   @IsOptional() @IsInt() @Min(0) taxaCancelamentoCentavos?: number;
+  @IsOptional() @IsInt() @Min(0) esperaToleranciaMinutos?: number;
+  @IsOptional() @IsInt() @Min(0) esperaPorBlocoCentavos?: number;
 }
 
 class TabelaPrecosDto {
@@ -108,12 +110,23 @@ export class EntregasEmpresaService {
     private readonly mapas: MapasService,
   ) {}
 
+  /** Tabela do super-admin (Entregadores > Parâmetros) ou, sem ela, a do código. */
+  async tabelaPadrao(): Promise<TabelaPrecos> {
+    const p = await this.prisma.parametrosEntregas.findUnique({ where: { id: 1 }, select: { tabelaPadrao: true } });
+    return { ...TABELA_PRECOS_PADRAO, ...((p?.tabelaPadrao as Partial<TabelaPrecos> | null) ?? {}) };
+  }
+
+  async valorMinimo(): Promise<number> {
+    const p = await this.prisma.parametrosEntregas.findUnique({ where: { id: 1 }, select: { valorMinimoCentavos: true } });
+    return p?.valorMinimoCentavos ?? 0;
+  }
+
   async config(empresaId: string): Promise<ConfigEntregasEmpresa> {
-    const c = await this.prisma.configuracaoEntregas.findUnique({ where: { empresaId } });
-    if (!c) return { base: null, raioAtendimentoKm: RAIO_ATENDIMENTO_PADRAO_KM, precos: TABELA_PRECOS_PADRAO, segundosParaAceitar: SEGUNDOS_PARA_ACEITAR_PADRAO, direcionamento: REGRAS_DIRECIONAMENTO_PADRAO, chamarAoAceitarPedido: false, adicionais: ADICIONAIS_VAZIOS, fotos: { coleta: false, entrega: false } };
+    const [c, padrao] = await Promise.all([this.prisma.configuracaoEntregas.findUnique({ where: { empresaId } }), this.tabelaPadrao()]);
+    if (!c) return { base: null, raioAtendimentoKm: RAIO_ATENDIMENTO_PADRAO_KM, precos: padrao, segundosParaAceitar: SEGUNDOS_PARA_ACEITAR_PADRAO, direcionamento: REGRAS_DIRECIONAMENTO_PADRAO, chamarAoAceitarPedido: false, adicionais: ADICIONAIS_VAZIOS, fotos: { coleta: false, entrega: false } };
     const base = c.baseLat !== null && c.baseLon !== null ? { lat: c.baseLat, lon: c.baseLon, endereco: c.baseEndereco } : null;
     // Tipo novo sem preço na tabela gravada fica com o padrão.
-    const precos = { ...TABELA_PRECOS_PADRAO, ...((c.precos as Partial<TabelaPrecos> | null) ?? {}) };
+    const precos = { ...padrao, ...((c.precos as Partial<TabelaPrecos> | null) ?? {}) };
     return { base, raioAtendimentoKm: c.raioAtendimentoKm, precos, segundosParaAceitar: c.segundosParaAceitar, direcionamento: regrasVigentes(c.direcionamento), chamarAoAceitarPedido: c.chamarAoAceitarPedido, adicionais: adicionaisVigentes(c.adicionais), fotos: { coleta: c.fotoColeta, entrega: c.fotoEntrega } };
   }
 

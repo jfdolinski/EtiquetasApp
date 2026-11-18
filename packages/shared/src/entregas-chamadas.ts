@@ -5,6 +5,7 @@ import { distanciaMetros, type Ponto, type TipoVeiculo } from './entregas';
 import type { DistribuicaoResumo, OfertaDaChamada } from './entregas-direcionamento';
 import type { EmergenciaChamada } from './entregas-rastreio';
 import type { AdicionalAplicado, DestinoDoEntregador, ParadaExtraResumo } from './entregas-paradas';
+import type { ChecklistsDaChamada, DevolucaoChamada, RegraEspera } from './entregas-servico';
 
 export const TIPOS_CHAMADA = ['ENTREGA', 'COLETA', 'DEVOLUCAO_MAQUINA'] as const;
 export type TipoChamada = (typeof TIPOS_CHAMADA)[number];
@@ -72,6 +73,10 @@ export interface PrecoTipo {
   porParadaCentavos?: number;
   /** Taxa de deslocamento se a empresa cancela depois que alguém aceitou (sem o campo = 0). */
   taxaCancelamentoCentavos?: number;
+  /** Minutos no ponto sem cobrar espera (sem o campo = 10). */
+  esperaToleranciaMinutos?: number;
+  /** Cada 10 min além da tolerância (sem o campo = 0, espera não cobrada). */
+  esperaPorBlocoCentavos?: number;
 }
 
 export type TabelaPrecos = Record<TipoChamada, PrecoTipo>;
@@ -91,6 +96,8 @@ export function problemaNaTabelaPrecos(t: TabelaPrecos): string | null {
     if (!Number.isInteger(p.porKmCentavos) || p.porKmCentavos < 0 || p.porKmCentavos > 10_000_00) return `Valor por km inválido em ${nome}.`;
     if (p.taxaCancelamentoCentavos !== undefined && (!Number.isInteger(p.taxaCancelamentoCentavos) || p.taxaCancelamentoCentavos < 0 || p.taxaCancelamentoCentavos > 100_000)) return `Taxa de cancelamento inválida em ${nome}.`;
     if (p.porParadaCentavos !== undefined && (!Number.isInteger(p.porParadaCentavos) || p.porParadaCentavos < 0 || p.porParadaCentavos > 100_000)) return `Valor por parada inválido em ${nome}.`;
+    if (p.esperaToleranciaMinutos !== undefined && (!Number.isInteger(p.esperaToleranciaMinutos) || p.esperaToleranciaMinutos < 0 || p.esperaToleranciaMinutos > 120)) return `Tolerância da espera de 0 a 120 min em ${nome}.`;
+    if (p.esperaPorBlocoCentavos !== undefined && (!Number.isInteger(p.esperaPorBlocoCentavos) || p.esperaPorBlocoCentavos < 0 || p.esperaPorBlocoCentavos > 100_00)) return `Valor da espera inválido em ${nome}.`;
     if (typeof p.kmIncluso !== 'number' || !Number.isFinite(p.kmIncluso) || p.kmIncluso < 0 || p.kmIncluso > 500) return `Km incluso inválido em ${nome}.`;
   }
   return null;
@@ -146,6 +153,8 @@ export interface NovaChamada {
   distribuir?: boolean;
   /** Chamada para entregar um Pedido do Flow. */
   pedidoId?: string | null;
+  /** Pedido lido do ERP (Entregas > Pedidos do ERP) que esta chamada atende. */
+  pedidoErpId?: string | null;
   /** Entregas além do destino, na ordem (só no tipo Entrega). */
   paradasExtras?: ParadaChamada[];
 }
@@ -170,6 +179,8 @@ export interface PreviaChamada {
   valorCentavos: number;
   valorTabelaCentavos: number;
   adicionais: AdicionalAplicado[];
+  /** O valor subiu para o mínimo da plataforma. */
+  minimoAplicado?: boolean;
 }
 
 export interface EventoChamada {
@@ -220,7 +231,7 @@ export interface ChamadaResumo {
   ofertaPendente: { entregadorNome: string; expiraEm: string } | null;
   ofertas: OfertaDaChamada[];
   distribuicao: DistribuicaoResumo;
-  ocorrencia: { motivo: MotivoOcorrencia; texto: string; em: string; temFoto: boolean } | null;
+  ocorrencia: { motivo: MotivoOcorrencia; texto: string; em: string; temFoto: boolean; serieLida?: string | null; situacaoAnterior?: SituacaoChamada } | null;
   /** Só para a empresa: o destinatário informa ao entregador. */
   codigoConfirmacao: string | null;
   historico: EventoChamada[];
@@ -244,6 +255,16 @@ export interface ChamadaResumo {
   fotos: string[];
   /** Cancelada depois do aceite: o entregador recebe a taxa de deslocamento (o valor vira a taxa). */
   cancelamentoPago: boolean;
+  /** Espera cobrada (já somada ao valor), em minutos além do normal e em centavos. */
+  esperaMinutos: number;
+  esperaCentavos: number;
+  /** Entrega que não deu certo e voltou à origem (o trecho já está somado ao valor). */
+  devolucao: DevolucaoChamada | null;
+  /** Na devolução: a empresa informa ao entregador quando recebe de volta. */
+  codigoDevolucao: string | null;
+  checklists: ChecklistsDaChamada;
+  /** Chamada aberta a partir de um pedido do ERP. */
+  pedidoErp: string | null;
 }
 
 /** O que o app do entregador recebe da chamada dele. */
@@ -271,6 +292,14 @@ export interface ChamadaEntregador {
   pedeFotoEntrega?: boolean;
   aceitaEm: string | null;
   concluidaEm: string | null;
+  /** Maquininha: checklist e foto na coleta e na entrega. */
+  pedeChecklist?: boolean;
+  /** A entrega não deu certo: o destino agora é a origem, e o código vem da empresa. */
+  devolvendo?: boolean;
+  /** Quando chegou no ponto atual (a espera conta a partir daí). */
+  chegouNoPontoEm?: string | null;
+  espera?: RegraEspera;
+  esperaCentavos?: number;
 }
 
 export interface GanhosEntregador {

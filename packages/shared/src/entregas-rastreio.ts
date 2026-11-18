@@ -59,6 +59,9 @@ export function textoParaCliente(tipo: TipoChamada, situacao: SituacaoChamada): 
   }
 }
 
+/** A entrega não deu certo e a empresa pediu a volta à origem. */
+export const TEXTO_DEVOLVIDO_AO_CLIENTE = 'Não foi possível entregar; o pedido voltou para a empresa';
+
 export interface RastreioPublico {
   numero: number;
   tipo: TipoChamada;

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  type RascunhoPedidoErp,
+  textoDoChecklist,
   formatarCelular,
   formatarCentavos,
   formatarKm,
@@ -57,11 +59,11 @@ const COR_PARADA = '#db2777';
 const paradaVazia = (): ParadaChamada => ({ lat: 0, lon: 0, endereco: '', contato: '', telefone: '', instrucoes: '' });
 const temPonto = (p: Ponto) => !(p.lat === 0 && p.lon === 0);
 
-export function Chamadas({ config, mapa }: { config: ConfigEntregasEmpresa; mapa: ConfigMapa }) {
+export function Chamadas({ config, mapa, abrir }: { config: ConfigEntregasEmpresa; mapa: ConfigMapa; abrir?: string | null }) {
   const { pode } = useAuth();
   const [filtro, setFiltro] = useState<'ATIVAS' | 'TODAS'>('ATIVAS');
   const [nova, setNova] = useState(false);
-  const [aberta, setAberta] = useState<string | null>(null);
+  const [aberta, setAberta] = useState<string | null>(abrir ?? null);
   const { data = [], error, isLoading } = useQuery({ queryKey: ['chamadas', filtro], queryFn: () => api<ChamadaResumo[]>(`/entregas/chamadas?filtro=${filtro}`), refetchInterval: 10_000 });
   const gerencia = pode('entrega.gerenciar');
 
@@ -109,16 +111,16 @@ export function Chamadas({ config, mapa }: { config: ConfigEntregasEmpresa; mapa
 
 // Nova chamada --------------------------------------------------------------------------------
 
-export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho }: { config: ConfigEntregasEmpresa; mapa: ConfigMapa; aoFechar: () => void; aoCriar: (id: string) => void; rascunho?: RascunhoDoPedido }) {
+export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, erp }: { config: ConfigEntregasEmpresa; mapa: ConfigMapa; aoFechar: () => void; aoCriar: (id: string) => void; rascunho?: RascunhoDoPedido; erp?: RascunhoPedidoErp }) {
   const cliente = useQueryClient();
-  const [tipo, setTipo] = useState<TipoChamada>('ENTREGA');
+  const [tipo, setTipo] = useState<TipoChamada>(erp?.tipo ?? 'ENTREGA');
   const baseComoParada = (): ParadaChamada => (config.base ? { ...paradaVazia(), lat: config.base.lat, lon: config.base.lon, endereco: config.base.endereco } : paradaVazia());
-  const [origem, setOrigem] = useState<ParadaChamada>(baseComoParada);
-  const [destino, setDestino] = useState<ParadaChamada>(() => rascunho?.destino ?? paradaVazia());
-  const [marcando, setMarcando] = useState<'origem' | 'destino' | number>('destino');
+  const [origem, setOrigem] = useState<ParadaChamada>(() => erp?.origem ?? baseComoParada());
+  const [destino, setDestino] = useState<ParadaChamada>(() => erp?.destino ?? rascunho?.destino ?? paradaVazia());
+  const [marcando, setMarcando] = useState<'origem' | 'destino' | number>(erp && erp.tipo !== 'ENTREGA' ? 'origem' : 'destino');
   const [extras, setExtras] = useState<ParadaChamada[]>([]);
-  const [serie, setSerie] = useState('');
-  const [observacao, setObservacao] = useState(rascunho?.observacao ?? '');
+  const [serie, setSerie] = useState(erp?.serieEsperada ?? '');
+  const [observacao, setObservacao] = useState(erp?.observacao ?? rascunho?.observacao ?? '');
   const primeira = useRef(true);
   const [distribuir, setDistribuir] = useState(config.direcionamento.automatico);
 
@@ -127,7 +129,7 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho }: 
     // Do pedido, o destino já vem preenchido: só troca se mudar o serviço.
     if (primeira.current) {
       primeira.current = false;
-      if (rascunho) return;
+      if (rascunho || erp) return;
     }
     setExtras([]);
     if (tipo === 'ENTREGA') {
@@ -142,7 +144,7 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipo]);
 
-  const corpo: NovaChamada = { tipo, origem, destino, serieEsperada: serie.trim() || null, observacao, pedidoId: rascunho?.pedidoId ?? null, paradasExtras: tipo === 'ENTREGA' ? extras : [] };
+  const corpo: NovaChamada = { tipo, origem, destino, serieEsperada: serie.trim() || null, observacao, pedidoId: rascunho?.pedidoId ?? null, pedidoErpId: erp?.pedidoErpId ?? null, paradasExtras: tipo === 'ENTREGA' ? extras : [] };
   const prontos = temPonto(origem) && temPonto(destino) && extras.every(temPonto);
   const previa = useQuery({
     queryKey: ['chamada-previa', tipo, origem.lat, origem.lon, destino.lat, destino.lon, extras.map((p) => `${p.lat},${p.lon}`).join('|')],
@@ -164,9 +166,10 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho }: 
   ];
 
   return (
-    <Modal titulo={rascunho ? `Entregador para o pedido nº ${rascunho.numero}` : 'Nova chamada'} aberto aoFechar={aoFechar} largo>
+    <Modal titulo={rascunho ? `Entregador para o pedido nº ${rascunho.numero}` : erp ? `Entregador para o pedido ${erp.codigo} do ERP` : 'Nova chamada'} aberto aoFechar={aoFechar} largo>
       <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
         <div className="space-y-4">
+          {erp && ((erp.tipo === 'ENTREGA' ? erp.destino : erp.origem)?.lat ?? 0) === 0 && <Alerta tipo="aviso">Não achamos o endereço do pedido no mapa: marque o ponto do cliente clicando no mapa.</Alerta>}
           {rascunho?.origemDoPonto === 'NENHUM' && <Alerta tipo="aviso">Não achamos o endereço do cliente no mapa: marque o destino clicando no mapa.</Alerta>}
           {rascunho?.origemDoPonto === 'ENDERECO' && <Alerta tipo="info">O ponto do destino veio da busca do endereço: confira no mapa e ajuste com um clique se precisar.</Alerta>}
           <Selecao rotulo="Serviço" value={tipo} onChange={(e) => setTipo(e.target.value as TipoChamada)}>
@@ -222,6 +225,7 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho }: 
                 {previa.data.estimada && <span className="text-slate-500"> (estimada)</span>} · cerca de {Math.max(1, Math.round(previa.data.segundos / 60))} min
               </div>
               <div className="text-lg font-semibold">Valor para o entregador: {formatarCentavos(previa.data.valorCentavos)}</div>
+              {previa.data.minimoAplicado && <div className="text-xs text-slate-600">Valor mínimo por chamada da plataforma.</div>}
               {previa.data.adicionais.length > 0 && (
                 <div className="text-xs text-slate-600" data-testid="previa-adicionais">
                   Tabela {formatarCentavos(previa.data.valorTabelaCentavos)}
@@ -336,6 +340,11 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
               <Selo cor={COR_SITUACAO[c.situacao]}>{ROTULO_SITUACAO_CHAMADA[c.situacao]}</Selo>
               <span className="font-semibold">{formatarCentavos(c.valorCentavos)}</span>
               {c.adicionais.length > 0 && <span className="text-xs text-slate-500">(inclui {c.adicionais.map((a) => `${a.nome} ${formatarCentavos(a.centavos)}`).join(', ')})</span>}
+              {(c.esperaCentavos > 0 || c.devolucao) && (
+                <span className="text-xs text-slate-500" data-testid="valor-extras">
+                  (inclui {[c.esperaCentavos > 0 ? `espera de ${c.esperaMinutos} min ${formatarCentavos(c.esperaCentavos)}` : '', c.devolucao ? `volta à origem ${formatarCentavos(c.devolucao.valorCentavos)}` : ''].filter(Boolean).join(', ')})
+                </span>
+              )}
               <span className="text-slate-500">
                 {formatarKm(c.metros)}
                 {c.estimada ? ' (estimada)' : ''}
@@ -349,6 +358,15 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
                 </div>
               </div>
             )}
+            {c.codigoDevolucao && (
+              <div className="rounded-md border border-orange-200 bg-orange-50 px-3 py-2">
+                <div className="text-xs text-orange-800">Voltando para a origem. Quando receber de volta, passe este código ao entregador.</div>
+                <div className="font-mono text-2xl font-bold tracking-widest" data-testid="codigo-devolucao">
+                  {c.codigoDevolucao}
+                </div>
+              </div>
+            )}
+            {c.devolucao && !c.codigoDevolucao && <div className="text-slate-600">Devolvida à origem: {c.devolucao.motivo} ({formatarKm(c.devolucao.metros)}).</div>}
             <LinkRastreio c={c} />
             <AlertaEmergencia c={c} aoCiente={() => acao.mutate({ caminho: 'emergencia/ciente' })} ocupado={acao.isPending} />
             <Parada titulo="Coleta" p={c.origem} />
@@ -365,6 +383,23 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
                 {c.serieColetada ? ` · lida ${c.serieColetada}` : ''}
               </div>
             )}
+            {(['COLETA', 'ENTREGA'] as const).map((etapa) => {
+              const l = c.checklists[etapa];
+              return l ? (
+                <div key={etapa} className="text-slate-600" data-testid={`checklist-${etapa}`}>
+                  Máquina na {etapa === 'COLETA' ? 'coleta' : 'entrega'}: {textoDoChecklist(l)}
+                  {c.fotos.includes(etapa === 'COLETA' ? 'COLETA' : 'ENTREGA') && (
+                    <>
+                      {' '}
+                      <button type="button" className="underline" onClick={() => verFoto.mutate(etapa === 'COLETA' ? 'COLETA' : 'ENTREGA')}>
+                        ver foto
+                      </button>
+                    </>
+                  )}
+                </div>
+              ) : null;
+            })}
+            {c.pedidoErp && <div className="text-slate-600">Pedido <strong>{c.pedidoErp}</strong> do ERP.</div>}
             {c.observacao && <div className="text-slate-600">Obs.: {c.observacao}</div>}
             {c.pedido && <div className="text-slate-600">Entrega do <strong>pedido nº {c.pedido.numero}</strong> (o pedido avança sozinho na coleta e na entrega).</div>}
             {c.entregador && (
@@ -395,8 +430,13 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
                 {gerencia && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Botao variante="secundario" onClick={() => acao.mutate({ caminho: 'ocorrencia', corpo: { acao: 'CONTINUAR' } })}>
-                      Seguir com ele
+                      {c.ocorrencia.motivo === 'SERIE_DIFERENTE' && c.ocorrencia.serieLida ? `Aceitar a máquina ${c.ocorrencia.serieLida} e seguir` : 'Seguir com ele'}
                     </Botao>
+                    {(c.ocorrencia.situacaoAnterior === 'COLETADA' || c.ocorrencia.situacaoAnterior === 'NO_DESTINO') && !c.devolucao && (
+                      <Botao variante="secundario" onClick={() => acao.mutate({ caminho: 'ocorrencia', corpo: { acao: 'DEVOLVER' } })}>
+                        Devolver à origem
+                      </Botao>
+                    )}
                     <Botao variante="secundario" onClick={() => acao.mutate({ caminho: 'ocorrencia', corpo: { acao: 'REABRIR' } })}>
                       Liberar e chamar outro
                     </Botao>

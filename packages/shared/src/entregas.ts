@@ -214,9 +214,13 @@ export interface ParametrosEntregasPlataforma {
   diariasBonusCadastro: number;
   /** Validade das diárias grátis, em dias. */
   validadeBonusDias: number;
+  /** Tabela de preços das empresas que ainda não montaram a sua (nula = a do código). */
+  tabelaPadrao: TabelaPrecos | null;
+  /** Nenhuma chamada sai por menos que isso (0 = sem mínimo). */
+  valorMinimoCentavos: number;
 }
 
-export const PARAMETROS_ENTREGAS_PADRAO: ParametrosEntregasPlataforma = { pixChave: '', pixNome: '', pixCidade: '', diariasBonusCadastro: 0, validadeBonusDias: 30 };
+export const PARAMETROS_ENTREGAS_PADRAO: ParametrosEntregasPlataforma = { pixChave: '', pixNome: '', pixCidade: '', diariasBonusCadastro: 0, validadeBonusDias: 30, tabelaPadrao: null, valorMinimoCentavos: 0 };
 
 export function problemaNosParametrosEntregas(p: ParametrosEntregasPlataforma): string | null {
   if (p.pixChave.trim() && (p.pixChave.trim().length > 77 || !p.pixNome.trim() || !p.pixCidade.trim())) return 'Para o Pix, informe a chave (até 77 caracteres), o nome e a cidade de quem recebe.';

@@ -2,6 +2,7 @@ import { Controller, Get, Injectable, NotFoundException, Param } from '@nestjs/c
 import { Throttle } from '@nestjs/throttler';
 import { randomBytes } from 'node:crypto';
 import {
+  TEXTO_DEVOLVIDO_AO_CLIENTE,
   caminhoRastreio,
   HORAS_RASTREIO_DEPOIS_DE_TERMINAR,
   mostraCodigoAoCliente,
@@ -78,23 +79,26 @@ export class RastreioService {
     const minha = c.ordem > 0 ? c.paradas.find((p) => p.ordem === c.ordem)! : null;
     const cliente = minha ? (minha.parada as unknown as ParadaChamada) : pontoDoCliente(tipo, c.origem as unknown as ParadaChamada, c.destino as unknown as ParadaChamada);
     // Com várias paradas, cada destinatário só vê a posição quando a vez é dele.
-    const entregue = situacao === 'CONCLUIDA' || (minha ? !!minha.entregueEm : total > 1 && c.paradaAtual > 0);
+    const entregueAntes = minha ? !!minha.entregueEm : c.paradaAtual > 0;
+    // Voltou à origem: quem já recebeu continua "entregue"; os outros veem a devolução.
+    const devolvida = !!c.devolucao && !entregueAntes;
+    const entregue = !devolvida && (situacao === 'CONCLUIDA' || (total > 1 && entregueAntes));
     const vez = c.paradaAtual === c.ordem && !entregue;
     const codigoDaParada = minha ? minha.codigoConfirmacao : c.codigoConfirmacao;
     const e = c.entregador;
     const andamento = SITUACOES_EM_ANDAMENTO.includes(situacao);
-    const posicao = e && andamento && vez && mostraPosicaoAoCliente(tipo, situacao) && e.lat != null && e.lon != null && e.posicaoEm ? { lat: e.lat, lon: e.lon, em: e.posicaoEm.toISOString() } : null;
+    const posicao = e && andamento && vez && !devolvida && mostraPosicaoAoCliente(tipo, situacao) && e.lat != null && e.lon != null && e.posicaoEm ? { lat: e.lat, lon: e.lon, em: e.posicaoEm.toISOString() } : null;
     return {
       numero: c.numero,
       tipo,
       situacao,
-      texto: (total > 1 ? textoDaParada(c.ordem, c.paradaAtual, situacao, entregue) : null) ?? textoParaCliente(tipo, situacao),
+      texto: devolvida ? TEXTO_DEVOLVIDO_AO_CLIENTE : (total > 1 ? textoDaParada(c.ordem, c.paradaAtual, situacao, entregue) : null) ?? textoParaCliente(tipo, situacao),
       empresa: c.empresa.nomeFantasia || c.empresa.razaoSocial,
       entregador: e && andamento ? { nome: primeiroNome(e.nome), veiculo: e.veiculo as TipoVeiculo, placa: e.placa, temFoto: e.documentos.length > 0 } : e && situacao === 'CONCLUIDA' ? { nome: primeiroNome(e.nome), veiculo: e.veiculo as TipoVeiculo, placa: null, temFoto: false } : null,
       pontoCliente: { lat: cliente.lat, lon: cliente.lon },
       posicao,
       previsaoMinutos: posicao && e ? previsaoMinutos(posicao, cliente, e.veiculo as TipoVeiculo) : null,
-      codigoConfirmacao: mostraCodigoAoCliente(tipo, situacao) && !entregue ? codigoDaParada : null,
+      codigoConfirmacao: mostraCodigoAoCliente(tipo, situacao) && !entregue && !devolvida ? codigoDaParada : null,
       concluidaEm: c.concluidaEm?.toISOString() ?? null,
       atualizadoEm: agora.toISOString(),
       mapa: this.mapas.configuracaoDoMapa(),
@@ -116,11 +120,11 @@ export class RastreioService {
     const c = await this.prisma.chamadaEntrega.findFirst({
       where: { pedidoId, situacao: { not: 'CANCELADA' }, rastreioCifrado: { not: null } },
       orderBy: { criadoEm: 'desc' },
-      select: { tipo: true, situacao: true, rastreioCifrado: true, entregador: { select: { nome: true } } },
+      select: { tipo: true, situacao: true, rastreioCifrado: true, devolucao: true, entregador: { select: { nome: true } } },
     });
     const caminho = caminhoDoRastreio(c?.rastreioCifrado ?? null);
     if (!c || !caminho) return null;
-    return { caminho, texto: textoParaCliente(c.tipo as TipoChamada, c.situacao as SituacaoChamada), entregadorNome: c.entregador ? primeiroNome(c.entregador.nome) : null };
+    return { caminho, texto: c.devolucao ? TEXTO_DEVOLVIDO_AO_CLIENTE : textoParaCliente(c.tipo as TipoChamada, c.situacao as SituacaoChamada), entregadorNome: c.entregador ? primeiroNome(c.entregador.nome) : null };
   }
 }
 

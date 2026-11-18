@@ -86,7 +86,10 @@ export async function enviarGuardadas(api: Api): Promise<{ enviadas: number; rec
 
 /** O que a tela mostra enquanto a etapa espera a internet: o próximo passo, como se tivesse ido. */
 export function aplicarLocal(c: ChamadaEntregador, para: SituacaoChamada): ChamadaEntregador {
-  if (para !== 'CONCLUIDA') return { ...c, situacao: para };
+  if (para === 'NA_COLETA' || para === 'NO_DESTINO') return { ...c, situacao: para, chegouNoPontoEm: new Date().toISOString() };
+  if (para !== 'CONCLUIDA') return { ...c, situacao: para, chegouNoPontoEm: null };
+  // Voltando à origem: entregar lá termina a chamada inteira.
+  if (c.devolvendo) return { ...c, situacao: 'CONCLUIDA' };
   const destinos = c.destinos ?? [];
   const atual = c.paradaAtual ?? 0;
   if (atual < destinos.length - 1) {

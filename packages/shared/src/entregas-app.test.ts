@@ -14,6 +14,7 @@ import {
 } from './entregas';
 import { formatarCelular, formatarCentavos, normalizarCelular } from './pedidos';
 import { formatarKm, linkNavegacao, MOTIVOS_OCORRENCIA, normalizarSerie, PROXIMA_ETAPA, ROTULO_MOTIVO_OCORRENCIA, ROTULO_SITUACAO_CHAMADA, ROTULO_TIPO_CHAMADA } from './entregas-chamadas';
+import { ESPERA_BLOCO_MINUTOS, ESTADOS_MAQUINA, ITENS_CHECKLIST, LIMITE_OBSERVACAO_CHECKLIST, problemaNoChecklist, ROTULO_ESTADO_MAQUINA } from './entregas-servico';
 
 /** O app do entregador só importa tipos daqui: as regras são copiadas em apps/entregador/src/regras.ts. */
 describe('cópias do app do entregador', () => {
@@ -43,5 +44,13 @@ describe('cópias do app do entregador', () => {
     for (const v of [' ab-12.34 ', '', 'x']) expect(app.normalizarSerie(v)).toBe(normalizarSerie(v));
     for (const m of [0, 950, 3500, 12_345, 250_000]) expect(app.formatarKm(m)).toBe(formatarKm(m));
     expect(app.linkNavegacao({ lat: -23.5, lon: -46.6 })).toBe(linkNavegacao({ lat: -23.5, lon: -46.6 }));
+
+    expect(app.ESPERA_BLOCO_MINUTOS).toBe(ESPERA_BLOCO_MINUTOS);
+    expect(app.ESTADOS_MAQUINA).toEqual([...ESTADOS_MAQUINA]);
+    expect(app.ROTULO_ESTADO_MAQUINA).toEqual(ROTULO_ESTADO_MAQUINA);
+    expect(app.ITENS_CHECKLIST).toEqual(ITENS_CHECKLIST);
+    expect(app.LIMITE_OBSERVACAO_CHECKLIST).toBe(LIMITE_OBSERVACAO_CHECKLIST);
+    const lista = { carregador: true, bobina: false, chip: true, estado: 'BOA' as const, observacao: '' };
+    for (const c of [null, lista, { ...lista, chip: undefined }, { ...lista, estado: 'AVARIADA' as const }, { ...lista, estado: 'X' as never }, { ...lista, observacao: 'x'.repeat(301) }]) expect(app.problemaNoChecklist(c)).toBe(problemaNoChecklist(c));
   });
 });

@@ -126,6 +126,8 @@ function RegistrarPagamento({ a, aoFechar }: { a: APagarEntregador; aoFechar: ()
                 Nº {l.numero} · {ROTULO_TIPO_CHAMADA[l.tipo]} · {dataBr(l.concluidaEm)} · {l.destino}
                 {l.cancelada && <span className="block text-xs text-amber-800">Cancelada depois do aceite: taxa de deslocamento</span>}
                 {l.extraCentavos > 0 && <span className="block text-xs text-slate-500">Extra {formatarCentavos(l.extraCentavos)}: {l.extraMotivo}</span>}
+                {(l.esperaCentavos ?? 0) > 0 && <span className="block text-xs text-slate-500">Inclui espera de {formatarCentavos(l.esperaCentavos!)}</span>}
+                {(l.devolucaoCentavos ?? 0) > 0 && <span className="block text-xs text-slate-500">Inclui volta à origem de {formatarCentavos(l.devolucaoCentavos!)}</span>}
                 {l.contestacaoAberta && <span className="block text-xs text-red-700">Contestação esperando resposta</span>}
               </span>
               <span className="font-medium">{formatarCentavos(totalDaChamada(l))}</span>

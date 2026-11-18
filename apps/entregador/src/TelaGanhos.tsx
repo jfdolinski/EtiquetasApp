@@ -146,6 +146,8 @@ function Linha({ l, api, servidor, aberta, alternar, aoContestar }: { l: LinhaEx
             </Texto>
           )}
           {l.cancelada && <Texto suave>Cancelada depois do aceite: você recebe a taxa de deslocamento.</Texto>}
+          {(l.esperaCentavos ?? 0) > 0 && <Texto suave>Inclui espera: {formatarCentavos(l.esperaCentavos!)}</Texto>}
+          {(l.devolucaoCentavos ?? 0) > 0 && <Texto suave>Inclui a volta à origem: {formatarCentavos(l.devolucaoCentavos!)}</Texto>}
           {l.fechamentoId && <Botao titulo="Comprovante do pagamento (PDF)" variante="secundario" onPress={() => void comprovante()} />}
           {!l.podeContestar && erro && <Alerta>{erro}</Alerta>}
           {l.contestacao && (

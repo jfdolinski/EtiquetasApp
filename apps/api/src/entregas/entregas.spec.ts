@@ -190,6 +190,7 @@ describe('mapa da empresa', () => {
   const base = { lat: -23.5505, lon: -46.6333 };
   function montar(entregadores: unknown[], comBase = true) {
     const prisma = {
+      parametrosEntregas: { findUnique: jest.fn(async () => null) },
       configuracaoEntregas: { findUnique: jest.fn(async () => (comBase ? { baseLat: base.lat, baseLon: base.lon, baseEndereco: 'Sé', raioAtendimentoKm: 5 } : null)) },
       entregador: { findMany: jest.fn(async () => entregadores) },
     };

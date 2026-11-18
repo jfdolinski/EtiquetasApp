@@ -6,6 +6,8 @@ import {
   pixConfigurado,
   problemaNoPacote,
   problemaNosParametrosEntregas,
+  problemaNoPadraoDaPlataforma,
+  TABELA_PRECOS_PADRAO,
   ROTULO_DOCUMENTO,
   ROTULO_PEDIDO_CREDITO,
   ROTULO_SITUACAO_ENTREGADOR,
@@ -18,6 +20,10 @@ import {
   type TipoDocumentoEntregador,
 } from '@etiquetas/shared';
 import { api } from '../../api';
+import { TabelaPrecosEditor } from './TabelaPrecosEditor';
+
+/** "12,50" → 1250; vazio ou inválido vira 0 e a validação avisa. */
+const paraCentavos = (t: string) => Math.round(Number(t.trim().replace(/\./g, '').replace(',', '.') || '0') * 100) || 0;
 import { Alerta, Botao, Cabecalho, Campo, formatarData, Modal, Selecao, Selo, Tabela } from '../../components/ui';
 
 type Aba = 'cadastros' | 'creditos' | 'pacotes';
@@ -351,7 +357,7 @@ function PacotesEPix() {
   const problemaForm = form
     ? problemaNoPacote({ nome: form.nome, diarias: Number(form.diarias), precoCentavos: centavosDoTexto(form.preco), validadeDias: Number(form.validade), ativo: form.ativo })
     : null;
-  const problemaParametros = p ? problemaNosParametrosEntregas(p) : null;
+  const problemaParametros = p ? (problemaNosParametrosEntregas(p) ?? problemaNoPadraoDaPlataforma(p.tabelaPadrao, p.valorMinimoCentavos)) : null;
 
   return (
     <div className="space-y-8">
@@ -400,6 +406,15 @@ function PacotesEPix() {
           <div className="grid gap-3 sm:grid-cols-2">
             <Campo rotulo="Diárias ao aprovar (0 = nenhuma)" type="number" min={0} max={30} value={String(p.diariasBonusCadastro)} onChange={(e) => setP({ ...p, diariasBonusCadastro: Number(e.target.value) })} />
             <Campo rotulo="Validade (dias)" type="number" min={1} max={365} value={String(p.validadeBonusDias)} onChange={(e) => setP({ ...p, validadeBonusDias: Number(e.target.value) })} />
+          </div>
+          <div className="space-y-2 border-t border-slate-100 pt-3" data-testid="padrao-plataforma">
+            <div className="text-sm font-medium">Padrões das empresas</div>
+            <Campo rotulo="Valor mínimo por chamada (R$, 0 = sem mínimo)" inputMode="decimal" defaultValue={(p.valorMinimoCentavos / 100).toFixed(2).replace('.', ',')} onChange={(e) => setP({ ...p, valorMinimoCentavos: paraCentavos(e.target.value) })} ajuda="Nenhuma chamada sai por menos, em nenhuma empresa." />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={!!p.tabelaPadrao} onChange={(e) => setP({ ...p, tabelaPadrao: e.target.checked ? (parametros.data?.tabelaPadrao ?? TABELA_PRECOS_PADRAO) : null })} /> Tabela de preços padrão da plataforma
+            </label>
+            <p className="text-xs text-slate-500">Vale para as empresas que ainda não salvaram a tabela delas em Entregas &gt; Configuração. Desmarcado, vale a tabela que vem com o sistema.</p>
+            {p.tabelaPadrao && <TabelaPrecosEditor inicial={parametros.data?.tabelaPadrao ?? TABELA_PRECOS_PADRAO} mudar={(t) => setP({ ...p, tabelaPadrao: t })} />}
           </div>
           {(problemaParametros ?? salvarParametros.error) && <Alerta>{problemaParametros ?? salvarParametros.error!.message}</Alerta>}
           {salvarParametros.isSuccess && <Alerta tipo="info">Salvo.</Alerta>}

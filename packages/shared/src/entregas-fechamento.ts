@@ -77,6 +77,9 @@ export interface LinhaExtrato {
   fechamentoId: string | null;
   /** Cancelada depois do aceite: o valor é a taxa de deslocamento. */
   cancelada: boolean;
+  /** Já somados ao valor, mostrados à parte: espera no local e volta à origem. */
+  esperaCentavos?: number;
+  devolucaoCentavos?: number;
   contestacao: ContestacaoResumo | null;
   podeContestar: boolean;
 }
@@ -118,6 +121,8 @@ export interface LinhaFechamento {
   extraMotivo: string;
   contestacaoAberta: boolean;
   cancelada: boolean;
+  esperaCentavos?: number;
+  devolucaoCentavos?: number;
 }
 
 export interface APagarEntregador {

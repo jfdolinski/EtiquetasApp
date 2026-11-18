@@ -3,6 +3,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { criarEmpresa, pedir, sql, superToken } from './apoio';
 import { empresaComBase, entregadorOnline, PAULISTA, PERTO_DA_SE, PNG, SE } from './apoio-entregas';
 
+/** Maquininha (etapa 10): a coleta e a entrega pedem foto, série e o checklist. */
+const LISTA = { carregador: true, bobina: false, chip: true, estado: 'BOA', observacao: '' };
+
 /** Entregas, etapa 2: a empresa abre a chamada e oferece; o entregador aceita, cumpre as etapas e conclui com o código. */
 
 const parada = (p: { lat: number; lon: number }, endereco: string, extra: Record<string, string> = {}) => ({ ...p, endereco, contato: '', telefone: '', instrucoes: '', ...extra });
@@ -66,18 +69,20 @@ test('API: abrir, oferecer, recusar, aceitar, etapas com série e código, ocorr
   expect((await avancar({ para: 'NA_COLETA', ...SE })).status).toBe(400);
   expect((await avancar({ para: 'NA_COLETA', ...PAULISTA, simulada: true })).status).toBe(403);
   expect((await avancar({ para: 'NA_COLETA', ...PAULISTA, precisao: 8 })).j.situacao).toBe('NA_COLETA');
-  expect((await avancar({ para: 'COLETADA', ...PAULISTA })).j.message).toMatch(/série/);
-  expect((await avancar({ para: 'COLETADA', ...PAULISTA, serie: 'POS-778800' })).j.message).toMatch(/não confere/);
-  expect((await avancar({ para: 'COLETADA', ...PAULISTA, serie: 'pos 778899' })).j).toMatchObject({ situacao: 'COLETADA', serieColetada: 'POS778899' });
+  expect((await avancar({ para: 'COLETADA', ...PAULISTA })).j.message).toMatch(/foto da coleta/);
+  expect((await avancar({ para: 'COLETADA', ...PAULISTA, foto: PNG })).j.message).toMatch(/série/);
+  expect((await avancar({ para: 'COLETADA', ...PAULISTA, serie: 'pos 778899', foto: PNG })).j.message).toMatch(/checklist/);
+  expect((await avancar({ para: 'COLETADA', ...PAULISTA, serie: 'pos 778899', foto: PNG, checklist: LISTA })).j).toMatchObject({ situacao: 'COLETADA', serieColetada: 'POS778899' });
   expect((await avancar({ para: 'NO_DESTINO', ...SE })).j.situacao).toBe('NO_DESTINO');
   expect((await avancar({ para: 'CONCLUIDA', ...SE, codigo: '99999' })).status).toBe(400);
   const codigo = (await pedir('GET', `/entregas/chamadas/${dev.j.id}`, { token: emp.adminToken })).j.codigoConfirmacao;
   const errado = codigo === '0000' ? '0001' : '0000';
-  expect((await avancar({ para: 'CONCLUIDA', ...SE, codigo: errado })).j.message).toMatch(/Restam/);
-  expect((await avancar({ para: 'CONCLUIDA', ...SE, codigo })).j).toMatchObject({ situacao: 'CONCLUIDA' });
+  const maquina = { serie: 'POS778899', checklist: LISTA, foto: PNG };
+  expect((await avancar({ para: 'CONCLUIDA', ...SE, codigo: errado, ...maquina })).j.message).toMatch(/Restam/);
+  expect((await avancar({ para: 'CONCLUIDA', ...SE, codigo, ...maquina })).j).toMatchObject({ situacao: 'CONCLUIDA' });
   const final = await pedir('GET', `/entregas/chamadas/${dev.j.id}`, { token: emp.adminToken });
   expect(final.j).toMatchObject({ situacao: 'CONCLUIDA', codigoConfirmacao: null, posicaoEntregador: null });
-  expect(final.j.historico.map((h: { texto: string }) => h.texto)).toEqual(expect.arrayContaining(['Chamada aberta.', 'Carlos aceitou.', 'Coletado (série POS778899).', 'Entregue, com o código do destinatário.']));
+  expect(final.j.historico.map((h: { texto: string }) => h.texto)).toEqual(expect.arrayContaining(['Chamada aberta.', 'Carlos aceitou.', 'Coletado (série POS778899; com carregador, chip; sem bobina; em bom estado).', 'Entregue (série POS778899; com carregador, chip; sem bobina; em bom estado).']));
   expect((await pedir('GET', '/entregador/ganhos', { token: ent.token })).j).toMatchObject({ aReceberCentavos: dev.j.valorCentavos, hojeCentavos: dev.j.valorCentavos });
 
   // Ocorrência: a empresa libera e a chamada volta para a fila.

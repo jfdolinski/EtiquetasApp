@@ -22,6 +22,21 @@ import { Type } from 'class-transformer';
 import { randomInt } from 'node:crypto';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import {
+  checklistLimpo,
+  comMinimo,
+  ESPERA_BLOCO_MINUTOS,
+  ESTADOS_MAQUINA,
+  formatarKm,
+  minutosNoPonto,
+  podeDevolver,
+  problemaNoChecklist,
+  regraDeEspera,
+  textoDoChecklist,
+  valorDaDevolucao,
+  valorDaEspera,
+  type ChecklistsDaChamada,
+  type DevolucaoChamada,
+  type EstadoMaquina,
   chegouPerto,
   etapaAtrasada,
   momentoDaEtapa,
@@ -120,6 +135,7 @@ class NovaChamadaDto {
   @IsString() @MaxLength(500) observacao: string;
   @IsOptional() @IsBoolean() distribuir?: boolean;
   @IsOptional() @IsUUID('all', { message: 'Pedido inválido.' }) pedidoId?: string | null;
+  @IsOptional() @IsUUID('all', { message: 'Pedido do ERP inválido.' }) pedidoErpId?: string | null;
   @IsOptional() @IsArray() @ArrayMaxSize(9) @ValidateNested({ each: true }) @Type(() => ParadaDto) paradasExtras?: ParadaDto[];
 }
 
@@ -132,13 +148,21 @@ class MotivoDto {
 }
 
 class ResolverOcorrenciaDto {
-  @IsIn(['CONTINUAR', 'REABRIR', 'CANCELAR']) acao: 'CONTINUAR' | 'REABRIR' | 'CANCELAR';
+  @IsIn(['CONTINUAR', 'REABRIR', 'CANCELAR', 'DEVOLVER']) acao: 'CONTINUAR' | 'REABRIR' | 'CANCELAR' | 'DEVOLVER';
   @IsOptional() @IsString() @MaxLength(300) motivo?: string;
 }
 
 class FiltroChamadasDto {
   @IsOptional() @IsIn(['ATIVAS', 'TODAS']) filtro?: 'ATIVAS' | 'TODAS';
   @IsOptional() @IsUUID() pedidoId?: string;
+}
+
+class ChecklistDto {
+  @IsBoolean() carregador: boolean;
+  @IsBoolean() bobina: boolean;
+  @IsBoolean() chip: boolean;
+  @IsIn(ESTADOS_MAQUINA, { message: 'Informe o estado da máquina.' }) estado: EstadoMaquina;
+  @IsString() @MaxLength(300) observacao: string;
 }
 
 class AvancarDto {
@@ -152,6 +176,8 @@ class AvancarDto {
   @IsOptional() @IsString() @MaxLength(7_200_000) foto?: string | null;
   /** Quando o entregador fez a etapa (o app guardou sem internet e mandou depois). */
   @IsOptional() @IsISO8601() em?: string;
+  /** Maquininha: o que veio junto e o estado, na coleta e na entrega. */
+  @IsOptional() @ValidateNested() @Type(() => ChecklistDto) checklist?: ChecklistDto;
 }
 
 class DesistenciaDto {
@@ -195,7 +221,11 @@ function destinoAtual(c: { destino: Prisma.JsonValue; paradaAtual: number; codig
   return extra ? { parada: extra.parada as unknown as ParadaChamada, codigo: extra.codigoConfirmacao, extra } : { parada: c.destino as unknown as ParadaChamada, codigo: c.codigoConfirmacao, extra: null };
 }
 
-type Ocorrencia = { motivo: MotivoOcorrencia; texto: string; em: string; situacaoAnterior: SituacaoChamada };
+type Ocorrencia = { motivo: MotivoOcorrencia; texto: string; em: string; situacaoAnterior: SituacaoChamada; serieLida?: string | null };
+
+/** Maquininha: série, checklist e foto na coleta e na entrega. */
+const ehMaquina = (c: { tipo: string; serieEsperada: string | null }) => c.tipo === 'DEVOLUCAO_MAQUINA' || !!c.serieEsperada;
+const terminou = (situacao: string) => situacao === 'CONCLUIDA' || situacao === 'CANCELADA';
 
 const evento = (texto: string, por: EventoChamada['por']): EventoChamada => ({ em: new Date().toISOString(), texto, por });
 
@@ -253,14 +283,20 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     const valorTabelaCentavos = valorDaChamada(cfg.precos[c.tipo], rota.metros, extras.length);
     const clientes = c.tipo === 'ENTREGA' ? [c.destino, ...extras] : [pontoDoCliente(c.tipo, c.origem, c.destino)];
     const adicionais = adicionaisQueValem(cfg.adicionais, valorTabelaCentavos, momentoNoFuso(new Date(), config().fusoHorario), clientes);
-    return { ...rota, valorTabelaCentavos, adicionais, valorCentavos: valorTabelaCentavos + totalDosAdicionais(adicionais) };
+    const bruto = valorTabelaCentavos + totalDosAdicionais(adicionais);
+    const valorCentavos = comMinimo(bruto, await this.empresas.valorMinimo());
+    return { ...rota, valorTabelaCentavos, adicionais, valorCentavos, minimoAplicado: valorCentavos > bruto };
   }
 
   async criar(empresaId: string, dto: NovaChamadaDto, autorId: string | null): Promise<ChamadaResumo> {
     const c: NovaChamada = { ...dto, serieEsperada: dto.serieEsperada ? normalizarSerie(dto.serieEsperada) : null, observacao: dto.observacao.trim() };
     const previa = await this.previa(empresaId, c);
     const pedidoId = dto.pedidoId ? await this.conferirPedido(empresaId, dto.pedidoId) : null;
-    const { fotos } = await this.empresas.config(empresaId);
+    const erp = dto.pedidoErpId ? await this.conferirPedidoErp(empresaId, dto.pedidoErpId) : null;
+    const pedidoErp = erp?.codigo ?? null;
+    const { fotos, precos } = await this.empresas.config(empresaId);
+    const espera = regraDeEspera(precos[c.tipo]);
+    const maquina = ehMaquina(c);
     const rastreio = novoRastreio();
     const limpa = (p: ParadaDto): ParadaChamada => ({ lat: p.lat, lon: p.lon, endereco: p.endereco.trim(), contato: p.contato.trim(), telefone: p.telefone.replace(/\D/g, ''), instrucoes: p.instrucoes.trim() });
     const id = await this.prisma.$transaction(async (tx) => {
@@ -280,8 +316,11 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
           observacao: c.observacao,
           codigoConfirmacao: novoCodigo(),
           adicionais: previa.adicionais as never,
-          fotoColeta: fotos.coleta,
-          fotoEntrega: fotos.entrega,
+          fotoColeta: fotos.coleta || maquina,
+          fotoEntrega: fotos.entrega || maquina,
+          esperaToleranciaMinutos: espera.toleranciaMinutos,
+          esperaPorBlocoCentavos: espera.porBlocoCentavos,
+          pedidoErp,
           historico: [evento('Chamada aberta.', 'empresa')] as never,
           criadoPorId: autorId,
           pedidoId,
@@ -289,6 +328,11 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
           rastreioCifrado: rastreio.rastreioCifrado,
         },
       });
+      // Pedido do ERP: reivindica sobre a versão lida, então dois cliques (ou o relógio e um clique) não abrem duas chamadas.
+      if (erp) {
+        const { count } = await tx.pedidoErpEntrega.updateMany({ where: { id: erp.id, empresaId, atualizadoEm: erp.atualizadoEm }, data: { situacao: 'CHAMADA', chamadaId: criada.id, mensagem: null } });
+        if (!count) throw new ConflictException('Este pedido do ERP já foi chamado.');
+      }
       for (const [i, p] of (dto.paradasExtras ?? []).entries()) {
         const r = novoRastreio();
         await tx.paradaExtraChamada.create({ data: { chamadaId: criada.id, ordem: i + 1, parada: limpa(p) as never, codigoConfirmacao: novoCodigo(), rastreioHash: r.rastreioHash, rastreioCifrado: r.rastreioCifrado } });
@@ -309,6 +353,17 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     const ativa = await this.prisma.chamadaEntrega.findFirst({ where: { empresaId, pedidoId, situacao: { in: ['ABERTA', ...SITUACOES_EM_ANDAMENTO] } }, select: { numero: true } });
     if (ativa) throw new ConflictException(`Este pedido já tem a chamada nº ${ativa.numero} em andamento.`);
     return p.id;
+  }
+
+  /** Pedido do ERP esperando a empresa, ou com a chamada anterior cancelada. */
+  private async conferirPedidoErp(empresaId: string, id: string) {
+    const p = await this.prisma.pedidoErpEntrega.findFirst({ where: { id, empresaId } });
+    if (!p) throw new NotFoundException('Pedido do ERP não encontrado.');
+    if (p.situacao === 'CHAMADA' && p.chamadaId) {
+      const c = await this.prisma.chamadaEntrega.findUnique({ where: { id: p.chamadaId }, select: { numero: true, situacao: true } });
+      if (c && c.situacao !== 'CANCELADA') throw new ConflictException(`Este pedido do ERP já tem a chamada nº ${c.numero}.`);
+    }
+    return p;
   }
 
   async listar(empresaId: string, filtro: 'ATIVAS' | 'TODAS', pedidoId?: string): Promise<ChamadaResumo[]> {
@@ -366,8 +421,14 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
         proximaTentativaEm: c.proximaTentativaEm?.toISOString() ?? null,
         semEntregadorDesde: c.semEntregadorEm?.toISOString() ?? null,
       },
-      ocorrencia: oc ? { motivo: oc.motivo, texto: oc.texto, em: oc.em, temFoto: c.fotos.some((f) => f.etapa === 'OCORRENCIA') } : null,
-      codigoConfirmacao: c.situacao === 'CONCLUIDA' || c.situacao === 'CANCELADA' || c.paradaAtual > 0 ? null : c.codigoConfirmacao,
+      ocorrencia: oc ? { motivo: oc.motivo, texto: oc.texto, em: oc.em, temFoto: c.fotos.some((f) => f.etapa === 'OCORRENCIA'), serieLida: oc.serieLida ?? null, situacaoAnterior: oc.situacaoAnterior } : null,
+      codigoConfirmacao: terminou(c.situacao) || c.paradaAtual > 0 || c.devolucao ? null : c.codigoConfirmacao,
+      esperaMinutos: c.esperaMinutos,
+      esperaCentavos: c.esperaCentavos,
+      devolucao: (c.devolucao as unknown as DevolucaoChamada | null) ?? null,
+      codigoDevolucao: c.devolucao && !terminou(c.situacao) ? c.codigoDevolucao : null,
+      checklists: (c.checklists as unknown as ChecklistsDaChamada) ?? {},
+      pedidoErp: c.pedidoErp,
       historico: c.historico as unknown as EventoChamada[],
       criadoEm: c.criadoEm.toISOString(),
       concluidaEm: c.concluidaEm?.toISOString() ?? null,
@@ -445,7 +506,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
    * CANCELADA com `cancelamento_pago`, o valor vira a taxa e ela entra no "a pagar" do entregador.
    */
   async cancelar(empresaId: string, chamadaId: string, motivo: string, autorId: string): Promise<ChamadaResumo> {
-    const atual = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, empresaId }, select: { situacao: true, tipo: true, entregadorId: true, valorCentavos: true, atualizadoEm: true } });
+    const atual = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, empresaId }, select: { situacao: true, tipo: true, entregadorId: true, valorCentavos: true, esperaCentavos: true, atualizadoEm: true } });
     if (!atual) throw new NotFoundException('Chamada não encontrada.');
     const { precos } = await this.empresas.config(empresaId);
     const taxa = taxaDoCancelamento(atual.situacao as SituacaoChamada, !!atual.entregadorId, precos[atual.tipo as TipoChamada]?.taxaCancelamentoCentavos);
@@ -453,11 +514,11 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.chamadaEntrega.updateMany({
         where: { id: chamadaId, empresaId, situacao: atual.situacao, atualizadoEm: atual.atualizadoEm },
-        data: { situacao: 'CANCELADA', canceladaEm: agora, distribuicaoAtiva: false, proximaTentativaEm: null, ...(taxa ? { cancelamentoPago: true, valorCentavos: taxa, concluidaEm: agora } : {}) },
+        data: { situacao: 'CANCELADA', canceladaEm: agora, distribuicaoAtiva: false, proximaTentativaEm: null, ...(taxa ? { cancelamentoPago: true, valorCentavos: taxa + atual.esperaCentavos, concluidaEm: agora } : {}) },
       });
       if (!count) throw new ConflictException(['CONCLUIDA', 'CANCELADA'].includes(atual.situacao) ? 'A chamada já terminou.' : 'A chamada mudou. Recarregue.');
       await tx.ofertaChamada.updateMany({ where: { chamadaId, resultado: 'PENDENTE' }, data: { resultado: 'CANCELADA', respondidaEm: agora } });
-      await this.registrar(chamadaId, evento(`Cancelada pela empresa: ${motivo.trim()}${taxa ? `. O entregador recebe a taxa de deslocamento de ${formatarCentavos(taxa)} (o valor era ${formatarCentavos(atual.valorCentavos)}).` : ''}`, 'empresa'), tx);
+      await this.registrar(chamadaId, evento(`Cancelada pela empresa: ${motivo.trim()}${taxa ? `. O entregador recebe a taxa de deslocamento de ${formatarCentavos(taxa)}${atual.esperaCentavos ? ` e a espera de ${formatarCentavos(atual.esperaCentavos)}` : ''} (o valor era ${formatarCentavos(atual.valorCentavos)}).` : ''}`, 'empresa'), tx);
       await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.cancelar', entidade: 'ChamadaEntrega', entidadeId: chamadaId, detalhes: { motivo: motivo.trim() } }, tx);
     });
     return this.obter(empresaId, chamadaId);
@@ -466,16 +527,48 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
   /** Ocorrência: seguir de onde parou, voltar para a fila (outro entregador) ou cancelar. */
   async resolverOcorrencia(empresaId: string, chamadaId: string, dto: ResolverOcorrenciaDto, autorId: string): Promise<ChamadaResumo> {
     if (dto.acao === 'CANCELAR') return this.cancelar(empresaId, chamadaId, dto.motivo?.trim() || 'ocorrência', autorId);
+    if (dto.acao === 'DEVOLVER') return this.devolver(empresaId, chamadaId, dto.motivo ?? '', autorId);
     const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, empresaId, situacao: 'OCORRENCIA' } });
     if (!c) throw new ConflictException('A chamada não está em ocorrência.');
     const oc = c.ocorrencia as Ocorrencia;
     const { direcionamento } = await this.empresas.config(empresaId);
     const reaberta = { situacao: 'ABERTA', entregadorId: null, aceitaEm: null, distribuicaoAtiva: direcionamento.automatico, rodada: 0, tentativas: 0, proximaTentativaEm: direcionamento.automatico ? new Date() : null, semEntregadorEm: null };
-    const data = dto.acao === 'CONTINUAR' ? { situacao: oc.situacaoAnterior } : reaberta;
+    // Série diferente: seguir é aceitar a máquina que está lá.
+    const aceitaSerie = dto.acao === 'CONTINUAR' && oc.motivo === 'SERIE_DIFERENTE' && oc.serieLida ? oc.serieLida : null;
+    const serie = aceitaSerie ? (oc.situacaoAnterior === 'NA_COLETA' ? { serieEsperada: aceitaSerie } : { serieColetada: aceitaSerie }) : {};
+    const data = dto.acao === 'CONTINUAR' ? { situacao: oc.situacaoAnterior, ...serie } : reaberta;
     const { count } = await this.prisma.chamadaEntrega.updateMany({ where: { id: chamadaId, situacao: 'OCORRENCIA', atualizadoEm: c.atualizadoEm }, data });
     if (!count) throw new ConflictException('A chamada mudou. Recarregue.');
-    await this.registrar(chamadaId, evento(dto.acao === 'CONTINUAR' ? 'Empresa pediu para seguir.' : 'Empresa liberou o entregador e reabriu a chamada.', 'empresa'));
+    await this.registrar(chamadaId, evento(dto.acao === 'CONTINUAR' ? (aceitaSerie ? `Empresa aceitou a série ${aceitaSerie} e pediu para seguir.` : 'Empresa pediu para seguir.') : 'Empresa liberou o entregador e reabriu a chamada.', 'empresa'));
     await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.ocorrencia', entidade: 'ChamadaEntrega', entidadeId: chamadaId, detalhes: { acao: dto.acao } });
+    return this.obter(empresaId, chamadaId);
+  }
+
+  /**
+   * A entrega não deu certo: o entregador leva de volta à origem. O trecho de volta (metade da base
+   * mais o km) soma ao valor, e a empresa passa um código novo ao receber de volta. As paradas que
+   * faltavam voltam junto.
+   */
+  private async devolver(empresaId: string, chamadaId: string, motivo: string, autorId: string): Promise<ChamadaResumo> {
+    const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, empresaId, situacao: 'OCORRENCIA' }, include: { paradas: { orderBy: { ordem: 'asc' } } } });
+    if (!c) throw new ConflictException('A chamada não está em ocorrência.');
+    if (c.devolucao) throw new ConflictException('A chamada já está voltando para a origem.');
+    const oc = c.ocorrencia as Ocorrencia;
+    if (!podeDevolver(oc.situacaoAnterior)) throw new ConflictException('Só dá para devolver o que já foi coletado. Libere o entregador ou cancele a chamada.');
+    const origem = c.origem as unknown as ParadaChamada;
+    const { precos } = await this.empresas.config(empresaId);
+    const rota = await this.mapas.rota(destinoAtual(c, c.paradas).parada, origem);
+    const valor = valorDaDevolucao(precos[c.tipo as TipoChamada], rota.metros);
+    const dev: DevolucaoChamada = { em: new Date().toISOString(), metros: rota.metros, valorCentavos: valor, motivo: motivo.trim() || ROTULO_MOTIVO_OCORRENCIA[oc.motivo] };
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.chamadaEntrega.updateMany({
+        where: { id: chamadaId, situacao: 'OCORRENCIA', atualizadoEm: c.atualizadoEm },
+        data: { situacao: 'COLETADA', devolucao: dev as never, codigoDevolucao: novoCodigo(), valorCentavos: { increment: valor }, tentativasCodigo: 0, chegouNoPontoEm: null },
+      });
+      if (!count) throw new ConflictException('A chamada mudou. Recarregue.');
+      await this.registrar(chamadaId, evento(`Empresa pediu a devolução à origem (${formatarKm(rota.metros)}): ${formatarCentavos(valor)} a mais para o entregador.`, 'empresa'), tx);
+      await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.devolver', entidade: 'ChamadaEntrega', entidadeId: chamadaId, detalhes: { valorCentavos: valor, metros: rota.metros } }, tx);
+    });
     return this.obter(empresaId, chamadaId);
   }
 
@@ -483,6 +576,11 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
   async concluirPelaEmpresa(empresaId: string, chamadaId: string, autorId: string): Promise<ChamadaResumo> {
     const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, empresaId, situacao: 'NO_DESTINO' }, include: { paradas: { orderBy: { ordem: 'asc' } } } });
     if (!c) throw new ConflictException('Só dá para concluir com o entregador no destino.');
+    if (c.devolucao) {
+      await this.concluirDevolucao(c, 'Devolução confirmada pela empresa, sem o código.', 'empresa', new Date());
+      await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.concluir', entidade: 'ChamadaEntrega', entidadeId: chamadaId });
+      return this.obter(empresaId, chamadaId);
+    }
     const ultima = await this.entregarParada(c, 'Entrega confirmada pela empresa, sem o código.', 'empresa');
     if (ultima) await this.andarPedido(chamadaId, 'CONCLUIDA', true);
     await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.concluir', entidade: 'ChamadaEntrega', entidadeId: chamadaId });
@@ -493,14 +591,14 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
    * Entrega a parada atual. Com mais paradas, a chamada volta a "a caminho do destino" e passa
    * para a próxima (código e tentativas zerados); na última, conclui. Devolve se foi a última.
    */
-  private async entregarParada(c: { id: string; situacao: string; paradaAtual: number; paradas: ParadaDoBanco[] }, texto: string, por: EventoChamada['por'], tx?: Prisma.TransactionClient, quando = new Date()): Promise<boolean> {
+  private async entregarParada(c: { id: string; situacao: string; paradaAtual: number; paradas: ParadaDoBanco[] }, texto: string, por: EventoChamada['por'], tx?: Prisma.TransactionClient, quando = new Date(), dados: Prisma.ChamadaEntregaUpdateManyMutationInput = {}): Promise<boolean> {
     const total = 1 + c.paradas.length;
     const { ultima, proxima } = aposEntregarParada(c.paradaAtual, total);
     const agora = quando;
     const feito = async (t: Prisma.TransactionClient) => {
       const { count } = await t.chamadaEntrega.updateMany({
         where: { id: c.id, situacao: c.situacao, paradaAtual: c.paradaAtual },
-        data: ultima ? { situacao: 'CONCLUIDA', concluidaEm: agora } : { situacao: 'COLETADA', paradaAtual: proxima, tentativasCodigo: 0 },
+        data: { ...dados, chegouNoPontoEm: null, ...(ultima ? { situacao: 'CONCLUIDA', concluidaEm: agora } : { situacao: 'COLETADA', paradaAtual: proxima, tentativasCodigo: 0 }) },
       });
       if (!count) throw new ConflictException('A chamada mudou. Atualize a tela.');
       if (c.paradaAtual > 0) await t.paradaExtraChamada.updateMany({ where: { chamadaId: c.id, ordem: c.paradaAtual }, data: { entregueEm: agora } });
@@ -509,6 +607,17 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     if (tx) await feito(tx);
     else await this.prisma.$transaction(feito);
     return ultima;
+  }
+
+  /** Devolvido na origem: a chamada termina inteira (as paradas que faltavam voltaram junto). */
+  private async concluirDevolucao(c: { id: string; situacao: string }, texto: string, por: EventoChamada['por'], quando: Date, tx?: Prisma.TransactionClient, dados: Prisma.ChamadaEntregaUpdateManyMutationInput = {}) {
+    const feito = async (t: Prisma.TransactionClient) => {
+      const { count } = await t.chamadaEntrega.updateMany({ where: { id: c.id, situacao: c.situacao }, data: { ...dados, situacao: 'CONCLUIDA', concluidaEm: quando, chegouNoPontoEm: null } });
+      if (!count) throw new ConflictException('A chamada mudou. Atualize a tela.');
+      await this.registrar(c.id, evento(texto, por), t);
+    };
+    if (tx) await feito(tx);
+    else await this.prisma.$transaction(feito);
   }
 
   /**
@@ -664,8 +773,13 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       situacao: c.situacao as SituacaoChamada,
       empresa: c.empresa.nomeFantasia || c.empresa.razaoSocial,
       origem: c.origem as unknown as ParadaChamada,
-      // O destino é sempre a parada atual: o app antigo segue funcionando, uma de cada vez.
-      destino: destinoAtual(c, paradas).parada,
+      // O destino é sempre a parada atual (na devolução, a origem): o app antigo segue funcionando, uma de cada vez.
+      destino: c.devolucao ? (c.origem as unknown as ParadaChamada) : destinoAtual(c, paradas).parada,
+      devolvendo: !!c.devolucao,
+      pedeChecklist: ehMaquina(c),
+      chegouNoPontoEm: c.chegouNoPontoEm?.toISOString() ?? null,
+      espera: { toleranciaMinutos: c.esperaToleranciaMinutos, porBlocoCentavos: c.esperaPorBlocoCentavos },
+      esperaCentavos: c.esperaCentavos,
       destinos,
       paradaAtual: c.paradaAtual,
       pedeFotoColeta: c.fotoColeta,
@@ -698,7 +812,9 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     if (!coordenadaValida(dto)) throw new BadRequestException('Sem localização do celular.');
     const origem = c.origem as unknown as ParadaChamada;
     const atual = destinoAtual(c, c.paradas);
-    const destino = atual.parada;
+    const destino = c.devolucao ? origem : atual.parada;
+    const codigoEsperado = c.devolucao ? (c.codigoDevolucao ?? '') : atual.codigo;
+    const maquina = ehMaquina(c) && !c.devolucao;
     const agora = new Date();
     const quando = momentoDaEtapa(dto.em, agora);
     const atrasada = etapaAtrasada(quando, agora);
@@ -709,33 +825,65 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     if (dto.para === 'NO_DESTINO' && !chegouPerto(dto, destino, dto.precisao ?? null)) throw new BadRequestException('Você ainda não está no destino.');
     if (dto.para === 'COLETADA' && c.fotoColeta && !dto.foto) throw new BadRequestException('Tire a foto da coleta para continuar.');
     if (dto.para === 'CONCLUIDA' && c.fotoEntrega && !dto.foto) throw new BadRequestException('Tire a foto da entrega para continuar.');
-    if (dto.para === 'COLETADA') data.coletadaEm = quando;
-    if (dto.para === 'COLETADA') {
-      const pede = c.tipo === 'DEVOLUCAO_MAQUINA' || !!c.serieEsperada;
+    if (dto.para === 'NA_COLETA' || dto.para === 'NO_DESTINO') data.chegouNoPontoEm = quando;
+    // Espera: do "cheguei" até coletar ou entregar, em blocos além da tolerância (copiada da tabela ao abrir).
+    let espera = { minutos: 0, centavos: 0 };
+    if (dto.para === 'COLETADA' || dto.para === 'CONCLUIDA') {
+      const minutos = minutosNoPonto(c.chegouNoPontoEm, quando);
+      const v = valorDaEspera(minutos, { toleranciaMinutos: c.esperaToleranciaMinutos, porBlocoCentavos: c.esperaPorBlocoCentavos });
+      if (v.centavos) espera = { minutos, centavos: v.centavos };
+      if (v.centavos) Object.assign(data, { esperaMinutos: { increment: v.blocos * ESPERA_BLOCO_MINUTOS }, esperaCentavos: { increment: v.centavos }, valorCentavos: { increment: v.centavos } });
+    }
+    const comEspera = (x: string) => (espera.centavos ? `${x.replace(/\.$/, '')}. Espera de ${espera.minutos} min no local: ${formatarCentavos(espera.centavos)}.` : x);
+    // Maquininha: série, checklist e foto na coleta e na entrega (do destino principal).
+    const conferirMaquina = maquina && (dto.para === 'COLETADA' || (dto.para === 'CONCLUIDA' && c.paradaAtual === 0));
+    let serieDiferente: string | null = null;
+    if (conferirMaquina) {
       const serie = normalizarSerie(dto.serie ?? '');
-      if (pede && serie.length < 4) throw new BadRequestException('Leia ou digite o número de série da máquina.');
-      if (c.serieEsperada && serie !== c.serieEsperada) throw new BadRequestException('O número de série não confere com o da chamada. Confira a máquina ou registre uma ocorrência.');
+      if (serie.length < 4) throw new BadRequestException('Leia ou digite o número de série da máquina.');
+      const problema = problemaNoChecklist(dto.checklist);
+      if (problema) throw new BadRequestException(problema);
+      const esperada = dto.para === 'COLETADA' ? c.serieEsperada : (c.serieColetada ?? c.serieEsperada);
+      if (esperada && serie !== esperada) {
+        if (!dto.foto) throw new BadRequestException('O número de série não confere com o da chamada. Confira a máquina ou registre uma ocorrência.');
+        serieDiferente = serie;
+      } else {
+        const lista = checklistLimpo(dto.checklist!);
+        data.checklists = { ...((c.checklists as object) ?? {}), [dto.para === 'COLETADA' ? 'COLETA' : 'ENTREGA']: lista } as never;
+        if (dto.para === 'COLETADA') data.serieColetada = serie;
+        texto = `${dto.para === 'COLETADA' ? 'Coletado' : 'Entregue'} (série ${serie}; ${textoDoChecklist(lista)}).`;
+      }
+    } else if (dto.para === 'COLETADA' && !c.devolucao) {
+      // Chamada antiga (sem checklist): só a série, como antes.
+      const serie = normalizarSerie(dto.serie ?? '');
       if (serie) {
         data.serieColetada = serie;
         texto = `Coletado (série ${serie}).`;
       }
     }
+    if (dto.para === 'COLETADA') data.coletadaEm = quando;
+    if (serieDiferente) return this.ocorrenciaDeSerie(c, entregadorId, serieDiferente, dto, quando);
     if (dto.para === 'CONCLUIDA') {
-      if (c.tentativasCodigo >= TENTATIVAS_CODIGO) throw new ForbiddenException('Código errado vezes demais. Peça para a empresa confirmar a entrega.');
-      if ((dto.codigo ?? '').trim() !== atual.codigo) {
+      if (c.tentativasCodigo >= TENTATIVAS_CODIGO) throw new ForbiddenException(c.devolucao ? 'Código errado vezes demais. Peça para a empresa confirmar a devolução.' : 'Código errado vezes demais. Peça para a empresa confirmar a entrega.');
+      if ((dto.codigo ?? '').trim() !== codigoEsperado) {
         await this.prisma.chamadaEntrega.update({ where: { id: c.id }, data: { tentativasCodigo: { increment: 1 } } });
         throw new BadRequestException(`Código errado. Restam ${TENTATIVAS_CODIGO - c.tentativasCodigo - 1} tentativas.`);
       }
       data.concluidaEm = agora;
-      texto = 'Entregue, com o código do destinatário.';
+      if (c.devolucao) texto = 'Devolvido na origem, com o código da empresa.';
+      else if (!conferirMaquina) texto = 'Entregue, com o código do destinatário.';
     }
+    texto = comEspera(texto);
     const foto = dto.foto ? imagemDoDataUrl(dto.foto, 'A foto') : null;
 
     let ultima = true;
     await this.prisma.$transaction(async (tx) => {
       if (atrasada) texto = `${texto.replace(/\.$/, '')} (feito às ${new Intl.DateTimeFormat('pt-BR', { timeZone: config().fusoHorario, hour: '2-digit', minute: '2-digit' }).format(quando)}, enviado depois por falta de internet).`;
-      if (dto.para === 'CONCLUIDA') ultima = await this.entregarParada(c, texto, 'entregador', tx, quando);
-      else {
+      if (dto.para === 'CONCLUIDA' && c.devolucao) await this.concluirDevolucao(c, texto, 'entregador', quando, tx, data);
+      else if (dto.para === 'CONCLUIDA') {
+        const { situacao: _s, concluidaEm: _c, ...dados } = data;
+        ultima = await this.entregarParada(c, texto, 'entregador', tx, quando, dados);
+      } else {
         const { count } = await tx.chamadaEntrega.updateMany({ where: { id: c.id, situacao: c.situacao, entregadorId }, data });
         if (!count) throw new ConflictException('A chamada mudou. Atualize a tela.');
       }
@@ -746,7 +894,24 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       if (dto.para !== 'CONCLUIDA') await this.registrar(c.id, evento(texto, 'entregador'), tx);
     });
     // O pedido (do destino principal) só conclui quando a chamada inteira termina.
-    if (dto.para === 'COLETADA' || (dto.para === 'CONCLUIDA' && ultima)) await this.andarPedido(c.id, dto.para);
+    if (!c.devolucao && (dto.para === 'COLETADA' || (dto.para === 'CONCLUIDA' && ultima))) await this.andarPedido(c.id, dto.para);
+    return this.daChamada(entregadorId, c.id);
+  }
+
+  /**
+   * A máquina lida não é a esperada: em vez de só recusar, vira ocorrência (com a foto e a série lida)
+   * e a empresa decide: aceitar a máquina que está lá (seguir), reabrir ou cancelar.
+   */
+  private async ocorrenciaDeSerie(c: { id: string; situacao: string; serieEsperada: string | null; serieColetada: string | null }, entregadorId: string, serieLida: string, dto: AvancarDto, quando: Date): Promise<ChamadaEntregador> {
+    const esperada = dto.para === 'COLETADA' ? c.serieEsperada : (c.serieColetada ?? c.serieEsperada);
+    const foto = imagemDoDataUrl(dto.foto!, 'A foto');
+    const oc: Ocorrencia = { motivo: 'SERIE_DIFERENTE', texto: `Lida ${serieLida}, esperada ${esperada}`, em: quando.toISOString(), situacaoAnterior: c.situacao as SituacaoChamada, serieLida };
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.chamadaEntrega.updateMany({ where: { id: c.id, situacao: c.situacao, entregadorId }, data: { situacao: 'OCORRENCIA', ocorrencia: oc as never } });
+      if (!count) throw new ConflictException('A chamada mudou. Atualize a tela.');
+      await tx.fotoChamada.create({ data: { chamadaId: c.id, etapa: 'OCORRENCIA', mime: foto.mime, bytes: foto.bytes } });
+      await this.registrar(c.id, evento(`Ocorrência: série diferente (lida ${serieLida}, esperada ${esperada}). A empresa decide se segue.`, 'entregador'), tx);
+    });
     return this.daChamada(entregadorId, c.id);
   }
 
