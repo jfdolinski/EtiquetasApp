@@ -31,6 +31,7 @@ import { empresaBloqueada } from '../auth/acesso-empresa';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { config } from '../config';
 import { agoraNoFuso } from '../consultas/consultas.service';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { horaLocal } from '../telas/telas.module';
 import type { SalvarNotificacoesDto } from './dto';
@@ -303,6 +304,20 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
           titulo: `Chamada nº ${c.numero} sem entregador`,
           mensagem: `${ROTULO_TIPO_CHAMADA[c.tipo as TipoChamada]} aberta há ${textoDuracao(agora.getTime() - c.criadoEm.getTime())} e ninguém aceitou. O sistema segue tentando; você pode escolher um entregador em Entregas.`,
         }));
+      }
+      case 'entrega_emergencia': {
+        // Some quando alguém marca "Ciente" na chamada.
+        const chamadas = await this.prisma.chamadaEntrega.findMany({ where: { empresaId, NOT: { emergencia: { equals: Prisma.DbNull } }, atualizadoEm: { gte: atras(24 * HORA_MS) } }, take: 50, select: { id: true, numero: true, emergencia: true, entregador: { select: { nome: true } } } });
+        return chamadas
+          .filter((c) => !(c.emergencia as { vistaEm?: string | null }).vistaEm)
+          .map((c) => {
+            const e = c.emergencia as { em: string; texto: string; posicao: { lat: number; lon: number } | null };
+            return {
+              chave: `emergencia:${c.id}:${e.em}`,
+              titulo: `EMERGÊNCIA na chamada nº ${c.numero}`,
+              mensagem: `${c.entregador?.nome.split(' ')[0] ?? 'O entregador'} pediu ajuda${e.texto ? `: ${e.texto}` : ''}.${e.posicao ? ` Posição: https://www.google.com/maps/search/?api=1&query=${e.posicao.lat},${e.posicao.lon}` : ''} Marque "Ciente" na chamada, em Entregas.`,
+            };
+          });
       }
       case 'entrega_ocorrencia': {
         const chamadas = await this.prisma.chamadaEntrega.findMany({ where: { empresaId, situacao: 'OCORRENCIA', atualizadoEm: { lte: atras(regra.limite * 60_000) } }, take: 50, select: { id: true, numero: true, ocorrencia: true, atualizadoEm: true } });

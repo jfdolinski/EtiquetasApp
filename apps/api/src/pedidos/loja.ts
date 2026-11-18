@@ -59,6 +59,7 @@ import { cifrar, sha256 } from '../cripto';
 import { PrismaService } from '../prisma/prisma.service';
 import { horaLocal } from '../telas/hora';
 import { CepService } from './cep';
+import { RastreioService } from '../entregas/rastreio';
 import { estadoDe } from './painel';
 
 /** Um mesmo aparelho, numa mesma loja, por hora: acima disso é brincadeira ou robô. */
@@ -174,6 +175,7 @@ export class LojaService {
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
     private readonly ceps: CepService,
+    private readonly rastreio: RastreioService,
   ) {}
 
   /** O link que não existe e o catálogo fora do ar respondem diferente: o primeiro pode ser um link digitado errado. */
@@ -367,6 +369,7 @@ ${logo ? `<meta property="og:image" content="${e(origem + logo)}">\n` : ''}<meta
       totais: totaisDoPedido(itens, p.taxaCentavos, p.trocoParaCentavos, p.descontoCentavos),
       proposta: this.propostaPublica(p),
       motivoCancelamento: p.motivoCancelamento,
+      entrega: p.modalidade === 'RETIRADA' ? null : await this.rastreio.doPedido(p.id),
     };
   }
 

@@ -291,6 +291,8 @@ export interface ConfigEntregasEmpresa {
   precos: TabelaPrecos;
   segundosParaAceitar: number;
   direcionamento: RegrasDirecionamento;
+  /** Pedido com entrega aceito (em separação) já abre a chamada, na distribuição automática. */
+  chamarAoAceitarPedido: boolean;
 }
 
 export interface ResultadoEndereco extends Ponto {

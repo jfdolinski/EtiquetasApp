@@ -45,6 +45,7 @@ import { agoraNoFuso } from '../consultas/consultas.service';
 import { decifrar } from '../cripto';
 import { TrabalhosService } from '../impressao/trabalhos.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ChamadasService } from '../entregas/chamadas';
 import { horaLocal } from '../telas/hora';
 
 class MudarSituacaoDto {
@@ -150,6 +151,7 @@ export class PainelPedidosService {
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
     private readonly trabalhos: TrabalhosService,
+    private readonly chamadas: ChamadasService,
   ) {}
 
   async listar(empresaId: string, f: FiltroPedidos): Promise<PedidoResumo[]> {
@@ -264,6 +266,9 @@ export class PainelPedidosService {
       historico: [...((p.historico as unknown as EventoPedido[]) ?? []), evento(texto, nome)] as unknown as Prisma.InputJsonValue,
     });
     await this.auditoria.registrar({ empresaId, usuarioId: usuario.id, acao: 'pedido.situacao', entidade: 'Pedido', entidadeId: id, detalhes: { numero: p.numero, de, para: dto.situacao, ...(motivo ? { motivo } : {}) } });
+    // Entregas: nunca atrapalham a mudança do pedido.
+    if (dto.situacao === 'EM_SEPARACAO' && modalidade !== 'RETIRADA') await this.chamadas.chamarParaPedido(empresaId, id, usuario.id).catch(() => undefined);
+    if (dto.situacao === 'CANCELADO') await this.chamadas.aoCancelarPedido(empresaId, id).catch(() => undefined);
     return this.obter(empresaId, id);
   }
 

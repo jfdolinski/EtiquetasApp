@@ -1427,20 +1427,22 @@ model ParametrosEntregas {
 
 /// Por empresa: ponto de partida e raio em que ela enxerga os entregadores.
 model ConfiguracaoEntregas {
-  id                  String   @id @default(uuid()) @db.Uuid
-  empresaId           String   @unique @map("empresa_id") @db.Uuid
-  baseLat             Float?   @map("base_lat")
-  baseLon             Float?   @map("base_lon")
-  baseEndereco        String   @default("") @map("base_endereco")
-  raioAtendimentoKm   Int      @default(15) @map("raio_atendimento_km")
+  id                    String   @id @default(uuid()) @db.Uuid
+  empresaId             String   @unique @map("empresa_id") @db.Uuid
+  baseLat               Float?   @map("base_lat")
+  baseLon               Float?   @map("base_lon")
+  baseEndereco          String   @default("") @map("base_endereco")
+  raioAtendimentoKm     Int      @default(15) @map("raio_atendimento_km")
   /// TabelaPrecos (shared); nula = padrão.
-  precos              Json?
-  segundosParaAceitar Int      @default(45) @map("segundos_para_aceitar")
+  precos                Json?
+  segundosParaAceitar   Int      @default(45) @map("segundos_para_aceitar")
   /// RegrasDirecionamento (shared), parcial; nula = padrão.
-  direcionamento      Json?
+  direcionamento        Json?
+  /// Pedido com entrega aceito já abre a chamada (distribuição automática).
+  chamarAoAceitarPedido Boolean  @default(false) @map("chamar_ao_aceitar_pedido")
   /// Número da próxima chamada da empresa.
-  proximoNumero       Int      @default(1) @map("proximo_numero")
-  atualizadoEm        DateTime @updatedAt @map("atualizado_em")
+  proximoNumero         Int      @default(1) @map("proximo_numero")
+  atualizadoEm          DateTime @updatedAt @map("atualizado_em")
 
   empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
 
@@ -1500,6 +1502,11 @@ model ChamadaEntrega {
   /// Só a empresa vê.
   avaliacaoComentario String    @default("") @map("avaliacao_comentario")
   avaliadaEm          DateTime? @map("avaliada_em")
+  /// Link público do destinatário (/rastreio/<codigo>): o código só em hash (busca) e cifrado (a empresa manda de novo).
+  rastreioHash        String?   @unique @map("rastreio_hash")
+  rastreioCifrado     String?   @map("rastreio_cifrado")
+  /// EmergenciaChamada (shared): o entregador pediu ajuda; a empresa marca como ciente.
+  emergencia          Json?
   criadoPorId         String?   @map("criado_por_id") @db.Uuid
   criadoEm            DateTime  @default(now()) @map("criado_em")
   atualizadoEm        DateTime  @updatedAt @map("atualizado_em")

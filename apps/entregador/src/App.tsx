@@ -182,7 +182,7 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
               oferta={oferta && new Date(oferta.expiraEm).getTime() > Date.now() ? <CartaoOferta key={oferta.id} api={api} oferta={oferta} aoResponder={(c) => { setOferta(null); setChamada(c); }} /> : null}
             />
           ))}
-        {aba === 'ganhos' && <TelaGanhos api={api} />}
+        {aba === 'ganhos' && <TelaGanhos api={api} servidor={sessao.servidor} />}
         {aba === 'creditos' && <TelaCreditos api={api} aoMudarSaldo={mudarSaldo} />}
         {aba === 'perfil' && <TelaPerfil api={api} perfil={perfil} aoMudar={setPerfil} sair={() => void sair()} versao={versaoDoApp()} />}
       </View>

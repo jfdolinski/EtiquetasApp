@@ -23,6 +23,8 @@ import { randomInt } from 'node:crypto';
 import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import {
   chegouPerto,
+  LIMITE_TEXTO_EMERGENCIA,
+  type EmergenciaChamada,
   pedidoPodeChamarEntregador,
   type EnderecoPedido,
   type ModalidadeEntrega,
@@ -72,6 +74,8 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { config } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import { DirecionamentoService } from './direcionamento';
+import { FechamentoService } from './fechamento';
+import { caminhoDoRastreio, novoRastreio } from './rastreio';
 import { EntregasEmpresaService } from './empresa';
 import { EntregadorAtual, EntregadorGuard } from './guarda';
 import { dataUrl, imagemDoDataUrl } from './imagens';
@@ -130,6 +134,12 @@ class AvancarDto {
   @IsOptional() @IsString() @MaxLength(7_200_000) foto?: string | null;
 }
 
+class EmergenciaDto {
+  @IsOptional() @IsNumber() @Min(-90) @Max(90) lat?: number | null;
+  @IsOptional() @IsNumber() @Min(-180) @Max(180) lon?: number | null;
+  @IsString() @MaxLength(LIMITE_TEXTO_EMERGENCIA) texto: string;
+}
+
 class OcorrenciaDto {
   @IsIn(MOTIVOS_OCORRENCIA, { message: 'Escolha o motivo.' }) motivo: MotivoOcorrencia;
   @IsString() @MaxLength(500) texto: string;
@@ -166,6 +176,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     private readonly mapas: MapasService,
     private readonly empresas: EntregasEmpresaService,
     private readonly direcionamento: DirecionamentoService,
+    private readonly fechamento: FechamentoService,
   ) {}
 
   onApplicationBootstrap() {
@@ -205,10 +216,11 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     return { ...rota, valorCentavos: valorDaChamada(cfg.precos[c.tipo], rota.metros) };
   }
 
-  async criar(empresaId: string, dto: NovaChamadaDto, autorId: string): Promise<ChamadaResumo> {
+  async criar(empresaId: string, dto: NovaChamadaDto, autorId: string | null): Promise<ChamadaResumo> {
     const c: NovaChamada = { ...dto, serieEsperada: dto.serieEsperada ? normalizarSerie(dto.serieEsperada) : null, observacao: dto.observacao.trim() };
     const previa = await this.previa(empresaId, c);
     const pedidoId = dto.pedidoId ? await this.conferirPedido(empresaId, dto.pedidoId) : null;
+    const rastreio = novoRastreio();
     const limpa = (p: ParadaDto): ParadaChamada => ({ lat: p.lat, lon: p.lon, endereco: p.endereco.trim(), contato: p.contato.trim(), telefone: p.telefone.replace(/\D/g, ''), instrucoes: p.instrucoes.trim() });
     const id = await this.prisma.$transaction(async (tx) => {
       const cfg = await tx.configuracaoEntregas.upsert({ where: { empresaId }, create: { empresaId, proximoNumero: 2 }, update: { proximoNumero: { increment: 1 } }, select: { proximoNumero: true } });
@@ -229,6 +241,8 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
           historico: [evento('Chamada aberta.', 'empresa')] as never,
           criadoPorId: autorId,
           pedidoId,
+          rastreioHash: rastreio.rastreioHash,
+          rastreioCifrado: rastreio.rastreioCifrado,
         },
       });
       await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.abrir', entidade: 'ChamadaEntrega', entidadeId: criada.id, detalhes: { tipo: c.tipo, valorCentavos: previa.valorCentavos } }, tx);
@@ -314,6 +328,8 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       extraMotivo: c.extraMotivo,
       pagoEm: c.fechamento?.pagoEm.toISOString().slice(0, 10) ?? null,
       avaliacao: c.avaliadaEm && c.avaliacaoNota ? { nota: c.avaliacaoNota, comentario: c.avaliacaoComentario, em: c.avaliadaEm.toISOString() } : null,
+      linkRastreio: caminhoDoRastreio(c.rastreioCifrado),
+      emergencia: (c.emergencia as unknown as EmergenciaChamada | null) ?? null,
       contestacao: c.contestacoes[0] ? { mensagem: c.contestacoes[0].mensagem, resposta: c.contestacoes[0].resposta, criadoEm: c.contestacoes[0].criadoEm.toISOString() } : null,
     };
   }
@@ -413,6 +429,58 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     await this.prisma.$executeRaw`UPDATE pedidos SET situacao = ${para}, historico = historico || ${JSON.stringify(e)}::jsonb, atualizado_em = now() WHERE id = ${c.pedidoId}::uuid AND situacao = ${de}`;
   }
 
+  /** A empresa viu a emergência: o aviso para de repetir. */
+  async cienteDaEmergencia(empresaId: string, chamadaId: string, usuario: UsuarioRequisicao): Promise<ChamadaResumo> {
+    const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, empresaId }, select: { emergencia: true, atualizadoEm: true } });
+    const e = c?.emergencia as unknown as EmergenciaChamada | null;
+    if (!c || !e) throw new ConflictException('Não há emergência nesta chamada.');
+    if (!e.vistaEm) {
+      const nome = (await this.prisma.usuario.findUnique({ where: { id: usuario.id }, select: { nome: true } }))?.nome ?? 'Alguém';
+      const vista: EmergenciaChamada = { ...e, vistaEm: new Date().toISOString(), vistaPor: nome };
+      await this.prisma.chamadaEntrega.updateMany({ where: { id: chamadaId, empresaId, atualizadoEm: c.atualizadoEm }, data: { emergencia: vista as never } });
+      await this.registrar(chamadaId, evento(`${nome} viu a emergência.`, 'empresa'));
+      await this.auditoria.registrar({ empresaId, usuarioId: usuario.id, acao: 'entrega.chamada.emergencia_ciente', entidade: 'ChamadaEntrega', entidadeId: chamadaId });
+    }
+    return this.obter(empresaId, chamadaId);
+  }
+
+  /**
+   * Pedido com entrega aceito: se a empresa ligou "chamar ao aceitar", abre a chamada já na
+   * distribuição automática. Nunca atrapalha o pedido: sem ponto de partida ou sem o ponto do
+   * cliente, só anota no histórico do pedido.
+   */
+  async chamarParaPedido(empresaId: string, pedidoId: string, autorId: string | null): Promise<void> {
+    const cfg = await this.empresas.config(empresaId);
+    if (!cfg.chamarAoAceitarPedido) return;
+    const anotar = async (texto: string) => {
+      const e = [{ em: new Date().toISOString(), texto, por: null }];
+      await this.prisma.$executeRaw`UPDATE pedidos SET historico = historico || ${JSON.stringify(e)}::jsonb WHERE id = ${pedidoId}::uuid`;
+    };
+    try {
+      if (!cfg.base) return await anotar('Entregador não chamado: marque o ponto de partida em Entregas > Configuração.');
+      const r = await this.fechamento.rascunhoDoPedido(empresaId, pedidoId);
+      if (r.chamadaAtiva) return;
+      if (r.origemDoPonto === 'NENHUM') return await anotar('Entregador não chamado: o endereço do cliente não foi achado no mapa. Chame pela tela do pedido.');
+      const origem: ParadaChamada = { lat: cfg.base.lat, lon: cfg.base.lon, endereco: cfg.base.endereco || 'Loja', contato: '', telefone: '', instrucoes: '' };
+      const c = await this.criar(empresaId, { tipo: 'ENTREGA', origem, destino: r.destino, serieEsperada: null, observacao: r.observacao, distribuir: true, pedidoId } as NovaChamadaDto, autorId);
+      await anotar(`Entregador chamado automaticamente (chamada nº ${c.numero})`);
+    } catch (e) {
+      this.log.warn(`Chamada automática do pedido ${pedidoId}: ${(e as Error).message}`);
+      await anotar(`Entregador não chamado: ${(e as Error).message}`).catch(() => undefined);
+    }
+  }
+
+  /** Pedido cancelado: a chamada que ainda procura entregador é cancelada junto (em andamento, a empresa decide). */
+  async aoCancelarPedido(empresaId: string, pedidoId: string): Promise<void> {
+    const abertas = await this.prisma.chamadaEntrega.findMany({ where: { empresaId, pedidoId, situacao: 'ABERTA' }, select: { id: true } });
+    for (const c of abertas) {
+      const { count } = await this.prisma.chamadaEntrega.updateMany({ where: { id: c.id, situacao: 'ABERTA' }, data: { situacao: 'CANCELADA', canceladaEm: new Date(), distribuicaoAtiva: false, proximaTentativaEm: null } });
+      if (!count) continue;
+      await this.prisma.ofertaChamada.updateMany({ where: { chamadaId: c.id, resultado: 'PENDENTE' }, data: { resultado: 'CANCELADA', respondidaEm: new Date() } });
+      await this.registrar(c.id, evento('Cancelada porque o pedido foi cancelado.', 'sistema'));
+    }
+  }
+
   // Entregador ---------------------------------------------------------------------------------
 
   async ofertaPendente(entregadorId: string): Promise<OfertaResumo | null> {
@@ -502,6 +570,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       serieColetada: c.serieColetada,
       observacao: c.observacao,
       ocorrencia: oc ? { motivo: oc.motivo, texto: oc.texto } : null,
+      emergenciaEm: (c.emergencia as unknown as EmergenciaChamada | null)?.em ?? null,
       aceitaEm: c.aceitaEm?.toISOString() ?? null,
       concluidaEm: c.concluidaEm?.toISOString() ?? null,
     };
@@ -571,6 +640,18 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       await tx.fotoChamada.create({ data: { chamadaId: c.id, etapa: 'OCORRENCIA', mime: foto.mime, bytes: foto.bytes } });
       await this.registrar(c.id, evento(`Ocorrência: ${ROTULO_MOTIVO_OCORRENCIA[dto.motivo]}${oc.texto ? ` (${oc.texto})` : ''}.`, 'entregador'), tx);
     });
+    return this.daChamada(entregadorId, c.id);
+  }
+
+  /** Botão de emergência: grava com a posição, entra no histórico e o aviso da empresa repete até alguém ver. */
+  async emergencia(entregadorId: string, chamadaId: string, dto: EmergenciaDto): Promise<ChamadaEntregador> {
+    const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, entregadorId, situacao: { in: [...SITUACOES_EM_ANDAMENTO] } }, select: { id: true } });
+    if (!c) throw new ConflictException('Não há chamada em andamento.');
+    const posicao = dto.lat != null && dto.lon != null && coordenadaValida({ lat: dto.lat, lon: dto.lon }) ? { lat: dto.lat, lon: dto.lon } : null;
+    const e: EmergenciaChamada = { em: new Date().toISOString(), posicao, texto: dto.texto.trim(), vistaEm: null, vistaPor: null };
+    await this.prisma.chamadaEntrega.update({ where: { id: c.id }, data: { emergencia: e as never } });
+    if (posicao) await this.prisma.entregador.update({ where: { id: entregadorId }, data: { lat: posicao.lat, lon: posicao.lon, posicaoEm: new Date(), avisoEm: new Date() } });
+    await this.registrar(c.id, evento(`EMERGÊNCIA${e.texto ? `: ${e.texto}` : ''}${posicao ? ` (${posicao.lat.toFixed(5)}, ${posicao.lon.toFixed(5)})` : ''}.`, 'entregador'));
     return this.daChamada(entregadorId, c.id);
   }
 
@@ -666,6 +747,13 @@ export class ChamadasEmpresaController {
     return this.chamadas.obter(empresaId, id);
   }
 
+  @Post(':id/emergencia/ciente')
+  @HttpCode(200)
+  @RequerPermissao('entrega.ver')
+  ciente(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() u: UsuarioRequisicao): Promise<ChamadaResumo> {
+    return this.chamadas.cienteDaEmergencia(empresaId, id, u);
+  }
+
   @Post(':id/cancelar-oferta')
   @HttpCode(200)
   @RequerPermissao('entrega.gerenciar')
@@ -736,6 +824,13 @@ export class ChamadasEntregadorController {
   @HttpCode(200)
   ocorrencia(@EntregadorAtual() e: { id: string }, @Param('id', ParseUUIDPipe) id: string, @Body() dto: OcorrenciaDto): Promise<ChamadaEntregador> {
     return this.chamadas.ocorrencia(e.id, id, dto);
+  }
+
+  @Post('chamadas/:id/emergencia')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  emergencia(@EntregadorAtual() e: { id: string }, @Param('id', ParseUUIDPipe) id: string, @Body() dto: EmergenciaDto): Promise<ChamadaEntregador> {
+    return this.chamadas.emergencia(e.id, id, dto);
   }
 
   @Get('ganhos')

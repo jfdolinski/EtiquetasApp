@@ -867,6 +867,8 @@ export interface PedidoPublico {
   /** Uma alteração da loja esperando o cliente aceitar ou recusar. */
   proposta: PropostaPublica | null;
   motivoCancelamento: string | null;
+  /** Chamada do módulo Entregas levando este pedido, com o link de acompanhamento. */
+  entrega?: { caminho: string; texto: string; entregadorNome: string | null } | null;
 }
 
 /** Resposta de quem envia: o número e o código do acompanhamento, que só ele recebe. */

@@ -1034,6 +1034,15 @@ function Acompanhamento({ codigo }: { codigo: string }) {
           </section>
         )}
         {pedido.motivoCancelamento && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">{pedido.motivoCancelamento.startsWith('Cancelado pelo cliente') ? pedido.motivoCancelamento : `Motivo: ${pedido.motivoCancelamento}`}</p>}
+        {pedido.entrega && pedido.situacao !== 'CANCELADO' && (
+          <a href={pedido.entrega.caminho} className="flex items-center justify-between gap-3 rounded-lg bg-blue-50 px-4 py-3 text-blue-900 ring-1 ring-blue-200" data-testid="entrega-pedido">
+            <span>
+              <span className="block text-sm font-semibold">{pedido.entrega.texto}</span>
+              <span className="text-xs">{pedido.entrega.entregadorNome ? `Entregador: ${pedido.entrega.entregadorNome} · ` : ''}acompanhe no mapa</span>
+            </span>
+            <span aria-hidden>›</span>
+          </a>
+        )}
         <Bloco titulo="Situação">
           {pedido.situacao === 'CANCELADO' ? (
             <p className="rounded-md bg-red-50 px-3 py-2 text-sm font-medium text-red-800" data-testid="situacao-pedido">Cancelado</p>

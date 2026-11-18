@@ -26,3 +26,4 @@ export * from './entregas';
 export * from './entregas-chamadas';
 export * from './entregas-direcionamento';
 export * from './entregas-fechamento';
+export * from './entregas-rastreio';

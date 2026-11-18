@@ -42,4 +42,4 @@ A resposta de cada posição enviada traz a oferta pendente, e `src/avisos.ts` t
 - `src/regras.ts`: cópias de regras do shared; `packages/shared/src/entregas-app.test.ts` confere que continuam iguais.
 - `src/api.ts`: sessão no cofre do aparelho e chamadas à API.
 - `src/localizacao.ts`: permissões, tarefa em segundo plano e envio da posição.
-- `src/TelaEntrar.tsx` (entrar e cadastro), `TelaDocumentos.tsx` (análise), `TelaInicio.tsx` (online), `TelaChamada.tsx` (oferta e chamada em andamento, com `LeitorCodigo` para a série), `TelaGanhos.tsx` (guia Extrato: período, empresa, pago/a receber e contestação), `TelaCreditos.tsx` (diárias e Pix), `TelaPerfil.tsx`, `App.tsx`.
+- `src/TelaEntrar.tsx` (entrar e cadastro), `TelaDocumentos.tsx` (análise), `TelaInicio.tsx` (online), `TelaChamada.tsx` (oferta e chamada em andamento, com `LeitorCodigo` para a série e `Emergencia.tsx`: dois toques, posição se der em 8 s, "Ligar 190"), `TelaGanhos.tsx` (guia Extrato: período, empresa, pago/a receber, contestação e o PDF, aberto no navegador por um link de uso único), `TelaCreditos.tsx` (diárias e Pix), `TelaPerfil.tsx`, `App.tsx`.

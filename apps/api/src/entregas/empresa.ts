@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, Get, Injectable, Put, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
-import { IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import {
   coordenadaValida,
   distanciaMetros,
@@ -52,6 +52,7 @@ class ConfigEntregasDto {
   @IsOptional() @ValidateNested() @Type(() => TabelaPrecosDto) precos?: TabelaPrecos;
   @IsOptional() @IsInt() @Min(LIMITES_SEGUNDOS_PARA_ACEITAR.minimo) @Max(LIMITES_SEGUNDOS_PARA_ACEITAR.maximo) segundosParaAceitar?: number;
   @IsOptional() @ValidateNested() @Type(() => BaseDto) base: BaseDto | null;
+  @IsOptional() @IsBoolean() chamarAoAceitarPedido?: boolean;
   @IsInt() @Min(1, { message: 'O raio vai de 1 a 100 km.' }) @Max(RAIO_ATENDIMENTO_MAXIMO_KM, { message: 'O raio vai de 1 a 100 km.' }) raioAtendimentoKm: number;
 }
 
@@ -72,11 +73,11 @@ export class EntregasEmpresaService {
 
   async config(empresaId: string): Promise<ConfigEntregasEmpresa> {
     const c = await this.prisma.configuracaoEntregas.findUnique({ where: { empresaId } });
-    if (!c) return { base: null, raioAtendimentoKm: RAIO_ATENDIMENTO_PADRAO_KM, precos: TABELA_PRECOS_PADRAO, segundosParaAceitar: SEGUNDOS_PARA_ACEITAR_PADRAO, direcionamento: REGRAS_DIRECIONAMENTO_PADRAO };
+    if (!c) return { base: null, raioAtendimentoKm: RAIO_ATENDIMENTO_PADRAO_KM, precos: TABELA_PRECOS_PADRAO, segundosParaAceitar: SEGUNDOS_PARA_ACEITAR_PADRAO, direcionamento: REGRAS_DIRECIONAMENTO_PADRAO, chamarAoAceitarPedido: false };
     const base = c.baseLat !== null && c.baseLon !== null ? { lat: c.baseLat, lon: c.baseLon, endereco: c.baseEndereco } : null;
     // Tipo novo sem preço na tabela gravada fica com o padrão.
     const precos = { ...TABELA_PRECOS_PADRAO, ...((c.precos as Partial<TabelaPrecos> | null) ?? {}) };
-    return { base, raioAtendimentoKm: c.raioAtendimentoKm, precos, segundosParaAceitar: c.segundosParaAceitar, direcionamento: regrasVigentes(c.direcionamento) };
+    return { base, raioAtendimentoKm: c.raioAtendimentoKm, precos, segundosParaAceitar: c.segundosParaAceitar, direcionamento: regrasVigentes(c.direcionamento), chamarAoAceitarPedido: c.chamarAoAceitarPedido };
   }
 
   async salvar(empresaId: string, dto: ConfigEntregasDto, autorId: string): Promise<ConfigEntregasEmpresa> {
@@ -92,6 +93,7 @@ export class EntregasEmpresaService {
       raioAtendimentoKm: dto.raioAtendimentoKm,
       ...(dto.precos ? { precos: dto.precos as never } : {}),
       ...(dto.segundosParaAceitar ? { segundosParaAceitar: dto.segundosParaAceitar } : {}),
+      ...(dto.chamarAoAceitarPedido !== undefined ? { chamarAoAceitarPedido: dto.chamarAoAceitarPedido } : {}),
     };
     await this.prisma.configuracaoEntregas.upsert({ where: { empresaId }, create: { empresaId, ...data }, update: data });
     await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entregas.configurar', entidade: 'ConfiguracaoEntregas', entidadeId: empresaId, detalhes: { base: !!dto.base, raioAtendimentoKm: dto.raioAtendimentoKm } });

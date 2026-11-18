@@ -119,6 +119,7 @@ function Configuracao({ inicial, mapa, aoSalvar }: { inicial: ConfigEntregasEmpr
   const [raio, setRaio] = useState(String(inicial.raioAtendimentoKm));
   const [precos, setPrecos] = useState(() => Object.fromEntries(TIPOS_CHAMADA.map((t) => [t, { base: reais(inicial.precos[t].baseCentavos), porKm: reais(inicial.precos[t].porKmCentavos), km: String(inicial.precos[t].kmIncluso) }])) as Record<TipoChamada, { base: string; porKm: string; km: string }>);
   const [segundos, setSegundos] = useState(String(inicial.segundosParaAceitar));
+  const [chamar, setChamar] = useState(inicial.chamarAoAceitarPedido);
   const tabela = Object.fromEntries(TIPOS_CHAMADA.map((t) => [t, { baseCentavos: centavos(precos[t].base), porKmCentavos: centavos(precos[t].porKm), kmIncluso: Number(precos[t].km.replace(',', '.')) }])) as TabelaPrecos;
   const problemaPrecos = problemaNaTabelaPrecos(tabela);
   const [busca, setBusca] = useState('');
@@ -130,7 +131,7 @@ function Configuracao({ inicial, mapa, aoSalvar }: { inicial: ConfigEntregasEmpr
     onSuccess: setResultados,
   });
   const salvar = useMutation({
-    mutationFn: () => api<ConfigEntregasEmpresa>('/entregas/config', { metodo: 'PUT', corpo: { base, raioAtendimentoKm: Number(raio), precos: tabela, segundosParaAceitar: Number(segundos) } }),
+    mutationFn: () => api<ConfigEntregasEmpresa>('/entregas/config', { metodo: 'PUT', corpo: { base, raioAtendimentoKm: Number(raio), precos: tabela, segundosParaAceitar: Number(segundos), chamarAoAceitarPedido: chamar } }),
     onSuccess: () => {
       void cliente.invalidateQueries({ queryKey: ['entregas-config'] });
       void cliente.invalidateQueries({ queryKey: ['entregas-mapa'] });
@@ -192,6 +193,13 @@ function Configuracao({ inicial, mapa, aoSalvar }: { inicial: ConfigEntregasEmpr
           {problemaPrecos && <Alerta tipo="aviso">{problemaPrecos}</Alerta>}
         </div>
         <Campo rotulo="Segundos para o entregador aceitar" type="number" min={LIMITES_SEGUNDOS_PARA_ACEITAR.minimo} max={LIMITES_SEGUNDOS_PARA_ACEITAR.maximo} value={segundos} onChange={(e) => setSegundos(e.target.value)} ajuda="Sem resposta nesse tempo, a oferta expira e você escolhe outro." />
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5" checked={chamar} onChange={(e) => setChamar(e.target.checked)} />
+          <span>
+            Chamar entregador quando um pedido com entrega for aceito
+            <span className="block text-xs text-slate-500">A chamada já nasce na distribuição automática, com o endereço do cliente. Sem o ponto no mapa, o pedido fica com um aviso para chamar à mão.</span>
+          </span>
+        </label>
         {salvar.error && <Alerta>{salvar.error.message}</Alerta>}
         <Botao onClick={() => salvar.mutate()} disabled={!base || !raioValido || !!problemaPrecos || salvar.isPending}>
           {salvar.isPending ? 'Salvando…' : 'Salvar'}

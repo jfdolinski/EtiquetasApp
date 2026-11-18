@@ -3,6 +3,7 @@
 
 import { distanciaMetros, type Ponto, type TipoVeiculo } from './entregas';
 import type { DistribuicaoResumo, OfertaDaChamada } from './entregas-direcionamento';
+import type { EmergenciaChamada } from './entregas-rastreio';
 
 export const TIPOS_CHAMADA = ['ENTREGA', 'COLETA', 'DEVOLUCAO_MAQUINA'] as const;
 export type TipoChamada = (typeof TIPOS_CHAMADA)[number];
@@ -218,6 +219,9 @@ export interface ChamadaResumo {
   pagoEm: string | null;
   avaliacao: { nota: number; comentario: string; em: string } | null;
   contestacao: { mensagem: string; resposta: string | null; criadoEm: string } | null;
+  /** Caminho público do acompanhamento (/rastreio/...), para mandar ao cliente. */
+  linkRastreio: string | null;
+  emergencia: EmergenciaChamada | null;
 }
 
 /** O que o app do entregador recebe da chamada dele. */
@@ -236,6 +240,8 @@ export interface ChamadaEntregador {
   serieColetada: string | null;
   observacao: string;
   ocorrencia: { motivo: MotivoOcorrencia; texto: string } | null;
+  /** Quando o entregador pediu ajuda nesta chamada. */
+  emergenciaEm: string | null;
   aceitaEm: string | null;
   concluidaEm: string | null;
 }

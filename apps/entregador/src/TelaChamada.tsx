@@ -6,6 +6,7 @@ import { escolherImagem } from './imagens';
 import { LeitorCodigo } from './LeitorCodigo';
 import { posicaoAtual } from './localizacao';
 import { formatarCelular, formatarCentavos, formatarKm, linkNavegacao, MOTIVOS_OCORRENCIA, normalizarSerie, PROXIMA_ETAPA, ROTULO_MOTIVO_OCORRENCIA, ROTULO_SITUACAO_CHAMADA, ROTULO_TIPO_CHAMADA } from './regras';
+import { Emergencia } from './Emergencia';
 import { Alerta, Botao, Campo, Cartao, cores, Texto, Titulo } from './ui';
 
 /** Oferta recebida: valor, caminho resumido e prazo para responder. */
@@ -193,6 +194,7 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
           )}
         </View>
       )}
+      <Emergencia api={api} chamada={chamada} aoMudar={aoMudar} />
     </ScrollView>
   );
 }

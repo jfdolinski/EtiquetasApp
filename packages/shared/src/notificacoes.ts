@@ -70,6 +70,15 @@ export const EVENTOS_NOTIFICACAO = [
     repetirPadrao: 15,
   },
   {
+    codigo: 'entrega_emergencia',
+    titulo: 'Emergência do entregador',
+    descricao: 'Um entregador apertou o botão de emergência durante uma chamada da empresa. Repete até alguém marcar "Ciente" na chamada.',
+    unidade: null,
+    limitePadrao: 0,
+    nivel: 'erro',
+    repetirPadrao: 5,
+  },
+  {
     codigo: 'entrega_ocorrencia',
     titulo: 'Ocorrência na entrega',
     descricao: 'Um entregador registrou ocorrência (cliente ausente, endereço não encontrado…) e a empresa não decidiu há mais tempo que o limite (0 avisa na hora).',

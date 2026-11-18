@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { ExtratoEntregador, LinhaExtrato, PeriodoExtrato } from '../../../packages/shared/src/entregas-fechamento';
 import type { Api } from './api';
 import { dataCurta, formatarCentavos, formatarKm, ROTULO_TIPO_CHAMADA } from './regras';
@@ -15,13 +15,27 @@ const PERIODOS: { id: PeriodoExtrato; rotulo: string }[] = [
 const dataIso = (aaaaMmDd: string) => aaaaMmDd.split('-').reverse().join('/');
 
 /** Extrato: o que fez no período, o que cada empresa já pagou e o que falta, com contestação por linha. */
-export function TelaGanhos({ api }: { api: Api }) {
+export function TelaGanhos({ api, servidor }: { api: Api; servidor: string }) {
   const [periodo, setPeriodo] = useState<PeriodoExtrato>('SEMANA');
   const [empresa, setEmpresa] = useState<string | null>(null);
   const [dados, setDados] = useState<ExtratoEntregador | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(false);
   const [aberta, setAberta] = useState<string | null>(null);
+  const [baixando, setBaixando] = useState(false);
+
+  /** O PDF abre no navegador do celular por um link de uso único (2 min), sem levar o token. */
+  async function baixarPdf() {
+    setBaixando(true);
+    try {
+      const { caminho } = await api<{ caminho: string }>(`/entregador/extrato/link?periodo=${periodo}`, { metodo: 'POST' });
+      await Linking.openURL(`${servidor}/api${caminho}`);
+    } catch (e) {
+      setErro((e as Error).message);
+    } finally {
+      setBaixando(false);
+    }
+  }
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -64,6 +78,7 @@ export function TelaGanhos({ api }: { api: Api }) {
               ))}
             </View>
           )}
+          <Botao titulo="Baixar comprovante (PDF)" variante="secundario" onPress={() => void baixarPdf()} ocupado={baixando} />
           <Titulo>Entregas concluídas</Titulo>
           {linhas.length === 0 && <Texto suave>Nenhuma no período.</Texto>}
           {linhas.map((l) => (

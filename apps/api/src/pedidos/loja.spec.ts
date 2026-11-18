@@ -56,7 +56,7 @@ function montar(extra: Record<string, unknown> = {}, empresa: Record<string, unk
   };
   const auditoria = { registrar: jest.fn() };
   const ceps = { consultar: jest.fn(async () => ({ cep: '01001000', rua: 'Praça da Sé', bairro: 'Sé', cidade: 'São Paulo', uf: 'SP' })) };
-  const s = new LojaService(prisma as unknown as PrismaService, auditoria as unknown as AuditoriaService, ceps as unknown as CepService);
+  const s = new LojaService(prisma as unknown as PrismaService, auditoria as unknown as AuditoriaService, ceps as unknown as CepService, { doPedido: async () => null } as never);
   return { s, prisma, tx, auditoria, ceps };
 }
 

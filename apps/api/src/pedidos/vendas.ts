@@ -45,6 +45,7 @@ import { config } from '../config';
 import { cifrar, sha256 } from '../cripto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CepService } from './cep';
+import { ChamadasService } from '../entregas/chamadas';
 import { catalogoComReservas, enderecoLimpo, momento, recusaPorMudanca } from './loja';
 
 class NovaVendaDto implements NovaVenda {
@@ -109,6 +110,7 @@ export class VendasService {
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
     private readonly ceps: CepService,
+    private readonly chamadas: ChamadasService,
   ) {}
 
   private async loja(empresaId: string, agora: Date) {
@@ -219,6 +221,7 @@ export class VendasService {
       await this.auditoria.registrar({ empresaId, usuarioId: usuario.id, acao: 'pedido.vender', entidade: 'Pedido', entidadeId: criado.id, detalhes: { numero: n, totalCentavos: totais.totalCentavos, descontoCentavos: totais.descontoCentavos, modalidade: venda.modalidade } }, tx);
       return { id: criado.id, numero: n };
     });
+    if (venda.modalidade !== 'RETIRADA') await this.chamadas.chamarParaPedido(empresaId, id, usuario.id).catch(() => undefined);
     return { id, numero, codigo };
   }
 

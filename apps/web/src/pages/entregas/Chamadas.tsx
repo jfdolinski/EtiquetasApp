@@ -29,6 +29,7 @@ import { useAuth } from '../../auth';
 import { Alerta, Botao, Campo, formatarData, Modal, Selecao, Selo, Tabela } from '../../components/ui';
 import { MapaEntregadores } from './MapaEntregadores';
 import { PosEntrega } from './PosEntrega';
+import { AlertaEmergencia, LinkRastreio } from './RastreioDaChamada';
 
 const COR_SITUACAO: Record<SituacaoChamada, 'verde' | 'amarelo' | 'vermelho' | 'cinza'> = {
   ABERTA: 'amarelo',
@@ -84,6 +85,11 @@ export function Chamadas({ config, mapa }: { config: ConfigEntregasEmpresa; mapa
               <td className="whitespace-nowrap px-4 py-2.5">{formatarCentavos(c.valorCentavos)}</td>
               <td className="px-4 py-2.5">
                 <Selo cor={COR_SITUACAO[c.situacao]}>{ROTULO_SITUACAO_CHAMADA[c.situacao]}</Selo>
+                {c.emergencia && !c.emergencia.vistaEm && (
+                  <span className="ml-1">
+                    <Selo cor="vermelho">Emergência</Selo>
+                  </span>
+                )}
               </td>
             </tr>
           ))}
@@ -295,13 +301,10 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
                 <div className="font-mono text-2xl font-bold tracking-widest" data-testid="codigo-confirmacao">
                   {c.codigoConfirmacao}
                 </div>
-                {c.destino.telefone && (
-                  <a className="text-xs text-blue-700 underline" href={linkWhatsApp(c.destino.telefone, `Seu código para receber o pedido é ${c.codigoConfirmacao}. Informe ao entregador na entrega.`)} target="_blank" rel="noreferrer">
-                    Enviar pelo WhatsApp
-                  </a>
-                )}
               </div>
             )}
+            <LinkRastreio c={c} />
+            <AlertaEmergencia c={c} aoCiente={() => acao.mutate({ caminho: 'emergencia/ciente' })} ocupado={acao.isPending} />
             <Parada titulo="Coleta" p={c.origem} />
             <Parada titulo="Destino" p={c.destino} />
             {(c.serieEsperada || c.serieColetada) && (

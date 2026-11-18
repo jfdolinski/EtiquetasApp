@@ -12,8 +12,11 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { randomBytes } from 'node:crypto';
 import { Throttle } from '@nestjs/throttler';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 import {
@@ -57,7 +60,12 @@ import { config } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import { EntregadorAtual, EntregadorGuard } from './guarda';
 import { dataUrl, imagemDoDataUrl } from './imagens';
+import { extratoPdf } from './extrato-pdf';
 import { MapasService } from './mapas';
+
+/** Link de uso único do PDF (o navegador do celular baixa sem o token): 2 minutos, só em memória (uma réplica). */
+const LINKS_PDF = new Map<string, { entregadorId: string; periodo: PeriodoExtrato; expira: number }>();
+const VALIDADE_LINK_PDF_MS = 120_000;
 
 const DIA_MS = 86_400_000;
 
@@ -377,6 +385,25 @@ export class FechamentoService {
     };
   }
 
+  linkDoPdf(entregadorId: string, periodo: PeriodoExtrato, agora = Date.now()): { caminho: string } {
+    for (const [k, v] of LINKS_PDF) if (v.expira < agora) LINKS_PDF.delete(k);
+    const codigo = randomBytes(18).toString('base64url');
+    LINKS_PDF.set(codigo, { entregadorId, periodo, expira: agora + VALIDADE_LINK_PDF_MS });
+    return { caminho: `/entregador/extrato.pdf?codigo=${codigo}` };
+  }
+
+  async pdfDoLink(codigo: string): Promise<{ bytes: Uint8Array; nome: string }> {
+    const l = LINKS_PDF.get(codigo);
+    LINKS_PDF.delete(codigo);
+    if (!l || l.expira < Date.now()) throw new NotFoundException('Link vencido. Gere o comprovante de novo no aplicativo.');
+    const e = await this.prisma.entregador.findUnique({ where: { id: l.entregadorId }, select: { nome: true, chavePix: true } });
+    if (!e) throw new NotFoundException('Cadastro não encontrado.');
+    const agora = new Date();
+    const extrato = await this.extrato(l.entregadorId, l.periodo, agora);
+    const bytes = await extratoPdf(extrato, e, agora, config().fusoHorario);
+    return { bytes, nome: `extrato-flow-${diaNoFuso(agora, config().fusoHorario)}.pdf` };
+  }
+
   async contestar(entregadorId: string, chamadaId: string, mensagem: string): Promise<void> {
     const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, entregadorId, situacao: 'CONCLUIDA' }, select: { id: true, empresaId: true, concluidaEm: true } });
     if (!c) throw new NotFoundException('Chamada não encontrada.');
@@ -503,6 +530,13 @@ export class FechamentoEntregadorController {
     return this.fechamento.extrato(e.id, dto.periodo ?? 'SEMANA');
   }
 
+  @Post('extrato/link')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  linkPdf(@EntregadorAtual() e: { id: string }, @Query() dto: ExtratoDto): { caminho: string } {
+    return this.fechamento.linkDoPdf(e.id, dto.periodo ?? 'SEMANA');
+  }
+
   @Post('chamadas/:id/contestar')
   @HttpCode(204)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
@@ -513,5 +547,22 @@ export class FechamentoEntregadorController {
   @Get('reputacao')
   reputacao(@EntregadorAtual() e: { id: string }): Promise<ReputacaoEntregador> {
     return this.fechamento.reputacao(e.id);
+  }
+}
+
+/** O PDF do extrato pelo link de uso único: sem token, porque quem abre é o navegador do celular. */
+@Publico()
+@Controller('entregador')
+export class ExtratoPdfController {
+  constructor(private readonly fechamento: FechamentoService) {}
+
+  @Get('extrato.pdf')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async pdf(@Query('codigo') codigo: string, @Res() res: Response) {
+    const { bytes, nome } = await this.fechamento.pdfDoLink(String(codigo ?? ''));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${nome}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(Buffer.from(bytes));
   }
 }

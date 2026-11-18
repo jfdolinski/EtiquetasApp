@@ -44,6 +44,7 @@ const PlayerTv = lazy(() => import('./pages/telas/PlayerTv').then((m) => ({ defa
 const Entregas = lazy(() => import('./pages/entregas/Entregas').then((m) => ({ default: m.Entregas })));
 const Entregadores = lazy(() => import('./pages/entregas/Entregadores').then((m) => ({ default: m.Entregadores })));
 const Loja = lazy(() => import('./pages/loja/Loja').then((m) => ({ default: m.Loja })));
+const Rastreio = lazy(() => import('./pages/rastreio/Rastreio').then((m) => ({ default: m.Rastreio })));
 
 function Protegida({ children, permissao, superAdmin }: { children: ReactNode; permissao?: CodigoPermissao; superAdmin?: boolean }) {
   const { usuario, pode } = useAuth();
@@ -70,6 +71,15 @@ export function App() {
     return (
       <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
         <Loja />
+      </Suspense>
+    );
+  }
+
+  // Quem recebe a entrega acompanha pelo link, sem login.
+  if (pathname.startsWith('/rastreio/')) {
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
+        <Rastreio />
       </Suspense>
     );
   }
