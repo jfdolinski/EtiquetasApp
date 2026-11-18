@@ -19,6 +19,7 @@ import { Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsNumber, IsObject, Max, Min, ValidateNested } from 'class-validator';
 import {
   classificar,
+  DIAS_MEDIA_AVALIACAO,
   distanciaMetros,
   motivoDaOferta,
   primeiroNome,
@@ -156,6 +157,9 @@ export class DirecionamentoService implements OnApplicationBootstrap, OnModuleDe
       where: { entregadorId: { in: lista.map((e) => e.id) }, criadoEm: { gte: new Date(agora.getTime() - 30 * DIA_MS) }, resultado: { in: ['ACEITA', 'RECUSADA', 'EXPIRADA'] } },
       _count: { _all: true },
     });
+    // Avaliação: média dos últimos 90 dias, de todas as empresas.
+    const notas = await tx.chamadaEntrega.groupBy({ by: ['entregadorId'], where: { entregadorId: { in: lista.map((e) => e.id) }, avaliadaEm: { gte: new Date(agora.getTime() - DIAS_MEDIA_AVALIACAO * DIA_MS) } }, _avg: { avaliacaoNota: true } });
+    const media = new Map(notas.map((n) => [n.entregadorId, n._avg.avaliacaoNota]));
     const ofertadas = new Map<string, number>();
     const aceitas = new Map<string, number>();
     for (const r of respostas) {
@@ -174,8 +178,7 @@ export class DirecionamentoService implements OnApplicationBootstrap, OnModuleDe
         minutosLivre: Math.max(0, (agora.getTime() - livreDesde) / 60_000),
         ofertadas30d: ofertadas.get(e.id) ?? 0,
         aceitas30d: aceitas.get(e.id) ?? 0,
-        // Avaliações chegam na etapa 4: até lá, todos com a nota de quem não tem avaliação.
-        avaliacao: null,
+        avaliacao: media.get(e.id) ?? null,
         preferido: !!marca?.preferido,
         bloqueado: !!marca?.bloqueado,
         jaOfertado: 'ofertas' in e && Array.isArray(e.ofertas) && e.ofertas.length > 0,
@@ -303,6 +306,8 @@ export class DirecionamentoService implements OnApplicationBootstrap, OnModuleDe
       },
       take: 300,
     });
+    const notas = await this.prisma.chamadaEntrega.groupBy({ by: ['entregadorId'], where: { entregadorId: { in: lista.map((e) => e.id) }, avaliadaEm: { gte: new Date(Date.now() - DIAS_MEDIA_AVALIACAO * DIA_MS) } }, _avg: { avaliacaoNota: true } });
+    const media = new Map(notas.map((n) => [n.entregadorId, n._avg.avaliacaoNota]));
     return lista
       .map((e) => ({
         id: e.id,
@@ -312,6 +317,7 @@ export class DirecionamentoService implements OnApplicationBootstrap, OnModuleDe
         bloqueado: !!e.empresas[0]?.bloqueado,
         concluidas: e._count.chamadas,
         ultimaEm: e.chamadas[0]?.criadoEm.toISOString() ?? null,
+        avaliacaoMedia: media.get(e.id) != null ? Math.round(media.get(e.id)! * 10) / 10 : null,
       }))
       .sort((a, b) => Number(b.preferido) - Number(a.preferido) || b.concluidas - a.concluidas || a.nome.localeCompare(b.nome));
   }

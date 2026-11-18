@@ -136,7 +136,7 @@ test('chamada pelo app: a oferta aparece, aceita, cumpre as etapas e conclui com
   await expect(page.getByText('Você está online')).toBeVisible();
   expect((await pedir('GET', `/entregas/chamadas/${ch.j.id}`, { token: emp.adminToken })).j.situacao).toBe('CONCLUIDA');
 
-  await page.getByRole('tab', { name: 'Ganhos' }).click();
+  await page.getByRole('tab', { name: 'Extrato' }).click();
   await expect(page.getByText(/Entrega · /)).toBeVisible();
   await page.screenshot({ path: 'test-results/app-entregador-ganhos.png' });
   expect(erros).toEqual([]);

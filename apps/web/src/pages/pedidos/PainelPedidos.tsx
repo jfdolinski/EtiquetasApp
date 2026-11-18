@@ -34,6 +34,7 @@ import {
 } from '@etiquetas/shared';
 import { api } from '../../api';
 import { useAuth } from '../../auth';
+import { EntregaDoPedido } from './EntregaDoPedido';
 import { Alerta, Botao, Campo, Modal, Selecao, Selo, formatarData } from '../../components/ui';
 
 const COR_SITUACAO: Record<SituacaoPedido, 'verde' | 'amarelo' | 'vermelho' | 'cinza'> = {
@@ -211,6 +212,7 @@ function DetalhePedido({ id }: { id: string }) {
       )}
       {p.situacao === 'CONCLUIDO' && podeGerenciar && <Botao variante="secundario" onClick={() => setFolha(true)}>Folha de lançamento</Botao>}
       {p.aguardandoCliente && <p className="text-xs text-amber-700">A próxima etapa espera a resposta do cliente à alteração.</p>}
+      <EntregaDoPedido p={p} />
 
       {p.proposta && (
         <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm" data-testid="proposta-pendente">

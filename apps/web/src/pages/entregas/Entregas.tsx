@@ -22,9 +22,10 @@ import { Alerta, Botao, Cabecalho, Campo, Selo, Tabela } from '../../components/
 import { Chamadas } from './Chamadas';
 import { Direcionamento } from './Direcionamento';
 import { EntregadoresDaEmpresa } from './EntregadoresDaEmpresa';
+import { Financeiro } from './Financeiro';
 import { MapaEntregadores } from './MapaEntregadores';
 
-type Aba = 'chamadas' | 'mapa' | 'entregadores' | 'direcionamento' | 'configuracao';
+type Aba = 'chamadas' | 'mapa' | 'entregadores' | 'financeiro' | 'direcionamento' | 'configuracao';
 type RespostaConfig = { config: ConfigEntregasEmpresa; mapa: ConfigMapa };
 
 const ATUALIZAR_MS = 20_000;
@@ -38,6 +39,7 @@ export function Entregas() {
     { id: 'chamadas', rotulo: 'Chamadas' },
     { id: 'mapa', rotulo: 'Mapa' },
     { id: 'entregadores', rotulo: 'Entregadores' },
+    ...(pode('entrega.financeiro') ? [{ id: 'financeiro' as const, rotulo: 'Financeiro' }] : []),
     ...(pode('entrega.configurar') ? [{ id: 'direcionamento' as const, rotulo: 'Direcionamento' }, { id: 'configuracao' as const, rotulo: 'Configuração' }] : []),
   ];
   const [aba, setAba] = useState<Aba>('chamadas');
@@ -59,6 +61,7 @@ export function Entregas() {
       {config.data && aba === 'chamadas' && <Chamadas config={config.data.config} mapa={config.data.mapa} />}
       {config.data && aba === 'mapa' && <PainelMapa mapa={config.data.mapa} configurar={pode('entrega.configurar') ? () => setAba('configuracao') : null} />}
       {aba === 'entregadores' && <EntregadoresDaEmpresa />}
+      {aba === 'financeiro' && <Financeiro />}
       {config.data && aba === 'direcionamento' && <Direcionamento inicial={config.data.config} mapa={config.data.mapa} />}
       {config.data && aba === 'configuracao' && <Configuracao inicial={config.data.config} mapa={config.data.mapa} aoSalvar={() => setAba('mapa')} />}
     </div>

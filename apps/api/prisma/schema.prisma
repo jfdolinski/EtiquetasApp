@@ -72,38 +72,41 @@ model Empresa {
   configuracaoEntregas ConfiguracaoEntregas?
   chamadasEntrega      ChamadaEntrega[]
   entregadoresEmpresa  EntregadorEmpresa[]
+  fechamentosEntregas  FechamentoEntrega[]
+  contestacoesEntrega  ContestacaoEntrega[]
   pedidos              Pedido[]
 
   @@map("empresas")
 }
 
 model Usuario {
-  id                     String    @id @default(uuid()) @db.Uuid
+  id                        String              @id @default(uuid()) @db.Uuid
+  fechamentosEntregaCriados FechamentoEntrega[] @relation("FechamentosEntregaCriados")
   /// Nulo apenas para super-admins da plataforma.
-  empresaId              String?   @map("empresa_id") @db.Uuid
-  perfilId               String?   @map("perfil_id") @db.Uuid
-  nome                   String
+  empresaId                 String?             @map("empresa_id") @db.Uuid
+  perfilId                  String?             @map("perfil_id") @db.Uuid
+  nome                      String
   /// Sempre em minúsculas; único em toda a plataforma.
-  email                  String    @unique
-  senhaHash              String    @map("senha_hash")
-  superAdmin             Boolean   @default(false) @map("super_admin")
-  ativo                  Boolean   @default(true)
+  email                     String              @unique
+  senhaHash                 String              @map("senha_hash")
+  superAdmin                Boolean             @default(false) @map("super_admin")
+  ativo                     Boolean             @default(true)
   /// Veio do "Cadastre-se" e aguarda aprovação (sempre com ativo = false).
-  cadastroPendente       Boolean   @default(false) @map("cadastro_pendente")
-  ultimoLoginEm          DateTime? @map("ultimo_login_em")
+  cadastroPendente          Boolean             @default(false) @map("cadastro_pendente")
+  ultimoLoginEm             DateTime?           @map("ultimo_login_em")
   /// Verificação em duas etapas: ativa quando totpAtivoEm está preenchido.
-  totpSegredoCifrado     String?   @map("totp_segredo_cifrado")
-  totpAtivoEm            DateTime? @map("totp_ativo_em")
+  totpSegredoCifrado        String?             @map("totp_segredo_cifrado")
+  totpAtivoEm               DateTime?           @map("totp_ativo_em")
   /// Último passo aceito: o mesmo código não entra duas vezes.
-  totpUltimoPasso        BigInt?   @map("totp_ultimo_passo")
-  totpFalhas             Int       @default(0) @map("totp_falhas")
-  totpBloqueadoAte       DateTime? @map("totp_bloqueado_ate")
+  totpUltimoPasso           BigInt?             @map("totp_ultimo_passo")
+  totpFalhas                Int                 @default(0) @map("totp_falhas")
+  totpBloqueadoAte          DateTime?           @map("totp_bloqueado_ate")
   /// SHA-256 dos códigos de recuperação ainda não usados.
-  totpCodigosRecuperacao String[]  @default([]) @map("totp_codigos_recuperacao")
+  totpCodigosRecuperacao    String[]            @default([]) @map("totp_codigos_recuperacao")
   /// Código do atendente no ERP: vai em código de barras na folha de lançamento dos pedidos.
-  codigoErp              String?   @map("codigo_erp")
-  criadoEm               DateTime  @default(now()) @map("criado_em")
-  atualizadoEm           DateTime  @updatedAt @map("atualizado_em")
+  codigoErp                 String?             @map("codigo_erp")
+  criadoEm                  DateTime            @default(now()) @map("criado_em")
+  atualizadoEm              DateTime            @updatedAt @map("atualizado_em")
 
   empresa              Empresa?              @relation(fields: [empresaId], references: [id], onDelete: Restrict)
   perfil               Perfil?               @relation(fields: [perfilId], references: [id], onDelete: SetNull)
@@ -1193,52 +1196,53 @@ model ConfiguracaoPedidos {
 
 /// Pedido feito pelo link da empresa. Preços e totais são os conferidos no servidor na hora de gravar.
 model Pedido {
-  id                 String    @id @default(uuid()) @db.Uuid
-  empresaId          String    @map("empresa_id") @db.Uuid
+  id                 String           @id @default(uuid()) @db.Uuid
+  chamadasEntrega    ChamadaEntrega[]
+  empresaId          String           @map("empresa_id") @db.Uuid
   /// Sequencial por empresa.
   numero             Int
   /// SHA-256 do código do link de acompanhamento: o banco sozinho não abre o pedido.
-  codigoHash         String    @unique @map("codigo_hash")
+  codigoHash         String           @unique @map("codigo_hash")
   /// O mesmo código cifrado, para a loja mandar o link de novo ao cliente.
-  codigoCifrado      String    @map("codigo_cifrado")
+  codigoCifrado      String           @map("codigo_cifrado")
   /// SituacaoPedido de packages/shared.
-  situacao           String    @default("NOVO")
-  clienteNome        String    @map("cliente_nome")
+  situacao           String           @default("NOVO")
+  clienteNome        String           @map("cliente_nome")
   /// Só os 11 dígitos.
-  clienteTelefone    String    @map("cliente_telefone")
+  clienteTelefone    String           @map("cliente_telefone")
   /// EnderecoPedido; nulo na retirada.
   endereco           Json?
   modalidade         String
   /// FaixaAgendamento; só na agendada.
   agendamento        Json?
   pagamento          String
-  trocoParaCentavos  Int?      @map("troco_para_centavos")
-  observacao         String    @default("")
+  trocoParaCentavos  Int?             @map("troco_para_centavos")
+  observacao         String           @default("")
   /// ItemConferido[].
   itens              Json
-  subtotalCentavos   Int       @map("subtotal_centavos")
-  taxaCentavos       Int       @map("taxa_centavos")
+  subtotalCentavos   Int              @map("subtotal_centavos")
+  taxaCentavos       Int              @map("taxa_centavos")
   /// Dado pela loja numa alteração aceita pelo cliente.
-  descontoCentavos   Int       @default(0) @map("desconto_centavos")
-  totalCentavos      Int       @map("total_centavos")
+  descontoCentavos   Int              @default(0) @map("desconto_centavos")
+  totalCentavos      Int              @map("total_centavos")
   /// Quem aceitou: o código dele no ERP vai na folha de lançamento.
-  aceitoPorId        String?   @map("aceito_por_id") @db.Uuid
-  aceitoEm           DateTime? @map("aceito_em")
+  aceitoPorId        String?          @map("aceito_por_id") @db.Uuid
+  aceitoEm           DateTime?        @map("aceito_em")
   /// PropostaPedido + autor, esperando o cliente. A data é a versão: resposta a outra versão é recusada.
   proposta           Json?
-  propostaEm         DateTime? @map("proposta_em")
+  propostaEm         DateTime?        @map("proposta_em")
   /// A última resposta do cliente: { aceita, em }.
-  respostaProposta   Json?     @map("resposta_proposta")
-  motivoCancelamento String?   @map("motivo_cancelamento")
+  respostaProposta   Json?            @map("resposta_proposta")
+  motivoCancelamento String?          @map("motivo_cancelamento")
   /// EventoPedido[]: o que aconteceu, para o painel.
-  historico          Json      @default("[]")
+  historico          Json             @default("[]")
   /// SHA-256 do IP de quem enviou, só para limitar pedidos seguidos.
-  origemHash         String    @map("origem_hash")
+  origemHash         String           @map("origem_hash")
   /// LOJA (link do cliente) ou VENDEDOR (lançado no aplicativo por `vendedor`).
-  origem             String    @default("LOJA")
-  vendedorId         String?   @map("vendedor_id") @db.Uuid
-  criadoEm           DateTime  @default(now()) @map("criado_em")
-  atualizadoEm       DateTime  @updatedAt @map("atualizado_em")
+  origem             String           @default("LOJA")
+  vendedorId         String?          @map("vendedor_id") @db.Uuid
+  criadoEm           DateTime         @default(now()) @map("criado_em")
+  atualizadoEm       DateTime         @updatedAt @map("atualizado_em")
 
   empresa   Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
   aceitoPor Usuario? @relation("PedidosAceitos", fields: [aceitoPorId], references: [id], onDelete: SetNull)
@@ -1283,14 +1287,16 @@ model Entregador {
   criadoEm        DateTime  @default(now()) @map("criado_em")
   atualizadoEm    DateTime  @updatedAt @map("atualizado_em")
 
-  sessoes    SessaoEntregador[]
-  documentos DocumentoEntregador[]
-  pedidos    PedidoCredito[]
-  lotes      LoteCredito[]
-  diarias    DiariaEntregador[]
-  chamadas   ChamadaEntrega[]
-  ofertas    OfertaChamada[]
-  empresas   EntregadorEmpresa[]
+  sessoes      SessaoEntregador[]
+  documentos   DocumentoEntregador[]
+  pedidos      PedidoCredito[]
+  lotes        LoteCredito[]
+  diarias      DiariaEntregador[]
+  chamadas     ChamadaEntrega[]
+  ofertas      OfertaChamada[]
+  empresas     EntregadorEmpresa[]
+  fechamentos  FechamentoEntrega[]
+  contestacoes ContestacaoEntrega[]
 
   @@index([online, posicaoEm])
   @@index([situacao, criadoEm])
@@ -1452,50 +1458,66 @@ model CacheGeocodificacao {
 
 /// Chamada de coleta, entrega ou devolução de máquina, aberta pela empresa.
 model ChamadaEntrega {
-  id                 String    @id @default(uuid()) @db.Uuid
-  empresaId          String    @map("empresa_id") @db.Uuid
-  numero             Int
-  tipo               String
+  id                  String    @id @default(uuid()) @db.Uuid
+  empresaId           String    @map("empresa_id") @db.Uuid
+  numero              Int
+  tipo                String
   /// ABERTA, ACEITA, NA_COLETA, COLETADA, NO_DESTINO, CONCLUIDA, OCORRENCIA ou CANCELADA.
-  situacao           String    @default("ABERTA")
+  situacao            String    @default("ABERTA")
   /// ParadaChamada: endereço, ponto, contato, telefone, instruções.
-  origem             Json
-  destino            Json
-  metros             Int
-  segundos           Int
-  estimada           Boolean
-  valorCentavos      Int       @map("valor_centavos")
-  serieEsperada      String?   @map("serie_esperada")
-  serieColetada      String?   @map("serie_coletada")
-  observacao         String    @default("")
-  codigoConfirmacao  String    @map("codigo_confirmacao")
-  tentativasCodigo   Int       @default(0) @map("tentativas_codigo")
-  entregadorId       String?   @map("entregador_id") @db.Uuid
-  aceitaEm           DateTime? @map("aceita_em")
-  concluidaEm        DateTime? @map("concluida_em")
-  canceladaEm        DateTime? @map("cancelada_em")
+  origem              Json
+  destino             Json
+  metros              Int
+  segundos            Int
+  estimada            Boolean
+  valorCentavos       Int       @map("valor_centavos")
+  serieEsperada       String?   @map("serie_esperada")
+  serieColetada       String?   @map("serie_coletada")
+  observacao          String    @default("")
+  codigoConfirmacao   String    @map("codigo_confirmacao")
+  tentativasCodigo    Int       @default(0) @map("tentativas_codigo")
+  entregadorId        String?   @map("entregador_id") @db.Uuid
+  aceitaEm            DateTime? @map("aceita_em")
+  concluidaEm         DateTime? @map("concluida_em")
+  canceladaEm         DateTime? @map("cancelada_em")
   /// { motivo, texto, em, situacaoAnterior }
-  ocorrencia         Json?
-  historico          Json      @default("[]")
+  ocorrencia          Json?
+  historico           Json      @default("[]")
   /// Distribuição automática: rodada (raio cresce), ofertas na rodada e quando tentar de novo.
-  distribuicaoAtiva  Boolean   @default(false) @map("distribuicao_ativa")
-  rodada             Int       @default(0)
-  tentativas         Int       @default(0)
-  proximaTentativaEm DateTime? @map("proxima_tentativa_em")
-  semEntregadorEm    DateTime? @map("sem_entregador_em")
-  criadoPorId        String?   @map("criado_por_id") @db.Uuid
-  criadoEm           DateTime  @default(now()) @map("criado_em")
-  atualizadoEm       DateTime  @updatedAt @map("atualizado_em")
+  distribuicaoAtiva   Boolean   @default(false) @map("distribuicao_ativa")
+  rodada              Int       @default(0)
+  tentativas          Int       @default(0)
+  proximaTentativaEm  DateTime? @map("proxima_tentativa_em")
+  semEntregadorEm     DateTime? @map("sem_entregador_em")
+  /// Pedido do Flow que esta chamada entrega (opcional).
+  pedidoId            String?   @map("pedido_id") @db.Uuid
+  /// Somado depois de concluída (espera, volta), com o motivo; entra no que a empresa deve.
+  extraCentavos       Int       @default(0) @map("extra_centavos")
+  extraMotivo         String    @default("") @map("extra_motivo")
+  /// Preenchido quando a empresa registra o pagamento (fechamento).
+  fechamentoId        String?   @map("fechamento_id") @db.Uuid
+  avaliacaoNota       Int?      @map("avaliacao_nota")
+  /// Só a empresa vê.
+  avaliacaoComentario String    @default("") @map("avaliacao_comentario")
+  avaliadaEm          DateTime? @map("avaliada_em")
+  criadoPorId         String?   @map("criado_por_id") @db.Uuid
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+  atualizadoEm        DateTime  @updatedAt @map("atualizado_em")
 
-  empresa    Empresa         @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  entregador Entregador?     @relation(fields: [entregadorId], references: [id], onDelete: SetNull)
-  ofertas    OfertaChamada[]
-  fotos      FotoChamada[]
+  empresa      Empresa              @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  entregador   Entregador?          @relation(fields: [entregadorId], references: [id], onDelete: SetNull)
+  ofertas      OfertaChamada[]
+  fotos        FotoChamada[]
+  pedido       Pedido?              @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
+  fechamento   FechamentoEntrega?   @relation(fields: [fechamentoId], references: [id], onDelete: SetNull)
+  contestacoes ContestacaoEntrega[]
 
   @@unique([empresaId, numero])
   @@index([empresaId, criadoEm])
   @@index([entregadorId, situacao])
   @@index([distribuicaoAtiva, proximaTentativaEm])
+  @@index([empresaId, entregadorId, fechamentoId])
+  @@index([pedidoId])
   @@map("chamadas_entrega")
 }
 
@@ -1552,4 +1574,49 @@ model EntregadorEmpresa {
 
   @@unique([empresaId, entregadorId])
   @@map("entregadores_empresa")
+}
+
+/// Pagamento que a empresa fez a um entregador (fora do sistema), cobrindo as chamadas ligadas a ele.
+model FechamentoEntrega {
+  id              String   @id @default(uuid()) @db.Uuid
+  empresaId       String   @map("empresa_id") @db.Uuid
+  entregadorId    String   @map("entregador_id") @db.Uuid
+  pagoEm          DateTime @map("pago_em") @db.Date
+  quantidade      Int
+  totalCentavos   Int      @map("total_centavos")
+  observacao      String   @default("")
+  comprovanteMime String?  @map("comprovante_mime")
+  comprovante     Bytes?
+  criadoPorId     String?  @map("criado_por_id") @db.Uuid
+  criadoEm        DateTime @default(now()) @map("criado_em")
+
+  empresa    Empresa          @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  entregador Entregador       @relation(fields: [entregadorId], references: [id], onDelete: Cascade)
+  criadoPor  Usuario?         @relation("FechamentosEntregaCriados", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  chamadas   ChamadaEntrega[]
+
+  @@index([empresaId, criadoEm])
+  @@index([entregadorId])
+  @@map("fechamentos_entregas")
+}
+
+/// O entregador discorda do valor ou do pagamento de uma chamada; a empresa responde.
+model ContestacaoEntrega {
+  id              String    @id @default(uuid()) @db.Uuid
+  chamadaId       String    @map("chamada_id") @db.Uuid
+  empresaId       String    @map("empresa_id") @db.Uuid
+  entregadorId    String    @map("entregador_id") @db.Uuid
+  mensagem        String
+  resposta        String?
+  respondidaEm    DateTime? @map("respondida_em")
+  respondidaPorId String?   @map("respondida_por_id") @db.Uuid
+  criadoEm        DateTime  @default(now()) @map("criado_em")
+
+  chamada    ChamadaEntrega @relation(fields: [chamadaId], references: [id], onDelete: Cascade)
+  empresa    Empresa        @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  entregador Entregador     @relation(fields: [entregadorId], references: [id], onDelete: Cascade)
+
+  @@index([empresaId, respondidaEm])
+  @@index([chamadaId])
+  @@map("contestacoes_entrega")
 }

@@ -156,7 +156,7 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
 
   const abas: { id: Aba; rotulo: string }[] = [
     { id: 'inicio', rotulo: chamada ? 'Chamada' : 'Início' },
-    { id: 'ganhos', rotulo: 'Ganhos' },
+    { id: 'ganhos', rotulo: 'Extrato' },
     { id: 'creditos', rotulo: 'Créditos' },
     { id: 'perfil', rotulo: 'Perfil' },
   ];

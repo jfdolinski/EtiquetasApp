@@ -1,56 +1,147 @@
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, ScrollView, Text, View } from 'react-native';
-import type { GanhosEntregador } from '../../../packages/shared/src/entregas-chamadas';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import type { ExtratoEntregador, LinhaExtrato, PeriodoExtrato } from '../../../packages/shared/src/entregas-fechamento';
 import type { Api } from './api';
 import { dataCurta, formatarCentavos, formatarKm, ROTULO_TIPO_CHAMADA } from './regras';
-import { Alerta, cores, Numero, Texto, Titulo } from './ui';
+import { Alerta, Botao, Campo, cores, Numero, Texto, Titulo } from './ui';
 
-/** Histórico das entregas concluídas e o que ele tem a receber das empresas. */
+const PERIODOS: { id: PeriodoExtrato; rotulo: string }[] = [
+  { id: 'HOJE', rotulo: 'Hoje' },
+  { id: 'SEMANA', rotulo: '7 dias' },
+  { id: 'MES', rotulo: '30 dias' },
+  { id: 'TUDO', rotulo: 'Tudo' },
+];
+
+const dataIso = (aaaaMmDd: string) => aaaaMmDd.split('-').reverse().join('/');
+
+/** Extrato: o que fez no período, o que cada empresa já pagou e o que falta, com contestação por linha. */
 export function TelaGanhos({ api }: { api: Api }) {
-  const [dados, setDados] = useState<GanhosEntregador | null>(null);
+  const [periodo, setPeriodo] = useState<PeriodoExtrato>('SEMANA');
+  const [empresa, setEmpresa] = useState<string | null>(null);
+  const [dados, setDados] = useState<ExtratoEntregador | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(false);
+  const [aberta, setAberta] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      setDados(await api<GanhosEntregador>('/entregador/ganhos'));
+      setDados(await api<ExtratoEntregador>(`/entregador/extrato?periodo=${periodo}`));
       setErro(null);
     } catch (e) {
       setErro((e as Error).message);
     } finally {
       setCarregando(false);
     }
-  }, [api]);
+  }, [api, periodo]);
   useEffect(() => void carregar(), [carregar]);
+
+  const linhas = (dados?.linhas ?? []).filter((l) => !empresa || l.empresa === empresa);
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} refreshControl={<RefreshControl refreshing={carregando} onRefresh={() => void carregar()} />}>
+      <View style={estilos.chips}>
+        {PERIODOS.map((p) => (
+          <Pressable key={p.id} accessibilityRole="button" accessibilityState={{ selected: periodo === p.id }} onPress={() => setPeriodo(p.id)} style={[estilos.chip, periodo === p.id && estilos.chipAtivo]}>
+            <Text style={{ color: periodo === p.id ? cores.branco : cores.texto }}>{p.rotulo}</Text>
+          </Pressable>
+        ))}
+      </View>
       {erro && <Alerta>{erro}</Alerta>}
       {dados && (
         <>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
-            <Numero rotulo="Hoje" valor={formatarCentavos(dados.hojeCentavos)} />
-            <Numero rotulo="Últimos 7 dias" valor={formatarCentavos(dados.semanaCentavos)} />
-            <Numero rotulo="A receber das empresas" valor={formatarCentavos(dados.aReceberCentavos)} detalhe="Cada empresa paga direto a você." />
+            <Numero rotulo="Feito no período" valor={formatarCentavos(dados.periodoCentavos)} />
+            <Numero rotulo="Recebido no período" valor={formatarCentavos(dados.pagoCentavos)} />
+            <Numero rotulo="A receber (total)" valor={formatarCentavos(dados.aReceberCentavos)} detalhe="Cada empresa paga direto a você, pelo Pix do seu perfil." />
           </View>
-          <Titulo>Entregas concluídas</Titulo>
-          {dados.chamadas.length === 0 && <Texto suave>Nenhuma ainda.</Texto>}
-          {dados.chamadas.map((c) => (
-            <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderColor: cores.borda, gap: 8 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: cores.texto }}>
-                  {ROTULO_TIPO_CHAMADA[c.tipo]} · {c.empresa}
-                </Text>
-                <Text style={{ color: cores.suave, fontSize: 12 }}>
-                  {c.concluidaEm ? dataCurta(c.concluidaEm) : ''} · {formatarKm(c.metros)}
-                </Text>
-              </View>
-              <Text style={{ fontWeight: '700', color: cores.ok }}>{formatarCentavos(c.valorCentavos)}</Text>
+          {dados.empresas.length > 1 && (
+            <View style={estilos.chips}>
+              {[null, ...dados.empresas].map((e) => (
+                <Pressable key={e ?? 'todas'} accessibilityRole="button" onPress={() => setEmpresa(e)} style={[estilos.chip, empresa === e && estilos.chipAtivo]}>
+                  <Text style={{ color: empresa === e ? cores.branco : cores.texto }}>{e ?? 'Todas as empresas'}</Text>
+                </Pressable>
+              ))}
             </View>
+          )}
+          <Titulo>Entregas concluídas</Titulo>
+          {linhas.length === 0 && <Texto suave>Nenhuma no período.</Texto>}
+          {linhas.map((l) => (
+            <Linha key={l.chamadaId} l={l} api={api} aberta={aberta === l.chamadaId} alternar={() => setAberta(aberta === l.chamadaId ? null : l.chamadaId)} aoContestar={() => void carregar()} />
           ))}
         </>
       )}
     </ScrollView>
   );
 }
+
+function Linha({ l, api, aberta, alternar, aoContestar }: { l: LinhaExtrato; api: Api; aberta: boolean; alternar: () => void; aoContestar: () => void }) {
+  const [mensagem, setMensagem] = useState('');
+  const [erro, setErro] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+  const total = l.valorCentavos + l.extraCentavos;
+
+  async function contestar() {
+    setErro(null);
+    setOcupado(true);
+    try {
+      await api(`/entregador/chamadas/${l.chamadaId}/contestar`, { metodo: 'POST', corpo: { mensagem } });
+      setMensagem('');
+      aoContestar();
+    } catch (e) {
+      setErro((e as Error).message);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  return (
+    <View style={estilos.linha}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Chamada ${l.numero} de ${l.empresa}`} onPress={alternar} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: cores.texto }}>
+            {ROTULO_TIPO_CHAMADA[l.tipo]} · {l.empresa}
+          </Text>
+          <Text style={{ color: cores.suave, fontSize: 12 }}>
+            {dataCurta(l.concluidaEm)} · {formatarKm(l.metros)} · nº {l.numero}
+          </Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={{ fontWeight: '700', color: l.situacao === 'PAGO' ? cores.ok : cores.texto }}>{formatarCentavos(total)}</Text>
+          <Text style={{ fontSize: 12, color: l.situacao === 'PAGO' ? cores.ok : cores.aviso }}>{l.situacao === 'PAGO' ? `Pago em ${dataIso(l.pagoEm!)}` : 'A receber'}</Text>
+          {l.contestacao && !l.contestacao.respondidaEm && <Text style={{ fontSize: 12, color: cores.erro }}>Contestada</Text>}
+        </View>
+      </Pressable>
+      {aberta && (
+        <View style={{ marginTop: 8, gap: 6 }}>
+          <Texto suave>Valor aceito: {formatarCentavos(l.valorCentavos)}</Texto>
+          {l.extraCentavos > 0 && (
+            <Texto suave>
+              Extra: {formatarCentavos(l.extraCentavos)} ({l.extraMotivo})
+            </Texto>
+          )}
+          {l.contestacao && (
+            <View style={{ backgroundColor: cores.azulClaro, borderRadius: 8, padding: 8, gap: 4 }}>
+              <Text style={{ color: cores.texto }}>Sua contestação: {l.contestacao.mensagem}</Text>
+              <Text style={{ color: cores.suave }}>{l.contestacao.resposta ? `Resposta da empresa: ${l.contestacao.resposta}` : 'Esperando resposta da empresa.'}</Text>
+            </View>
+          )}
+          {l.podeContestar && (
+            <>
+              <Campo rotulo="Algo errado? Explique para a empresa" value={mensagem} onChangeText={setMensagem} multiline placeholder="Ex.: esperei 30 min no cliente; não recebi o pagamento" />
+              {erro && <Alerta>{erro}</Alerta>}
+              <Botao titulo="Enviar contestação" variante="secundario" onPress={() => void contestar()} ocupado={ocupado} disabled={mensagem.trim().length < 5} />
+            </>
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
+
+const estilos = StyleSheet.create({
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 18, borderWidth: 1, borderColor: cores.borda, backgroundColor: cores.branco },
+  chipAtivo: { backgroundColor: cores.azul, borderColor: cores.azul },
+  linha: { paddingVertical: 10, borderBottomWidth: 1, borderColor: cores.borda },
+});

@@ -20,7 +20,7 @@ function montar(chamada: Record<string, unknown>) {
   };
   const prisma = {
     $transaction: jest.fn(async (f: (t: typeof tx) => unknown) => f(tx)),
-    chamadaEntrega: { findFirst: jest.fn(async () => ({ ...c, empresa: { nomeFantasia: 'Loja', razaoSocial: 'Loja' }, ocorrencia: null, aceitaEm: null, concluidaEm: null, serieColetada: null, observacao: '', numero: 1, metros: 3000, estimada: true, valorCentavos: 800 })), update: jest.fn(async () => ({})) },
+    chamadaEntrega: { findFirst: jest.fn(async () => ({ ...c, empresa: { nomeFantasia: 'Loja', razaoSocial: 'Loja' }, ocorrencia: null, aceitaEm: null, concluidaEm: null, serieColetada: null, observacao: '', numero: 1, metros: 3000, estimada: true, valorCentavos: 800 })), update: jest.fn(async () => ({})), findUnique: jest.fn(async () => ({ pedidoId: null })) },
   };
   const s = new ChamadasService(prisma as unknown as PrismaService, { registrar: jest.fn() } as unknown as AuditoriaService, {} as MapasService, {} as EntregasEmpresaService, {} as DirecionamentoService);
   return { s, prisma, tx };

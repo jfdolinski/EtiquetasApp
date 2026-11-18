@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { PerfilEntregador } from '../../../packages/shared/src/entregas';
+import type { ReputacaoEntregador } from '../../../packages/shared/src/entregas-fechamento';
 import type { Api } from './api';
 import { formatarCelular, ROTULO_DOCUMENTO, ROTULO_SITUACAO_ENTREGADOR, ROTULO_VEICULO } from './regras';
 import { Alerta, Botao, Campo, Cartao, cores, Texto } from './ui';
@@ -11,6 +12,10 @@ export function TelaPerfil({ api, perfil, aoMudar, sair, versao }: { api: Api; p
   const [erro, setErro] = useState<string | null>(null);
   const [salvo, setSalvo] = useState(false);
   const [ocupado, setOcupado] = useState(false);
+  const [reputacao, setReputacao] = useState<ReputacaoEntregador | null>(null);
+  useEffect(() => {
+    api<ReputacaoEntregador>('/entregador/reputacao').then(setReputacao, () => setReputacao(null));
+  }, [api]);
 
   async function salvar() {
     setErro(null);
@@ -34,6 +39,12 @@ export function TelaPerfil({ api, perfil, aoMudar, sair, versao }: { api: Api; p
         <Linha rotulo="E-mail" valor={perfil.email} />
         <Linha rotulo="Veículo" valor={`${ROTULO_VEICULO[perfil.veiculo]}${perfil.placa ? ` · ${perfil.placa}` : ''}`} />
         <Linha rotulo="Situação" valor={ROTULO_SITUACAO_ENTREGADOR[perfil.situacao]} />
+        {reputacao && (
+          <>
+            <Linha rotulo="Avaliação (90 dias)" valor={reputacao.avaliacaoMedia != null ? `${reputacao.avaliacaoMedia.toLocaleString('pt-BR')} ★ (${reputacao.avaliacoes})` : 'Sem avaliações'} />
+            <Linha rotulo="Aceite (30 dias)" valor={reputacao.taxaAceite != null ? `${Math.round(reputacao.taxaAceite * 100)}% de ${reputacao.ofertas30d} ofertas` : 'Sem ofertas'} />
+          </>
+        )}
         <Linha rotulo="Documentos" valor={perfil.documentos.map((d) => ROTULO_DOCUMENTO[d.tipo]).join(', ') || 'Nenhum'} />
       </Cartao>
       <Campo rotulo="Celular" value={celular} onChangeText={setCelular} keyboardType="phone-pad" />

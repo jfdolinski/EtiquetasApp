@@ -136,6 +136,8 @@ export interface NovaChamada {
   observacao: string;
   /** Vai direto para a distribuição automática; sem valor, vale a regra da empresa. */
   distribuir?: boolean;
+  /** Chamada para entregar um Pedido do Flow. */
+  pedidoId?: string | null;
 }
 
 export function problemaNaChamada(c: NovaChamada): string | null {
@@ -209,6 +211,13 @@ export interface ChamadaResumo {
   historico: EventoChamada[];
   criadoEm: string;
   concluidaEm: string | null;
+  pedido: { id: string; numero: number } | null;
+  extraCentavos: number;
+  extraMotivo: string;
+  /** Data do pagamento, quando entrou num fechamento. */
+  pagoEm: string | null;
+  avaliacao: { nota: number; comentario: string; em: string } | null;
+  contestacao: { mensagem: string; resposta: string | null; criadoEm: string } | null;
 }
 
 /** O que o app do entregador recebe da chamada dele. */

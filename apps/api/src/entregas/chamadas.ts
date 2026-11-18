@@ -23,6 +23,10 @@ import { randomInt } from 'node:crypto';
 import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import {
   chegouPerto,
+  pedidoPodeChamarEntregador,
+  type EnderecoPedido,
+  type ModalidadeEntrega,
+  type SituacaoPedido,
   classificar,
   motivoParaEntregador,
   raioDaRodada,
@@ -94,6 +98,7 @@ class NovaChamadaDto {
   @IsOptional() @IsString() @MaxLength(60) serieEsperada: string | null;
   @IsString() @MaxLength(500) observacao: string;
   @IsOptional() @IsBoolean() distribuir?: boolean;
+  @IsOptional() @IsUUID('all', { message: 'Pedido inválido.' }) pedidoId?: string | null;
 }
 
 class OferecerDto {
@@ -111,6 +116,7 @@ class ResolverOcorrenciaDto {
 
 class FiltroChamadasDto {
   @IsOptional() @IsIn(['ATIVAS', 'TODAS']) filtro?: 'ATIVAS' | 'TODAS';
+  @IsOptional() @IsUUID() pedidoId?: string;
 }
 
 class AvancarDto {
@@ -133,13 +139,16 @@ class OcorrenciaDto {
 // Serviço ----------------------------------------------------------------------------------
 
 type ChamadaDoBanco = Prisma.ChamadaEntregaGetPayload<{
-  include: { entregador: { select: { id: true; nome: true; veiculo: true; placa: true; celular: true; lat: true; lon: true; posicaoEm: true } }; ofertas: { include: { entregador: { select: { nome: true } } }; orderBy: { criadoEm: 'asc' } }; fotos: { select: { id: true; etapa: true } } };
+  include: { entregador: { select: { id: true; nome: true; veiculo: true; placa: true; celular: true; lat: true; lon: true; posicaoEm: true } }; ofertas: { include: { entregador: { select: { nome: true } } }; orderBy: { criadoEm: 'asc' } }; fotos: { select: { id: true; etapa: true } }; pedido: { select: { id: true; numero: true } }; fechamento: { select: { pagoEm: true } }; contestacoes: { orderBy: { criadoEm: 'desc' }; take: 1 } };
 }>;
 
 const INCLUIR = {
   entregador: { select: { id: true, nome: true, veiculo: true, placa: true, celular: true, lat: true, lon: true, posicaoEm: true } },
   ofertas: { include: { entregador: { select: { nome: true } } }, orderBy: { criadoEm: 'asc' } },
   fotos: { select: { id: true, etapa: true } },
+  pedido: { select: { id: true, numero: true } },
+  fechamento: { select: { pagoEm: true } },
+  contestacoes: { orderBy: { criadoEm: 'desc' }, take: 1 },
 } as const;
 
 type Ocorrencia = { motivo: MotivoOcorrencia; texto: string; em: string; situacaoAnterior: SituacaoChamada };
@@ -199,6 +208,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
   async criar(empresaId: string, dto: NovaChamadaDto, autorId: string): Promise<ChamadaResumo> {
     const c: NovaChamada = { ...dto, serieEsperada: dto.serieEsperada ? normalizarSerie(dto.serieEsperada) : null, observacao: dto.observacao.trim() };
     const previa = await this.previa(empresaId, c);
+    const pedidoId = dto.pedidoId ? await this.conferirPedido(empresaId, dto.pedidoId) : null;
     const limpa = (p: ParadaDto): ParadaChamada => ({ lat: p.lat, lon: p.lon, endereco: p.endereco.trim(), contato: p.contato.trim(), telefone: p.telefone.replace(/\D/g, ''), instrucoes: p.instrucoes.trim() });
     const id = await this.prisma.$transaction(async (tx) => {
       const cfg = await tx.configuracaoEntregas.upsert({ where: { empresaId }, create: { empresaId, proximoNumero: 2 }, update: { proximoNumero: { increment: 1 } }, select: { proximoNumero: true } });
@@ -218,6 +228,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
           codigoConfirmacao: String(randomInt(0, 10_000)).padStart(4, '0'),
           historico: [evento('Chamada aberta.', 'empresa')] as never,
           criadoPorId: autorId,
+          pedidoId,
         },
       });
       await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.abrir', entidade: 'ChamadaEntrega', entidadeId: criada.id, detalhes: { tipo: c.tipo, valorCentavos: previa.valorCentavos } }, tx);
@@ -228,9 +239,19 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     return this.obter(empresaId, id);
   }
 
-  async listar(empresaId: string, filtro: 'ATIVAS' | 'TODAS'): Promise<ChamadaResumo[]> {
+  /** Pedido da empresa, com entrega, em andamento e sem outra chamada ativa. */
+  private async conferirPedido(empresaId: string, pedidoId: string): Promise<string> {
+    const p = await this.prisma.pedido.findFirst({ where: { id: pedidoId, empresaId }, select: { id: true, situacao: true, modalidade: true, endereco: true } });
+    if (!p) throw new NotFoundException('Pedido não encontrado.');
+    if (!pedidoPodeChamarEntregador({ modalidade: p.modalidade as ModalidadeEntrega, situacao: p.situacao as SituacaoPedido, endereco: p.endereco as unknown as EnderecoPedido | null })) throw new ConflictException('Só pedido com entrega, em separação ou saindo, chama entregador.');
+    const ativa = await this.prisma.chamadaEntrega.findFirst({ where: { empresaId, pedidoId, situacao: { in: ['ABERTA', ...SITUACOES_EM_ANDAMENTO] } }, select: { numero: true } });
+    if (ativa) throw new ConflictException(`Este pedido já tem a chamada nº ${ativa.numero} em andamento.`);
+    return p.id;
+  }
+
+  async listar(empresaId: string, filtro: 'ATIVAS' | 'TODAS', pedidoId?: string): Promise<ChamadaResumo[]> {
     const lista = await this.prisma.chamadaEntrega.findMany({
-      where: { empresaId, ...(filtro === 'ATIVAS' ? { OR: [{ situacao: { notIn: ['CONCLUIDA', 'CANCELADA'] } }, { atualizadoEm: { gt: new Date(Date.now() - DIA_MS) } }] } : {}) },
+      where: { empresaId, ...(pedidoId ? { pedidoId } : {}), ...(filtro === 'ATIVAS' ? { OR: [{ situacao: { notIn: ['CONCLUIDA', 'CANCELADA'] } }, { atualizadoEm: { gt: new Date(Date.now() - DIA_MS) } }] } : {}) },
       orderBy: { criadoEm: 'desc' },
       take: 200,
       include: INCLUIR,
@@ -288,6 +309,12 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       historico: c.historico as unknown as EventoChamada[],
       criadoEm: c.criadoEm.toISOString(),
       concluidaEm: c.concluidaEm?.toISOString() ?? null,
+      pedido: c.pedido,
+      extraCentavos: c.extraCentavos,
+      extraMotivo: c.extraMotivo,
+      pagoEm: c.fechamento?.pagoEm.toISOString().slice(0, 10) ?? null,
+      avaliacao: c.avaliadaEm && c.avaliacaoNota ? { nota: c.avaliacaoNota, comentario: c.avaliacaoComentario, em: c.avaliadaEm.toISOString() } : null,
+      contestacao: c.contestacoes[0] ? { mensagem: c.contestacoes[0].mensagem, resposta: c.contestacoes[0].resposta, criadoEm: c.contestacoes[0].criadoEm.toISOString() } : null,
     };
   }
 
@@ -368,8 +395,22 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     const { count } = await this.prisma.chamadaEntrega.updateMany({ where: { id: chamadaId, empresaId, situacao: 'NO_DESTINO' }, data: { situacao: 'CONCLUIDA', concluidaEm: new Date() } });
     if (!count) throw new ConflictException('Só dá para concluir com o entregador no destino.');
     await this.registrar(chamadaId, evento('Entrega confirmada pela empresa, sem o código.', 'empresa'));
+    await this.andarPedido(chamadaId, 'CONCLUIDA', true);
     await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.concluir', entidade: 'ChamadaEntrega', entidadeId: chamadaId });
     return this.obter(empresaId, chamadaId);
+  }
+
+  /**
+   * O pedido acompanha a entrega: coletado → "Saiu para entrega" (se ainda em separação);
+   * entregue → concluído (se estava saindo). Só avança, nunca volta, e não mexe em pedido cancelado.
+   */
+  private async andarPedido(chamadaId: string, etapa: 'COLETADA' | 'CONCLUIDA', semCodigo = false) {
+    const c = await this.prisma.chamadaEntrega.findUnique({ where: { id: chamadaId }, select: { pedidoId: true, numero: true, entregador: { select: { nome: true } } } });
+    if (!c?.pedidoId) return;
+    const nome = primeiroNome(c.entregador?.nome ?? '');
+    const [de, para, texto] = etapa === 'COLETADA' ? ['EM_SEPARACAO', 'PRONTO', `Saiu para entrega com ${nome} (chamada nº ${c.numero})`] : ['PRONTO', 'CONCLUIDO', `Entregue por ${nome}${semCodigo ? ', confirmado pela loja' : ', com o código do cliente'} (chamada nº ${c.numero})`];
+    const e = [{ em: new Date().toISOString(), texto, por: null }];
+    await this.prisma.$executeRaw`UPDATE pedidos SET situacao = ${para}, historico = historico || ${JSON.stringify(e)}::jsonb, atualizado_em = now() WHERE id = ${c.pedidoId}::uuid AND situacao = ${de}`;
   }
 
   // Entregador ---------------------------------------------------------------------------------
@@ -515,6 +556,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       await tx.entregador.update({ where: { id: entregadorId }, data: { lat: dto.lat, lon: dto.lon, precisaoMetros: dto.precisao ?? null, posicaoEm: agora, avisoEm: agora } });
       await this.registrar(c.id, evento(texto, 'entregador'), tx);
     });
+    if (dto.para === 'COLETADA' || dto.para === 'CONCLUIDA') await this.andarPedido(c.id, dto.para);
     return this.daChamada(entregadorId, c.id);
   }
 
@@ -550,8 +592,8 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       if (diaNoFuso(c.concluidaEm, fuso) === hoje) hojeCentavos += c.valorCentavos;
       if (c.concluidaEm.getTime() >= semana) semanaCentavos += c.valorCentavos;
     }
-    const aReceber = await this.prisma.chamadaEntrega.aggregate({ where: { entregadorId, situacao: 'CONCLUIDA' }, _sum: { valorCentavos: true } });
-    return { hojeCentavos, semanaCentavos, aReceberCentavos: aReceber._sum.valorCentavos ?? 0, chamadas: lista.map((c) => this.paraEntregador(c)) };
+    const aReceber = await this.prisma.chamadaEntrega.aggregate({ where: { entregadorId, situacao: 'CONCLUIDA', fechamentoId: null }, _sum: { valorCentavos: true, extraCentavos: true } });
+    return { hojeCentavos, semanaCentavos, aReceberCentavos: (aReceber._sum.valorCentavos ?? 0) + (aReceber._sum.extraCentavos ?? 0), chamadas: lista.map((c) => this.paraEntregador(c)) };
   }
 }
 
@@ -580,7 +622,7 @@ export class ChamadasEmpresaController {
   @Get()
   @RequerPermissao('entrega.ver')
   listar(@EmpresaAtual() empresaId: string, @Query() f: FiltroChamadasDto): Promise<ChamadaResumo[]> {
-    return this.chamadas.listar(empresaId, f.filtro ?? 'ATIVAS');
+    return this.chamadas.listar(empresaId, f.filtro ?? (f.pedidoId ? 'TODAS' : 'ATIVAS'), f.pedidoId);
   }
 
   @Get(':id')

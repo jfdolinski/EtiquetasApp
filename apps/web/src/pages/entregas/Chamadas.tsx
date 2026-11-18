@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   formatarCelular,
@@ -19,6 +19,7 @@ import {
   type ParadaChamada,
   type Ponto,
   type PreviaChamada,
+  type RascunhoDoPedido,
   type ResultadoEndereco,
   type SituacaoChamada,
   type TipoChamada,
@@ -27,6 +28,7 @@ import { api } from '../../api';
 import { useAuth } from '../../auth';
 import { Alerta, Botao, Campo, formatarData, Modal, Selecao, Selo, Tabela } from '../../components/ui';
 import { MapaEntregadores } from './MapaEntregadores';
+import { PosEntrega } from './PosEntrega';
 
 const COR_SITUACAO: Record<SituacaoChamada, 'verde' | 'amarelo' | 'vermelho' | 'cinza'> = {
   ABERTA: 'amarelo',
@@ -95,19 +97,25 @@ export function Chamadas({ config, mapa }: { config: ConfigEntregasEmpresa; mapa
 
 // Nova chamada --------------------------------------------------------------------------------
 
-function NovaChamadaModal({ config, mapa, aoFechar, aoCriar }: { config: ConfigEntregasEmpresa; mapa: ConfigMapa; aoFechar: () => void; aoCriar: (id: string) => void }) {
+export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho }: { config: ConfigEntregasEmpresa; mapa: ConfigMapa; aoFechar: () => void; aoCriar: (id: string) => void; rascunho?: RascunhoDoPedido }) {
   const cliente = useQueryClient();
   const [tipo, setTipo] = useState<TipoChamada>('ENTREGA');
   const baseComoParada = (): ParadaChamada => (config.base ? { ...paradaVazia(), lat: config.base.lat, lon: config.base.lon, endereco: config.base.endereco } : paradaVazia());
   const [origem, setOrigem] = useState<ParadaChamada>(baseComoParada);
-  const [destino, setDestino] = useState<ParadaChamada>(paradaVazia);
+  const [destino, setDestino] = useState<ParadaChamada>(() => rascunho?.destino ?? paradaVazia());
   const [marcando, setMarcando] = useState<'origem' | 'destino'>('destino');
   const [serie, setSerie] = useState('');
-  const [observacao, setObservacao] = useState('');
+  const [observacao, setObservacao] = useState(rascunho?.observacao ?? '');
+  const primeira = useRef(true);
   const [distribuir, setDistribuir] = useState(config.direcionamento.automatico);
 
   // Coleta e devolução: buscar no cliente e trazer para a empresa.
   useEffect(() => {
+    // Do pedido, o destino já vem preenchido: só troca se mudar o serviço.
+    if (primeira.current) {
+      primeira.current = false;
+      if (rascunho) return;
+    }
     if (tipo === 'ENTREGA') {
       setOrigem(baseComoParada());
       setDestino(paradaVazia());
@@ -120,7 +128,7 @@ function NovaChamadaModal({ config, mapa, aoFechar, aoCriar }: { config: ConfigE
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipo]);
 
-  const corpo: NovaChamada = { tipo, origem, destino, serieEsperada: serie.trim() || null, observacao };
+  const corpo: NovaChamada = { tipo, origem, destino, serieEsperada: serie.trim() || null, observacao, pedidoId: rascunho?.pedidoId ?? null };
   const prontos = temPonto(origem) && temPonto(destino);
   const previa = useQuery({
     queryKey: ['chamada-previa', tipo, origem.lat, origem.lon, destino.lat, destino.lon],
@@ -141,9 +149,11 @@ function NovaChamadaModal({ config, mapa, aoFechar, aoCriar }: { config: ConfigE
   ];
 
   return (
-    <Modal titulo="Nova chamada" aberto aoFechar={aoFechar} largo>
+    <Modal titulo={rascunho ? `Entregador para o pedido nº ${rascunho.numero}` : 'Nova chamada'} aberto aoFechar={aoFechar} largo>
       <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
         <div className="space-y-4">
+          {rascunho?.origemDoPonto === 'NENHUM' && <Alerta tipo="aviso">Não achamos o endereço do cliente no mapa: marque o destino clicando no mapa.</Alerta>}
+          {rascunho?.origemDoPonto === 'ENDERECO' && <Alerta tipo="info">O ponto do destino veio da busca do endereço: confira no mapa e ajuste com um clique se precisar.</Alerta>}
           <Selecao rotulo="Serviço" value={tipo} onChange={(e) => setTipo(e.target.value as TipoChamada)}>
             {TIPOS_CHAMADA.map((t) => (
               <option key={t} value={t}>
@@ -301,6 +311,7 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
               </div>
             )}
             {c.observacao && <div className="text-slate-600">Obs.: {c.observacao}</div>}
+            {c.pedido && <div className="text-slate-600">Entrega do <strong>pedido nº {c.pedido.numero}</strong> (o pedido avança sozinho na coleta e na entrega).</div>}
             {c.entregador && (
               <div className="rounded-md bg-slate-50 px-3 py-2">
                 <div className="font-medium">
@@ -408,6 +419,8 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
               </details>
             )}
 
+            {c.situacao === 'CONCLUIDA' && c.entregador && <PosEntrega c={c} gerencia={gerencia} />}
+
             {gerencia && c.situacao === 'NO_DESTINO' && (
               <Botao variante="secundario" onClick={() => confirm('Confirmar a entrega sem o código do destinatário?') && acao.mutate({ caminho: 'concluir' })}>
                 Confirmar entrega sem o código
@@ -463,3 +476,4 @@ function Parada({ titulo, p }: { titulo: string; p: ParadaChamada }) {
     </div>
   );
 }
+

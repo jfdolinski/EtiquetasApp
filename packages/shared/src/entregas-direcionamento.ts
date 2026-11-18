@@ -314,6 +314,8 @@ export interface EntregadorDaEmpresa {
   bloqueado: boolean;
   concluidas: number;
   ultimaEm: string | null;
+  /** Média de todas as empresas nos últimos 90 dias (a mesma da distribuição). */
+  avaliacaoMedia: number | null;
 }
 
 export interface Simulacao extends ResultadoClassificacao {

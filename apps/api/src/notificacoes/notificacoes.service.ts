@@ -9,7 +9,9 @@ import {
   regrasComPadrao,
   dentroDoHorarioDaTela,
   formatarCentavos,
+  ROTULO_MOTIVO_OCORRENCIA,
   ROTULO_TIPO_CHAMADA,
+  type MotivoOcorrencia,
   textoDuracao,
   type TipoChamada,
   type ConfiguracaoNotificacoes,
@@ -302,6 +304,36 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
           mensagem: `${ROTULO_TIPO_CHAMADA[c.tipo as TipoChamada]} aberta há ${textoDuracao(agora.getTime() - c.criadoEm.getTime())} e ninguém aceitou. O sistema segue tentando; você pode escolher um entregador em Entregas.`,
         }));
       }
+      case 'entrega_ocorrencia': {
+        const chamadas = await this.prisma.chamadaEntrega.findMany({ where: { empresaId, situacao: 'OCORRENCIA', atualizadoEm: { lte: atras(regra.limite * 60_000) } }, take: 50, select: { id: true, numero: true, ocorrencia: true, atualizadoEm: true } });
+        return chamadas.map((c) => {
+          const oc = c.ocorrencia as { motivo?: MotivoOcorrencia } | null;
+          return {
+            chave: `ocorrencia:${c.id}`,
+            titulo: `Ocorrência na chamada nº ${c.numero}`,
+            mensagem: `${oc?.motivo ? ROTULO_MOTIVO_OCORRENCIA[oc.motivo] : 'Ocorrência'} há ${textoDuracao(agora.getTime() - c.atualizadoEm.getTime())}. Decida em Entregas: seguir, chamar outro ou cancelar.`,
+          };
+        });
+      }
+      case 'entrega_atrasada': {
+        // Tempo estimado do percurso (coleta → destino) a partir do aceite, mais o limite.
+        const chamadas = await this.prisma.chamadaEntrega.findMany({ where: { empresaId, situacao: { in: ['ACEITA', 'NA_COLETA', 'COLETADA', 'NO_DESTINO'] }, aceitaEm: { not: null } }, take: 200, select: { id: true, numero: true, segundos: true, aceitaEm: true, entregador: { select: { nome: true } } } });
+        return chamadas
+          .filter((c) => c.aceitaEm!.getTime() + c.segundos * 1000 + regra.limite * 60_000 <= agora.getTime())
+          .map((c) => ({
+            chave: `atraso:${c.id}`,
+            titulo: `Chamada nº ${c.numero} atrasada`,
+            mensagem: `Aceita por ${c.entregador?.nome.split(' ')[0] ?? 'o entregador'} há ${textoDuracao(agora.getTime() - c.aceitaEm!.getTime())} e ainda não concluída (o percurso estimado é de ${Math.max(1, Math.round(c.segundos / 60))} min).`,
+          }));
+      }
+      case 'entrega_contestacao': {
+        const abertas = await this.prisma.contestacaoEntrega.findMany({ where: { empresaId, respondidaEm: null, criadoEm: { lte: atras(regra.limite * HORA_MS) } }, take: 50, select: { id: true, criadoEm: true, chamada: { select: { numero: true } }, entregador: { select: { nome: true } } } });
+        return abertas.map((c) => ({
+          chave: `contestacao:${c.id}`,
+          titulo: 'Contestação de entregador',
+          mensagem: `${c.entregador.nome.split(' ')[0]} contestou a chamada nº ${c.chamada.numero} há ${textoDuracao(agora.getTime() - c.criadoEm.getTime())}. Responda em Entregas > Financeiro.`,
+        }));
+      }
       case 'tela_aprovacao': {
         const pedidos = await this.prisma.conteudoTela.findMany({ where: { empresaId, aprovacaoSituacao: 'PENDENTE', aprovacaoPedidaEm: { lte: atras(regra.limite * 60_000) } }, select: { id: true, nome: true, aprovacaoPedidaEm: true } });
         return pedidos.map((c) => ({
@@ -380,7 +412,7 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
     await this.enviarAosAgentes(n).catch((e) => this.log.warn(`Envio aos agentes: ${(e as Error).message}`));
     if (n.canalCelular) {
       const pedido = n.evento === 'pedido_novo';
-      const entrega = n.evento === 'entrega_sem_entregador';
+      const entrega = n.evento.startsWith('entrega_');
       await this.dispositivos.avisarEmpresa(n.empresaId, { titulo: n.titulo, mensagem: n.mensagem, tela: n.evento === 'lista_pendente' ? 'lista' : pedido ? 'pedidos' : 'avisos' }, pedido ? 'pedido.ver' : entrega ? 'entrega.ver' : 'notificacao.ver').catch((e) => this.log.warn(`Envio aos celulares: ${(e as Error).message}`));
     }
     if (n.canalEmail) {
