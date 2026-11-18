@@ -15,6 +15,7 @@ import {
   type ConfigMapa,
   type ElegivelOferta,
   type NovaChamada,
+  type OfertaDaChamada,
   type ParadaChamada,
   type Ponto,
   type PreviaChamada,
@@ -37,6 +38,8 @@ const COR_SITUACAO: Record<SituacaoChamada, 'verde' | 'amarelo' | 'vermelho' | '
   OCORRENCIA: 'vermelho',
   CANCELADA: 'cinza',
 };
+
+const ROTULO_RESULTADO: Record<OfertaDaChamada['resultado'], string> = { PENDENTE: 'esperando resposta', ACEITA: 'aceitou', RECUSADA: 'recusou', EXPIRADA: 'não respondeu', CANCELADA: 'cancelada' };
 
 const COR_COLETA = '#ea580c';
 const COR_DESTINO = '#7c3aed';
@@ -75,7 +78,7 @@ export function Chamadas({ config, mapa }: { config: ConfigEntregasEmpresa; mapa
                 <div className="text-xs text-slate-500">{formatarData(c.criadoEm)}</div>
               </td>
               <td className="max-w-xs truncate px-4 py-2.5 text-slate-600">{c.destino.endereco}</td>
-              <td className="px-4 py-2.5">{c.entregador?.nome ?? (c.ofertaPendente ? <span className="text-slate-500">Oferecida a {c.ofertaPendente.entregadorNome}</span> : <span className="text-slate-400">—</span>)}</td>
+              <td className="px-4 py-2.5">{c.entregador?.nome ?? (c.ofertaPendente ? <span className="text-slate-500">Oferecida a {c.ofertaPendente.entregadorNome}</span> : c.distribuicao.ativa ? <span className="text-slate-500">{c.distribuicao.semEntregadorDesde ? 'Procurando (ninguém aceitou ainda)' : 'Distribuindo…'}</span> : <span className="text-slate-400">—</span>)}</td>
               <td className="whitespace-nowrap px-4 py-2.5">{formatarCentavos(c.valorCentavos)}</td>
               <td className="px-4 py-2.5">
                 <Selo cor={COR_SITUACAO[c.situacao]}>{ROTULO_SITUACAO_CHAMADA[c.situacao]}</Selo>
@@ -101,6 +104,7 @@ function NovaChamadaModal({ config, mapa, aoFechar, aoCriar }: { config: ConfigE
   const [marcando, setMarcando] = useState<'origem' | 'destino'>('destino');
   const [serie, setSerie] = useState('');
   const [observacao, setObservacao] = useState('');
+  const [distribuir, setDistribuir] = useState(config.direcionamento.automatico);
 
   // Coleta e devolução: buscar no cliente e trazer para a empresa.
   useEffect(() => {
@@ -125,7 +129,7 @@ function NovaChamadaModal({ config, mapa, aoFechar, aoCriar }: { config: ConfigE
     retry: false,
   });
   const criar = useMutation({
-    mutationFn: () => api<ChamadaResumo>('/entregas/chamadas', { metodo: 'POST', corpo }),
+    mutationFn: () => api<ChamadaResumo>('/entregas/chamadas', { metodo: 'POST', corpo: { ...corpo, distribuir } }),
     onSuccess: (c) => {
       void cliente.invalidateQueries({ queryKey: ['chamadas'] });
       aoCriar(c.id);
@@ -170,6 +174,13 @@ function NovaChamadaModal({ config, mapa, aoFechar, aoCriar }: { config: ConfigE
           )}
           {previa.error && <Alerta tipo="aviso">{previa.error.message}</Alerta>}
           {criar.error && <Alerta>{criar.error.message}</Alerta>}
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-0.5" checked={distribuir} onChange={(e) => setDistribuir(e.target.checked)} />
+            <span>
+              Distribuir automaticamente
+              <span className="block text-xs text-slate-500">O sistema oferece pelas regras do Direcionamento. Desmarcado, você escolhe o entregador depois de abrir.</span>
+            </span>
+          </label>
           <Botao onClick={() => criar.mutate()} disabled={!prontos || !origem.endereco || !destino.endereco || criar.isPending}>
             {criar.isPending ? 'Abrindo…' : 'Abrir chamada'}
           </Botao>
@@ -250,6 +261,7 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
         : [],
     [c],
   );
+  const pendentes = c?.ofertas.filter((o) => o.resultado === 'PENDENTE') ?? [];
   const restam = c?.ofertaPendente ? Math.max(0, Math.round((new Date(c.ofertaPendente.expiraEm).getTime() - Date.now()) / 1000)) : 0;
   const finalizada = c?.situacao === 'CONCLUIDA' || c?.situacao === 'CANCELADA';
 
@@ -327,12 +339,27 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
               </Alerta>
             )}
 
+            {c.situacao === 'ABERTA' && c.distribuicao.ativa && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2" data-testid="distribuicao">
+                <span>
+                  <strong>Distribuição automática</strong> · raio de {c.distribuicao.raioKm} km
+                  {c.distribuicao.rodada > 0 ? ` · rodada ${c.distribuicao.rodada + 1}` : ''}
+                  {!c.ofertaPendente && c.distribuicao.proximaTentativaEm && new Date(c.distribuicao.proximaTentativaEm).getTime() > Date.now() + 5_000 && <> · nova tentativa às {new Date(c.distribuicao.proximaTentativaEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</>}
+                </span>
+                {gerencia && (
+                  <Botao variante="secundario" onClick={() => acao.mutate({ caminho: 'parar-distribuicao' })} disabled={acao.isPending}>
+                    Parar
+                  </Botao>
+                )}
+              </div>
+            )}
+
             {gerencia && c.situacao === 'ABERTA' && (
               <div className="space-y-2">
-                {c.ofertaPendente ? (
+                {pendentes.length > 0 ? (
                   <div className="flex flex-wrap items-center gap-3 rounded-md bg-blue-50 px-3 py-2">
                     <span>
-                      Oferecida a <strong>{c.ofertaPendente.entregadorNome}</strong>, esperando resposta ({restam} s).
+                      Oferecida a <strong>{pendentes.map((o) => o.entregadorNome).join(', ')}</strong>, esperando resposta ({restam} s).
                     </span>
                     <Botao variante="secundario" onClick={() => acao.mutate({ caminho: 'cancelar-oferta' })}>
                       Cancelar oferta
@@ -340,13 +367,22 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
                   </div>
                 ) : (
                   <>
-                    <div className="font-medium">Oferecer a um entregador</div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-medium">Oferecer a um entregador</div>
+                      {!c.distribuicao.ativa && (
+                        <Botao variante="secundario" onClick={() => acao.mutate({ caminho: 'distribuir' })} disabled={acao.isPending}>
+                          Distribuir automaticamente
+                        </Botao>
+                      )}
+                    </div>
                     {elegiveis.error && <Alerta>{elegiveis.error.message}</Alerta>}
                     {elegiveis.data?.length === 0 && <p className="text-slate-500">Nenhum entregador livre perto da coleta agora.</p>}
                     {elegiveis.data?.map((e) => (
                       <div key={e.id} className="flex items-center justify-between rounded border border-slate-200 px-3 py-2">
                         <span>
-                          {e.nome} · {ROTULO_VEICULO[e.veiculo]} · {formatarKm(e.metrosAteColeta)} da coleta
+                          {e.posicao}º · {e.nome}
+                          {e.preferido ? ' ★' : ''} · {ROTULO_VEICULO[e.veiculo]} · {formatarKm(e.metrosAteColeta)} da coleta
+                          <span className="ml-1 text-xs text-slate-500">({e.pontos.toLocaleString('pt-BR')} pontos)</span>
                         </span>
                         <Botao onClick={() => acao.mutate({ caminho: 'oferecer', corpo: { entregadorId: e.id } })} disabled={acao.isPending}>
                           Oferecer
@@ -356,6 +392,20 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
                   </>
                 )}
               </div>
+            )}
+
+            {c.ofertas.length > 0 && (
+              <details className="rounded-md border border-slate-200 px-3 py-2" open={c.situacao === 'ABERTA'}>
+                <summary className="cursor-pointer font-medium">Ofertas ({c.ofertas.length})</summary>
+                <ol className="mt-2 space-y-1">
+                  {c.ofertas.map((o, i) => (
+                    <li key={i}>
+                      <span className="text-xs text-slate-400">{new Date(o.criadoEm).toLocaleTimeString('pt-BR')}</span> {o.entregadorNome} · <span className={o.resultado === 'ACEITA' ? 'text-green-700' : 'text-slate-600'}>{ROTULO_RESULTADO[o.resultado]}</span>
+                      <div className="text-xs text-slate-500">{o.motivo ? `Escolhido pela distribuição: ${o.motivo}` : 'Escolhido pela empresa'}</div>
+                    </li>
+                  ))}
+                </ol>
+              </details>
             )}
 
             {gerencia && c.situacao === 'NO_DESTINO' && (

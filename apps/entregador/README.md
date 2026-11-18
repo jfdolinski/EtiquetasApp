@@ -35,7 +35,7 @@ Online = `expo-location` com serviço em primeiro plano (notificação fixa "Voc
 
 ## Ofertas sem Firebase
 
-A resposta de cada posição enviada traz a oferta pendente, e `src/avisos.ts` toca uma notificação local (canal "Ofertas de chamada", importância máxima) uma vez por oferta. Com o app aberto, ele também consulta a oferta e a chamada a cada 5 s. O atraso máximo é o intervalo da posição (20 s), por isso o prazo padrão para aceitar é de 45 s. Com o Firebase, o aviso passa a ser imediato.
+A resposta de cada posição enviada traz a oferta pendente, e `src/avisos.ts` toca uma notificação local (canal "Ofertas de chamada", importância máxima) uma vez por oferta. Com o app aberto, ele também consulta a oferta e a chamada a cada 5 s. O atraso máximo é o intervalo da posição (20 s), por isso o prazo padrão para aceitar é de 45 s. Oferta da distribuição automática traz `motivo` ("Você foi o 1º de 3: …"), mostrado no cartão. Com o Firebase, o aviso passa a ser imediato.
 
 ## Estrutura
 

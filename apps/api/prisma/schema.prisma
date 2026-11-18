@@ -71,6 +71,7 @@ model Empresa {
   configuracaoPedidos  ConfiguracaoPedidos?
   configuracaoEntregas ConfiguracaoEntregas?
   chamadasEntrega      ChamadaEntrega[]
+  entregadoresEmpresa  EntregadorEmpresa[]
   pedidos              Pedido[]
 
   @@map("empresas")
@@ -1289,6 +1290,7 @@ model Entregador {
   diarias    DiariaEntregador[]
   chamadas   ChamadaEntrega[]
   ofertas    OfertaChamada[]
+  empresas   EntregadorEmpresa[]
 
   @@index([online, posicaoEm])
   @@index([situacao, criadoEm])
@@ -1428,6 +1430,8 @@ model ConfiguracaoEntregas {
   /// TabelaPrecos (shared); nula = padrão.
   precos              Json?
   segundosParaAceitar Int      @default(45) @map("segundos_para_aceitar")
+  /// RegrasDirecionamento (shared), parcial; nula = padrão.
+  direcionamento      Json?
   /// Número da próxima chamada da empresa.
   proximoNumero       Int      @default(1) @map("proximo_numero")
   atualizadoEm        DateTime @updatedAt @map("atualizado_em")
@@ -1448,34 +1452,40 @@ model CacheGeocodificacao {
 
 /// Chamada de coleta, entrega ou devolução de máquina, aberta pela empresa.
 model ChamadaEntrega {
-  id                String    @id @default(uuid()) @db.Uuid
-  empresaId         String    @map("empresa_id") @db.Uuid
-  numero            Int
-  tipo              String
+  id                 String    @id @default(uuid()) @db.Uuid
+  empresaId          String    @map("empresa_id") @db.Uuid
+  numero             Int
+  tipo               String
   /// ABERTA, ACEITA, NA_COLETA, COLETADA, NO_DESTINO, CONCLUIDA, OCORRENCIA ou CANCELADA.
-  situacao          String    @default("ABERTA")
+  situacao           String    @default("ABERTA")
   /// ParadaChamada: endereço, ponto, contato, telefone, instruções.
-  origem            Json
-  destino           Json
-  metros            Int
-  segundos          Int
-  estimada          Boolean
-  valorCentavos     Int       @map("valor_centavos")
-  serieEsperada     String?   @map("serie_esperada")
-  serieColetada     String?   @map("serie_coletada")
-  observacao        String    @default("")
-  codigoConfirmacao String    @map("codigo_confirmacao")
-  tentativasCodigo  Int       @default(0) @map("tentativas_codigo")
-  entregadorId      String?   @map("entregador_id") @db.Uuid
-  aceitaEm          DateTime? @map("aceita_em")
-  concluidaEm       DateTime? @map("concluida_em")
-  canceladaEm       DateTime? @map("cancelada_em")
+  origem             Json
+  destino            Json
+  metros             Int
+  segundos           Int
+  estimada           Boolean
+  valorCentavos      Int       @map("valor_centavos")
+  serieEsperada      String?   @map("serie_esperada")
+  serieColetada      String?   @map("serie_coletada")
+  observacao         String    @default("")
+  codigoConfirmacao  String    @map("codigo_confirmacao")
+  tentativasCodigo   Int       @default(0) @map("tentativas_codigo")
+  entregadorId       String?   @map("entregador_id") @db.Uuid
+  aceitaEm           DateTime? @map("aceita_em")
+  concluidaEm        DateTime? @map("concluida_em")
+  canceladaEm        DateTime? @map("cancelada_em")
   /// { motivo, texto, em, situacaoAnterior }
-  ocorrencia        Json?
-  historico         Json      @default("[]")
-  criadoPorId       String?   @map("criado_por_id") @db.Uuid
-  criadoEm          DateTime  @default(now()) @map("criado_em")
-  atualizadoEm      DateTime  @updatedAt @map("atualizado_em")
+  ocorrencia         Json?
+  historico          Json      @default("[]")
+  /// Distribuição automática: rodada (raio cresce), ofertas na rodada e quando tentar de novo.
+  distribuicaoAtiva  Boolean   @default(false) @map("distribuicao_ativa")
+  rodada             Int       @default(0)
+  tentativas         Int       @default(0)
+  proximaTentativaEm DateTime? @map("proxima_tentativa_em")
+  semEntregadorEm    DateTime? @map("sem_entregador_em")
+  criadoPorId        String?   @map("criado_por_id") @db.Uuid
+  criadoEm           DateTime  @default(now()) @map("criado_em")
+  atualizadoEm       DateTime  @updatedAt @map("atualizado_em")
 
   empresa    Empresa         @relation(fields: [empresaId], references: [id], onDelete: Cascade)
   entregador Entregador?     @relation(fields: [entregadorId], references: [id], onDelete: SetNull)
@@ -1485,6 +1495,7 @@ model ChamadaEntrega {
   @@unique([empresaId, numero])
   @@index([empresaId, criadoEm])
   @@index([entregadorId, situacao])
+  @@index([distribuicaoAtiva, proximaTentativaEm])
   @@map("chamadas_entrega")
 }
 
@@ -1496,6 +1507,8 @@ model OfertaChamada {
   /// PENDENTE, ACEITA, RECUSADA, EXPIRADA ou CANCELADA.
   resultado       String    @default("PENDENTE")
   metrosAteColeta Int?      @map("metros_ate_coleta")
+  /// MotivoOferta (shared) quando a distribuição escolheu; nulo = oferta manual.
+  motivo          Json?
   expiraEm        DateTime  @map("expira_em")
   respondidaEm    DateTime? @map("respondida_em")
   criadoEm        DateTime  @default(now()) @map("criado_em")
@@ -1523,4 +1536,20 @@ model FotoChamada {
 
   @@index([chamadaId])
   @@map("fotos_chamada")
+}
+
+/// Preferido ou bloqueado por uma empresa. Bloqueado não recebe oferta dela (nem manual).
+model EntregadorEmpresa {
+  id           String   @id @default(uuid()) @db.Uuid
+  empresaId    String   @map("empresa_id") @db.Uuid
+  entregadorId String   @map("entregador_id") @db.Uuid
+  preferido    Boolean  @default(false)
+  bloqueado    Boolean  @default(false)
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
+
+  empresa    Empresa    @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  entregador Entregador @relation(fields: [entregadorId], references: [id], onDelete: Cascade)
+
+  @@unique([empresaId, entregadorId])
+  @@map("entregadores_empresa")
 }

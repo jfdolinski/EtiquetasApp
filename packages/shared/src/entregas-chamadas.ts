@@ -2,6 +2,7 @@
 // O app do entregador tem cópias conferidas em entregas-app.test.ts.
 
 import { distanciaMetros, type Ponto, type TipoVeiculo } from './entregas';
+import type { DistribuicaoResumo, OfertaDaChamada } from './entregas-direcionamento';
 
 export const TIPOS_CHAMADA = ['ENTREGA', 'COLETA', 'DEVOLUCAO_MAQUINA'] as const;
 export type TipoChamada = (typeof TIPOS_CHAMADA)[number];
@@ -133,6 +134,8 @@ export interface NovaChamada {
   /** Maquininha: o número de série esperado (opcional). */
   serieEsperada: string | null;
   observacao: string;
+  /** Vai direto para a distribuição automática; sem valor, vale a regra da empresa. */
+  distribuir?: boolean;
 }
 
 export function problemaNaChamada(c: NovaChamada): string | null {
@@ -176,6 +179,8 @@ export interface OfertaResumo {
   estimada: boolean;
   valorCentavos: number;
   expiraEm: string;
+  /** Por que ele recebeu (distribuição automática). */
+  motivo: string | null;
 }
 
 export interface ChamadaResumo {
@@ -194,7 +199,10 @@ export interface ChamadaResumo {
   entregador: { id: string; nome: string; veiculo: TipoVeiculo; placa: string | null; celular: string | null } | null;
   /** Posição exata do entregador, só enquanto a chamada está em andamento. */
   posicaoEntregador: (Ponto & { em: string }) | null;
+  /** A primeira das pendentes (no modo em grupo podem ser várias, em `ofertas`). */
   ofertaPendente: { entregadorNome: string; expiraEm: string } | null;
+  ofertas: OfertaDaChamada[];
+  distribuicao: DistribuicaoResumo;
   ocorrencia: { motivo: MotivoOcorrencia; texto: string; em: string; temFoto: boolean } | null;
   /** Só para a empresa: o destinatário informa ao entregador. */
   codigoConfirmacao: string | null;
@@ -236,6 +244,10 @@ export interface ElegivelOferta {
   nome: string;
   veiculo: TipoVeiculo;
   metrosAteColeta: number;
+  preferido: boolean;
+  /** Pela regra da empresa: pontos (0 a 100) e posição entre os elegíveis. */
+  pontos: number;
+  posicao: number;
 }
 
 /** Endereço do Nominatim é longo: antes do aceite, o entregador vê só o fim (bairro, cidade). */

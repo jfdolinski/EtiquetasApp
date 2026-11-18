@@ -359,7 +359,10 @@ export class EntregadoresService implements OnApplicationBootstrap, OnModuleDest
   async ficarOffline(id: string): Promise<void> {
     if (await this.chamadas.chamadaAtivaId(id)) throw new ConflictException('Termine a chamada em andamento (ou registre uma ocorrência) antes de ficar offline.');
     // Oferta esperando resposta dele volta para a empresa.
+    const pendentes = await this.prisma.ofertaChamada.findMany({ where: { entregadorId: id, resultado: 'PENDENTE' }, select: { chamadaId: true } });
     await this.prisma.ofertaChamada.updateMany({ where: { entregadorId: id, resultado: 'PENDENTE' }, data: { resultado: 'RECUSADA', respondidaEm: new Date() } });
+    // Em distribuição: segue para o próximo sem esperar o prazo.
+    if (pendentes.length) await this.prisma.chamadaEntrega.updateMany({ where: { id: { in: pendentes.map((p) => p.chamadaId) }, distribuicaoAtiva: true }, data: { proximaTentativaEm: new Date() } });
     await this.prisma.entregador.update({ where: { id }, data: { online: false, onlineDesde: null } });
   }
 }

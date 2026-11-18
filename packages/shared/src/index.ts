@@ -24,3 +24,4 @@ export * from './telas';
 export * from './telas-conteudo';
 export * from './entregas';
 export * from './entregas-chamadas';
+export * from './entregas-direcionamento';

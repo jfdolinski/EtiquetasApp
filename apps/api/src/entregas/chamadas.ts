@@ -23,6 +23,13 @@ import { randomInt } from 'node:crypto';
 import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import {
   chegouPerto,
+  classificar,
+  motivoParaEntregador,
+  raioDaRodada,
+  textoDoMotivo,
+  type MotivoOferta,
+  type OfertaDaChamada,
+  type RegrasDirecionamento,
   coordenadaValida,
   diaNoFuso,
   distanciaMetros,
@@ -60,6 +67,7 @@ import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { config } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
+import { DirecionamentoService } from './direcionamento';
 import { EntregasEmpresaService } from './empresa';
 import { EntregadorAtual, EntregadorGuard } from './guarda';
 import { dataUrl, imagemDoDataUrl } from './imagens';
@@ -85,6 +93,7 @@ class NovaChamadaDto {
   @ValidateNested() @Type(() => ParadaDto) destino: ParadaDto;
   @IsOptional() @IsString() @MaxLength(60) serieEsperada: string | null;
   @IsString() @MaxLength(500) observacao: string;
+  @IsOptional() @IsBoolean() distribuir?: boolean;
 }
 
 class OferecerDto {
@@ -124,12 +133,12 @@ class OcorrenciaDto {
 // Serviço ----------------------------------------------------------------------------------
 
 type ChamadaDoBanco = Prisma.ChamadaEntregaGetPayload<{
-  include: { entregador: { select: { id: true; nome: true; veiculo: true; placa: true; celular: true; lat: true; lon: true; posicaoEm: true } }; ofertas: { include: { entregador: { select: { nome: true } } } }; fotos: { select: { id: true; etapa: true } } };
+  include: { entregador: { select: { id: true; nome: true; veiculo: true; placa: true; celular: true; lat: true; lon: true; posicaoEm: true } }; ofertas: { include: { entregador: { select: { nome: true } } }; orderBy: { criadoEm: 'asc' } }; fotos: { select: { id: true; etapa: true } } };
 }>;
 
 const INCLUIR = {
   entregador: { select: { id: true, nome: true, veiculo: true, placa: true, celular: true, lat: true, lon: true, posicaoEm: true } },
-  ofertas: { where: { resultado: 'PENDENTE' }, include: { entregador: { select: { nome: true } } } },
+  ofertas: { include: { entregador: { select: { nome: true } } }, orderBy: { criadoEm: 'asc' } },
   fotos: { select: { id: true, etapa: true } },
 } as const;
 
@@ -147,6 +156,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     private readonly auditoria: AuditoriaService,
     private readonly mapas: MapasService,
     private readonly empresas: EntregasEmpresaService,
+    private readonly direcionamento: DirecionamentoService,
   ) {}
 
   onApplicationBootstrap() {
@@ -213,6 +223,8 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.abrir', entidade: 'ChamadaEntrega', entidadeId: criada.id, detalhes: { tipo: c.tipo, valorCentavos: previa.valorCentavos } }, tx);
       return criada.id;
     });
+    const { direcionamento } = await this.empresas.config(empresaId);
+    if (dto.distribuir ?? direcionamento.automatico) await this.direcionamento.ligar(empresaId, id, null);
     return this.obter(empresaId, id);
   }
 
@@ -223,19 +235,20 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       take: 200,
       include: INCLUIR,
     });
-    return lista.map((c) => this.resumo(c));
+    const { direcionamento } = await this.empresas.config(empresaId);
+    return lista.map((c) => this.resumo(c, direcionamento));
   }
 
   async obter(empresaId: string, id: string): Promise<ChamadaResumo> {
     const c = await this.prisma.chamadaEntrega.findFirst({ where: { id, empresaId }, include: INCLUIR });
     if (!c) throw new NotFoundException('Chamada não encontrada.');
-    return this.resumo(c);
+    return this.resumo(c, (await this.empresas.config(empresaId)).direcionamento);
   }
 
-  private resumo(c: ChamadaDoBanco): ChamadaResumo {
+  private resumo(c: ChamadaDoBanco, regras: RegrasDirecionamento): ChamadaResumo {
     const andamento = SITUACOES_EM_ANDAMENTO.includes(c.situacao as SituacaoChamada);
     const e = c.entregador;
-    const oferta = c.ofertas[0];
+    const oferta = c.ofertas.find((o) => o.resultado === 'PENDENTE');
     const oc = c.ocorrencia as Ocorrencia | null;
     return {
       id: c.id,
@@ -253,6 +266,23 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       entregador: e ? { id: e.id, nome: primeiroNome(e.nome), veiculo: e.veiculo as TipoVeiculo, placa: e.placa, celular: andamento ? e.celular : null } : null,
       posicaoEntregador: andamento && e?.lat != null && e.lon != null && e.posicaoEm ? { lat: e.lat, lon: e.lon, em: e.posicaoEm.toISOString() } : null,
       ofertaPendente: oferta ? { entregadorNome: primeiroNome(oferta.entregador.nome), expiraEm: oferta.expiraEm.toISOString() } : null,
+      ofertas: c.ofertas.map(
+        (o): OfertaDaChamada => ({
+          entregadorNome: primeiroNome(o.entregador.nome),
+          resultado: o.resultado as OfertaDaChamada['resultado'],
+          expiraEm: o.expiraEm.toISOString(),
+          criadoEm: o.criadoEm.toISOString(),
+          motivo: o.motivo ? textoDoMotivo(o.motivo as unknown as MotivoOferta) : null,
+        }),
+      ),
+      distribuicao: {
+        ativa: c.distribuicaoAtiva && c.situacao === 'ABERTA',
+        rodada: c.rodada,
+        tentativas: c.tentativas,
+        raioKm: raioDaRodada(regras, c.rodada),
+        proximaTentativaEm: c.proximaTentativaEm?.toISOString() ?? null,
+        semEntregadorDesde: c.semEntregadorEm?.toISOString() ?? null,
+      },
       ocorrencia: oc ? { motivo: oc.motivo, texto: oc.texto, em: oc.em, temFoto: c.fotos.some((f) => f.etapa === 'OCORRENCIA') } : null,
       codigoConfirmacao: c.situacao === 'CONCLUIDA' || c.situacao === 'CANCELADA' ? null : c.codigoConfirmacao,
       historico: c.historico as unknown as EventoChamada[],
@@ -267,36 +297,24 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     return { dados: dataUrl(f.mime, f.bytes) };
   }
 
-  /** Quem pode receber agora: aprovado, online, com sinal, sem chamada nem oferta, dentro do raio da empresa até a coleta. */
+  /**
+   * Para a escolha manual: os mesmos filtros e a mesma ordem da distribuição automática, com o
+   * raio de atendimento da empresa (e sem o "só preferidos", que é regra da distribuição).
+   */
   async elegiveis(empresaId: string, chamadaId: string): Promise<ElegivelOferta[]> {
     const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, empresaId } });
     if (!c) throw new NotFoundException('Chamada não encontrada.');
     const origem = c.origem as unknown as ParadaChamada;
     const cfg = await this.empresas.config(empresaId);
-    const desde = new Date(Date.now() - SEGUNDOS_POSICAO_VALIDA * 1000);
-    const candidatos = await this.prisma.entregador.findMany({
-      where: {
-        situacao: 'APROVADO',
-        online: true,
-        posicaoEm: { gte: desde },
-        chamadas: { none: { situacao: { in: [...SITUACOES_EM_ANDAMENTO] } } },
-        ofertas: { none: { resultado: 'PENDENTE' } },
-        NOT: { ofertas: { some: { chamadaId, resultado: { in: ['RECUSADA', 'EXPIRADA'] } } } },
-      },
-      select: { id: true, nome: true, veiculo: true, lat: true, lon: true },
-      take: 500,
-    });
-    return candidatos
-      .map((e) => ({ id: e.id, nome: primeiroNome(e.nome), veiculo: e.veiculo as TipoVeiculo, metrosAteColeta: Math.round(distanciaMetros(origem, { lat: e.lat!, lon: e.lon! })) }))
-      .filter((e) => e.metrosAteColeta <= cfg.raioAtendimentoKm * 1000)
-      .sort((a, b) => a.metrosAteColeta - b.metrosAteColeta)
-      .slice(0, 50);
+    const candidatos = await this.direcionamento.candidatos(empresaId, origem, cfg.raioAtendimentoKm, chamadaId);
+    const { classificados } = classificar(candidatos, { ...cfg.direcionamento, somentePreferidos: false }, c.tipo as TipoChamada, cfg.raioAtendimentoKm);
+    return classificados.slice(0, 50).map((e) => ({ id: e.id, nome: e.nome, veiculo: e.veiculo, metrosAteColeta: e.metrosAteColeta, preferido: e.preferido, pontos: e.pontos, posicao: e.posicao }));
   }
 
   async oferecer(empresaId: string, chamadaId: string, entregadorId: string, autorId: string): Promise<ChamadaResumo> {
     const elegiveis = await this.elegiveis(empresaId, chamadaId);
     const escolhido = elegiveis.find((e) => e.id === entregadorId);
-    if (!escolhido) throw new ConflictException('Este entregador não está disponível agora (offline, sem sinal, longe ou ocupado).');
+    if (!escolhido) throw new ConflictException('Este entregador não está disponível agora (offline, sem sinal, longe, ocupado ou bloqueado).');
     const cfg = await this.empresas.config(empresaId);
     await this.prisma.$transaction(async (tx) => {
       // Prende a chamada: duas ofertas ao mesmo tempo não passam.
@@ -304,7 +322,9 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       if (linha?.situacao !== 'ABERTA') throw new ConflictException('A chamada não está aguardando entregador.');
       if (await tx.ofertaChamada.count({ where: { chamadaId, resultado: 'PENDENTE' } })) throw new ConflictException('Já há uma oferta esperando resposta. Cancele-a antes.');
       await tx.ofertaChamada.create({ data: { chamadaId, entregadorId, metrosAteColeta: escolhido.metrosAteColeta, expiraEm: new Date(Date.now() + cfg.segundosParaAceitar * 1000) } });
-      await this.registrar(chamadaId, evento(`Oferecida a ${escolhido.nome}.`, 'empresa'), tx);
+      // A empresa escolheu: a distribuição automática para aqui.
+      const parou = await tx.chamadaEntrega.updateMany({ where: { id: chamadaId, distribuicaoAtiva: true }, data: { distribuicaoAtiva: false, proximaTentativaEm: null } });
+      await this.registrar(chamadaId, evento(`Oferecida a ${escolhido.nome}${parou.count ? ' (distribuição automática parada)' : ''}.`, 'empresa'), tx);
       await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.oferecer', entidade: 'ChamadaEntrega', entidadeId: chamadaId, detalhes: { entregadorId } }, tx);
     });
     return this.obter(empresaId, chamadaId);
@@ -333,7 +353,9 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, empresaId, situacao: 'OCORRENCIA' } });
     if (!c) throw new ConflictException('A chamada não está em ocorrência.');
     const oc = c.ocorrencia as Ocorrencia;
-    const data = dto.acao === 'CONTINUAR' ? { situacao: oc.situacaoAnterior } : { situacao: 'ABERTA', entregadorId: null, aceitaEm: null };
+    const { direcionamento } = await this.empresas.config(empresaId);
+    const reaberta = { situacao: 'ABERTA', entregadorId: null, aceitaEm: null, distribuicaoAtiva: direcionamento.automatico, rodada: 0, tentativas: 0, proximaTentativaEm: direcionamento.automatico ? new Date() : null, semEntregadorEm: null };
+    const data = dto.acao === 'CONTINUAR' ? { situacao: oc.situacaoAnterior } : reaberta;
     const { count } = await this.prisma.chamadaEntrega.updateMany({ where: { id: chamadaId, situacao: 'OCORRENCIA', atualizadoEm: c.atualizadoEm }, data });
     if (!count) throw new ConflictException('A chamada mudou. Recarregue.');
     await this.registrar(chamadaId, evento(dto.acao === 'CONTINUAR' ? 'Empresa pediu para seguir.' : 'Empresa liberou o entregador e reabriu a chamada.', 'empresa'));
@@ -375,6 +397,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       estimada: c.estimada,
       valorCentavos: c.valorCentavos,
       expiraEm: o.expiraEm.toISOString(),
+      motivo: o.motivo ? motivoParaEntregador(o.motivo as unknown as MotivoOferta) : null,
     };
   }
 
@@ -391,8 +414,13 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       const { count } = await tx.ofertaChamada.updateMany({ where: { id: ofertaId, resultado: 'PENDENTE', expiraEm: { gt: agora } }, data: { resultado: 'ACEITA', respondidaEm: agora } });
       if (!count) throw new ConflictException('Esta oferta não vale mais.');
       if (await tx.chamadaEntrega.count({ where: { entregadorId, situacao: { in: [...SITUACOES_EM_ANDAMENTO] } } })) throw new ConflictException('Termine a chamada em andamento antes.');
-      const aceita = await tx.chamadaEntrega.updateMany({ where: { id: o.chamadaId, situacao: 'ABERTA' }, data: { situacao: 'ACEITA', entregadorId, aceitaEm: agora } });
-      if (!aceita.count) throw new ConflictException('A chamada foi cancelada.');
+      const aceita = await tx.chamadaEntrega.updateMany({ where: { id: o.chamadaId, situacao: 'ABERTA' }, data: { situacao: 'ACEITA', entregadorId, aceitaEm: agora, distribuicaoAtiva: false, proximaTentativaEm: null, semEntregadorEm: null } });
+      if (!aceita.count) {
+        const agoraEsta = await tx.chamadaEntrega.findUnique({ where: { id: o.chamadaId }, select: { situacao: true } });
+        throw new ConflictException(agoraEsta?.situacao === 'CANCELADA' ? 'A chamada foi cancelada.' : 'Outro entregador aceitou primeiro.');
+      }
+      // No modo em grupo, as outras ofertas desta chamada deixam de valer.
+      await tx.ofertaChamada.updateMany({ where: { chamadaId: o.chamadaId, resultado: 'PENDENTE', id: { not: ofertaId } }, data: { resultado: 'CANCELADA', respondidaEm: agora } });
       const e = await tx.entregador.findUniqueOrThrow({ where: { id: entregadorId }, select: { nome: true } });
       await this.registrar(o.chamadaId, evento(`${primeiroNome(e.nome)} aceitou.`, 'entregador'), tx);
       return o.chamadaId;
@@ -404,7 +432,10 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     const o = await this.prisma.ofertaChamada.findFirst({ where: { id: ofertaId, entregadorId }, include: { entregador: { select: { nome: true } } } });
     if (!o) throw new NotFoundException('Oferta não encontrada.');
     const { count } = await this.prisma.ofertaChamada.updateMany({ where: { id: ofertaId, resultado: 'PENDENTE' }, data: { resultado: 'RECUSADA', respondidaEm: new Date() } });
-    if (count) await this.registrar(o.chamadaId, evento(`${primeiroNome(o.entregador.nome)} recusou.`, 'entregador'));
+    if (!count) return;
+    await this.registrar(o.chamadaId, evento(`${primeiroNome(o.entregador.nome)} recusou.`, 'entregador'));
+    // Em distribuição: segue para o próximo sem esperar o prazo.
+    await this.prisma.chamadaEntrega.updateMany({ where: { id: o.chamadaId, distribuicaoAtiva: true }, data: { proximaTentativaEm: new Date() } });
   }
 
   async daChamada(entregadorId: string, chamadaId: string): Promise<ChamadaEntregador> {
@@ -528,7 +559,10 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
 
 @Controller('entregas/chamadas')
 export class ChamadasEmpresaController {
-  constructor(private readonly chamadas: ChamadasService) {}
+  constructor(
+    private readonly chamadas: ChamadasService,
+    private readonly direcionamento: DirecionamentoService,
+  ) {}
 
   @Post('previa')
   @HttpCode(200)
@@ -572,6 +606,22 @@ export class ChamadasEmpresaController {
   @RequerPermissao('entrega.gerenciar')
   oferecer(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: OferecerDto, @UsuarioAtual() u: UsuarioRequisicao): Promise<ChamadaResumo> {
     return this.chamadas.oferecer(empresaId, id, dto.entregadorId, u.id);
+  }
+
+  @Post(':id/distribuir')
+  @HttpCode(200)
+  @RequerPermissao('entrega.gerenciar')
+  async distribuir(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() u: UsuarioRequisicao): Promise<ChamadaResumo> {
+    await this.direcionamento.ligar(empresaId, id, u.id);
+    return this.chamadas.obter(empresaId, id);
+  }
+
+  @Post(':id/parar-distribuicao')
+  @HttpCode(200)
+  @RequerPermissao('entrega.gerenciar')
+  async parar(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() u: UsuarioRequisicao): Promise<ChamadaResumo> {
+    await this.direcionamento.parar(empresaId, id, u.id);
+    return this.chamadas.obter(empresaId, id);
   }
 
   @Post(':id/cancelar-oferta')

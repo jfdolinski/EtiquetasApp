@@ -20,9 +20,9 @@ export function cpf(): string {
   return d.join('');
 }
 
-export async function entregadorOnline(tokenSuper: string, onde = PERTO_DA_SE, nome = 'Carlos Motoboy Lima') {
+export async function entregadorOnline(tokenSuper: string, onde = PERTO_DA_SE, nome = 'Carlos Motoboy Lima', veiculo: 'BICICLETA' | 'A_PE' = 'BICICLETA') {
   const email = `cham-${randomUUID().slice(0, 8)}@e2e.local`;
-  const r = await pedir('POST', '/entregador/cadastro', { corpo: { nome, cpf: cpf(), celular: '11987654321', email, senha: 'SenhaEntregador1', veiculo: 'BICICLETA', placa: null, chavePix: email, aceitaTermos: true } });
+  const r = await pedir('POST', '/entregador/cadastro', { corpo: { nome, cpf: cpf(), celular: '11987654321', email, senha: 'SenhaEntregador1', veiculo, placa: null, chavePix: email, aceitaTermos: true } });
   expect(r.status).toBe(201);
   const token = r.j.token as string;
   const id = r.j.perfil.id as string;
@@ -41,3 +41,8 @@ export async function empresaComBase(tokenSuper: string): Promise<EmpresaTeste> 
   return e;
 }
 
+
+/** Um ponto a tantos metros ao norte (e a leste) de outro. */
+export function deslocar(p: { lat: number; lon: number }, norte: number, leste = 0) {
+  return { lat: p.lat + norte / 111_320, lon: p.lon + leste / (111_320 * Math.cos((p.lat * Math.PI) / 180)) };
+}

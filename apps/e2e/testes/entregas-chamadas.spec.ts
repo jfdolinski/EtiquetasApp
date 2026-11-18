@@ -155,7 +155,7 @@ test('Site: abrir a chamada no mapa, oferecer e acompanhar o aceite', async ({ p
   await expect(linha).toBeVisible();
   await linha.locator('xpath=..').getByRole('button', { name: 'Oferecer' }).click();
   await expect(page.getByText(`Oferecida a ${apelido}.`)).toBeVisible();
-  await expect(page.getByText(/esperando resposta/)).toBeVisible();
+  await expect(page.getByText(/esperando resposta \(/)).toBeVisible();
 
   const oferta = await pedir('GET', '/entregador/oferta', { token: ent.token });
   await pedir('POST', `/entregador/ofertas/${oferta.j.id}/aceitar`, { token: ent.token });

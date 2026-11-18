@@ -14,6 +14,8 @@ import {
   SEGUNDOS_PARA_ACEITAR_PADRAO,
   SITUACOES_EM_ANDAMENTO,
   TABELA_PRECOS_PADRAO,
+  REGRAS_DIRECIONAMENTO_PADRAO,
+  regrasVigentes,
   type TabelaPrecos,
   situacaoNoMapa,
   type ConfigEntregasEmpresa,
@@ -70,11 +72,11 @@ export class EntregasEmpresaService {
 
   async config(empresaId: string): Promise<ConfigEntregasEmpresa> {
     const c = await this.prisma.configuracaoEntregas.findUnique({ where: { empresaId } });
-    if (!c) return { base: null, raioAtendimentoKm: RAIO_ATENDIMENTO_PADRAO_KM, precos: TABELA_PRECOS_PADRAO, segundosParaAceitar: SEGUNDOS_PARA_ACEITAR_PADRAO };
+    if (!c) return { base: null, raioAtendimentoKm: RAIO_ATENDIMENTO_PADRAO_KM, precos: TABELA_PRECOS_PADRAO, segundosParaAceitar: SEGUNDOS_PARA_ACEITAR_PADRAO, direcionamento: REGRAS_DIRECIONAMENTO_PADRAO };
     const base = c.baseLat !== null && c.baseLon !== null ? { lat: c.baseLat, lon: c.baseLon, endereco: c.baseEndereco } : null;
     // Tipo novo sem preço na tabela gravada fica com o padrão.
     const precos = { ...TABELA_PRECOS_PADRAO, ...((c.precos as Partial<TabelaPrecos> | null) ?? {}) };
-    return { base, raioAtendimentoKm: c.raioAtendimentoKm, precos, segundosParaAceitar: c.segundosParaAceitar };
+    return { base, raioAtendimentoKm: c.raioAtendimentoKm, precos, segundosParaAceitar: c.segundosParaAceitar, direcionamento: regrasVigentes(c.direcionamento) };
   }
 
   async salvar(empresaId: string, dto: ConfigEntregasDto, autorId: string): Promise<ConfigEntregasEmpresa> {

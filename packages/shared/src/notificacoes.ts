@@ -61,6 +61,15 @@ export const EVENTOS_NOTIFICACAO = [
     repetirPadrao: 240,
   },
   {
+    codigo: 'entrega_sem_entregador',
+    titulo: 'Chamada sem entregador',
+    descricao: 'A distribuição automática não achou quem aceitasse uma chamada de entrega há mais tempo que o limite (0 avisa na hora). O sistema segue tentando.',
+    unidade: 'minutos',
+    limitePadrao: 0,
+    nivel: 'aviso',
+    repetirPadrao: 15,
+  },
+  {
     codigo: 'impressao_erro',
     titulo: 'Impressão com erro',
     descricao: 'Um trabalho de impressão das últimas 24 horas terminou com erro e não foi reenviado.',

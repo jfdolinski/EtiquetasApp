@@ -47,6 +47,7 @@ export function CartaoOferta({ api, oferta, aoResponder }: { api: Api; oferta: O
         Percurso: {formatarKm(oferta.metros)}
         {oferta.estimada ? ' (estimado)' : ''}
       </Text>
+      {oferta.motivo ? <Texto suave>{oferta.motivo}</Texto> : null}
       <Text style={[estilos.prazo, restam <= 10 && { color: cores.erro }]}>{restam > 0 ? `${restam} s para responder` : 'Tempo esgotado'}</Text>
       {erro && <Alerta>{erro}</Alerta>}
       <View style={{ gap: 8 }}>

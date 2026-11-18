@@ -20,9 +20,11 @@ import { api } from '../../api';
 import { useAuth } from '../../auth';
 import { Alerta, Botao, Cabecalho, Campo, Selo, Tabela } from '../../components/ui';
 import { Chamadas } from './Chamadas';
+import { Direcionamento } from './Direcionamento';
+import { EntregadoresDaEmpresa } from './EntregadoresDaEmpresa';
 import { MapaEntregadores } from './MapaEntregadores';
 
-type Aba = 'chamadas' | 'mapa' | 'configuracao';
+type Aba = 'chamadas' | 'mapa' | 'entregadores' | 'direcionamento' | 'configuracao';
 type RespostaConfig = { config: ConfigEntregasEmpresa; mapa: ConfigMapa };
 
 const ATUALIZAR_MS = 20_000;
@@ -35,14 +37,15 @@ export function Entregas() {
   const abas: { id: Aba; rotulo: string }[] = [
     { id: 'chamadas', rotulo: 'Chamadas' },
     { id: 'mapa', rotulo: 'Mapa' },
-    ...(pode('entrega.configurar') ? [{ id: 'configuracao' as const, rotulo: 'Configuração' }] : []),
+    { id: 'entregadores', rotulo: 'Entregadores' },
+    ...(pode('entrega.configurar') ? [{ id: 'direcionamento' as const, rotulo: 'Direcionamento' }, { id: 'configuracao' as const, rotulo: 'Configuração' }] : []),
   ];
   const [aba, setAba] = useState<Aba>('chamadas');
   const config = useQuery({ queryKey: ['entregas-config'], queryFn: () => api<RespostaConfig>('/entregas/config') });
 
   return (
     <div>
-      <Cabecalho titulo="Entregas" descricao="Abra chamadas de coleta e entrega e ofereça a um entregador online por perto. A posição de quem está livre aparece aproximada." />
+      <Cabecalho titulo="Entregas" descricao="Abra chamadas de coleta e entrega e ofereça a um entregador online por perto, ou deixe o sistema escolher pelas suas regras. A posição de quem está livre aparece aproximada." />
       {abas.length > 1 && (
         <div role="tablist" className="mb-4 flex gap-1 border-b border-slate-200">
           {abas.map(({ id, rotulo }) => (
@@ -55,6 +58,8 @@ export function Entregas() {
       {config.error && <Alerta>{config.error.message}</Alerta>}
       {config.data && aba === 'chamadas' && <Chamadas config={config.data.config} mapa={config.data.mapa} />}
       {config.data && aba === 'mapa' && <PainelMapa mapa={config.data.mapa} configurar={pode('entrega.configurar') ? () => setAba('configuracao') : null} />}
+      {aba === 'entregadores' && <EntregadoresDaEmpresa />}
+      {config.data && aba === 'direcionamento' && <Direcionamento inicial={config.data.config} mapa={config.data.mapa} />}
       {config.data && aba === 'configuracao' && <Configuracao inicial={config.data.config} mapa={config.data.mapa} aoSalvar={() => setAba('mapa')} />}
     </div>
   );

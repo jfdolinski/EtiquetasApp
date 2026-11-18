@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException } from '@nes
 import type { AuditoriaService } from '../auditoria/auditoria.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import { ChamadasService } from './chamadas';
+import type { DirecionamentoService } from './direcionamento';
 import type { EntregasEmpresaService } from './empresa';
 import type { MapasService } from './mapas';
 
@@ -21,7 +22,7 @@ function montar(chamada: Record<string, unknown>) {
     $transaction: jest.fn(async (f: (t: typeof tx) => unknown) => f(tx)),
     chamadaEntrega: { findFirst: jest.fn(async () => ({ ...c, empresa: { nomeFantasia: 'Loja', razaoSocial: 'Loja' }, ocorrencia: null, aceitaEm: null, concluidaEm: null, serieColetada: null, observacao: '', numero: 1, metros: 3000, estimada: true, valorCentavos: 800 })), update: jest.fn(async () => ({})) },
   };
-  const s = new ChamadasService(prisma as unknown as PrismaService, { registrar: jest.fn() } as unknown as AuditoriaService, {} as MapasService, {} as EntregasEmpresaService);
+  const s = new ChamadasService(prisma as unknown as PrismaService, { registrar: jest.fn() } as unknown as AuditoriaService, {} as MapasService, {} as EntregasEmpresaService, {} as DirecionamentoService);
   return { s, prisma, tx };
 }
 

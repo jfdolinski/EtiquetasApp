@@ -9,7 +9,9 @@ import {
   regrasComPadrao,
   dentroDoHorarioDaTela,
   formatarCentavos,
+  ROTULO_TIPO_CHAMADA,
   textoDuracao,
+  type TipoChamada,
   type ConfiguracaoNotificacoes,
   type EventoNotificacao,
   type ExecucaoAgendamento,
@@ -291,6 +293,15 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
           mensagem: `${p.clienteNome} fez um pedido de ${formatarCentavos(p.totalCentavos)} há ${textoDuracao(agora.getTime() - p.criadoEm.getTime())}. Aceite em Pedidos.`,
         }));
       }
+      case 'entrega_sem_entregador': {
+        // Some sozinho quando alguém aceita, a empresa escolhe à mão, para a distribuição ou cancela.
+        const chamadas = await this.prisma.chamadaEntrega.findMany({ where: { empresaId, situacao: 'ABERTA', distribuicaoAtiva: true, semEntregadorEm: { lte: atras(regra.limite * 60_000) } }, orderBy: { criadoEm: 'asc' }, take: 50, select: { id: true, numero: true, tipo: true, criadoEm: true } });
+        return chamadas.map((c) => ({
+          chave: `chamada:${c.id}`,
+          titulo: `Chamada nº ${c.numero} sem entregador`,
+          mensagem: `${ROTULO_TIPO_CHAMADA[c.tipo as TipoChamada]} aberta há ${textoDuracao(agora.getTime() - c.criadoEm.getTime())} e ninguém aceitou. O sistema segue tentando; você pode escolher um entregador em Entregas.`,
+        }));
+      }
       case 'tela_aprovacao': {
         const pedidos = await this.prisma.conteudoTela.findMany({ where: { empresaId, aprovacaoSituacao: 'PENDENTE', aprovacaoPedidaEm: { lte: atras(regra.limite * 60_000) } }, select: { id: true, nome: true, aprovacaoPedidaEm: true } });
         return pedidos.map((c) => ({
@@ -369,7 +380,8 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
     await this.enviarAosAgentes(n).catch((e) => this.log.warn(`Envio aos agentes: ${(e as Error).message}`));
     if (n.canalCelular) {
       const pedido = n.evento === 'pedido_novo';
-      await this.dispositivos.avisarEmpresa(n.empresaId, { titulo: n.titulo, mensagem: n.mensagem, tela: n.evento === 'lista_pendente' ? 'lista' : pedido ? 'pedidos' : 'avisos' }, pedido ? 'pedido.ver' : 'notificacao.ver').catch((e) => this.log.warn(`Envio aos celulares: ${(e as Error).message}`));
+      const entrega = n.evento === 'entrega_sem_entregador';
+      await this.dispositivos.avisarEmpresa(n.empresaId, { titulo: n.titulo, mensagem: n.mensagem, tela: n.evento === 'lista_pendente' ? 'lista' : pedido ? 'pedidos' : 'avisos' }, pedido ? 'pedido.ver' : entrega ? 'entrega.ver' : 'notificacao.ver').catch((e) => this.log.warn(`Envio aos celulares: ${(e as Error).message}`));
     }
     if (n.canalEmail) {
       const enderecos = await this.email.enderecosComPermissao(n.empresaId, 'notificacao.ver');

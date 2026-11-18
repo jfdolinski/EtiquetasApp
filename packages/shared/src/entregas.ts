@@ -3,6 +3,7 @@
 
 import { normalizarCelular } from './pedidos';
 import type { OfertaResumo, TabelaPrecos } from './entregas-chamadas';
+import type { RegrasDirecionamento } from './entregas-direcionamento';
 
 // Entregador ------------------------------------------------------------------------------
 
@@ -289,6 +290,7 @@ export interface ConfigEntregasEmpresa {
   raioAtendimentoKm: number;
   precos: TabelaPrecos;
   segundosParaAceitar: number;
+  direcionamento: RegrasDirecionamento;
 }
 
 export interface ResultadoEndereco extends Ponto {
