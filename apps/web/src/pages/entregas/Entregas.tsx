@@ -7,6 +7,9 @@ import {
   RAIO_ATENDIMENTO_MAXIMO_KM,
   type TabelaPrecos,
   ROTULO_SITUACAO_MAPA,
+  MODOS_ASSINATURA,
+  ROTULO_MODO_ASSINATURA,
+  type ModoAssinatura,
   ROTULO_VEICULO,
   type ConfigEntregasEmpresa,
   type ConfigMapa,
@@ -16,7 +19,7 @@ import {
 } from '@etiquetas/shared';
 import { api } from '../../api';
 import { useAuth } from '../../auth';
-import { Alerta, Botao, Cabecalho, Campo, Selo, Tabela } from '../../components/ui';
+import { Alerta, Botao, Cabecalho, Campo, Selecao, Selo, Tabela } from '../../components/ui';
 import { AdicionaisEditor } from './AdicionaisEditor';
 import { Chamadas } from './Chamadas';
 import { Demanda } from './Demanda';
@@ -140,6 +143,8 @@ function Configuracao({ inicial, mapa, aoSalvar }: { inicial: ConfigEntregasEmpr
   const [adicionais, setAdicionais] = useState(inicial.adicionais);
   const [segundos, setSegundos] = useState(String(inicial.segundosParaAceitar));
   const [chamar, setChamar] = useState(inicial.chamarAoAceitarPedido);
+  const [assinatura, setAssinatura] = useState<ModoAssinatura>(inicial.assinatura ?? 'NAO');
+  const [simultaneas, setSimultaneas] = useState(String(inicial.chamadasSimultaneas ?? 1));
   const problemaPrecos = problemaNaTabelaPrecos(tabela);
   const [busca, setBusca] = useState('');
   const [resultados, setResultados] = useState<ResultadoEndereco[] | null>(null);
@@ -150,7 +155,7 @@ function Configuracao({ inicial, mapa, aoSalvar }: { inicial: ConfigEntregasEmpr
     onSuccess: setResultados,
   });
   const salvar = useMutation({
-    mutationFn: () => api<ConfigEntregasEmpresa>('/entregas/config', { metodo: 'PUT', corpo: { base, raioAtendimentoKm: Number(raio), precos: tabela, segundosParaAceitar: Number(segundos), chamarAoAceitarPedido: chamar, adicionais, fotos } }),
+    mutationFn: () => api<ConfigEntregasEmpresa>('/entregas/config', { metodo: 'PUT', corpo: { base, raioAtendimentoKm: Number(raio), precos: tabela, segundosParaAceitar: Number(segundos), chamarAoAceitarPedido: chamar, adicionais, fotos, assinatura, chamadasSimultaneas: Number(simultaneas) } }),
     onSuccess: () => {
       void cliente.invalidateQueries({ queryKey: ['entregas-config'] });
       void cliente.invalidateQueries({ queryKey: ['entregas-mapa'] });
@@ -217,6 +222,19 @@ function Configuracao({ inicial, mapa, aoSalvar }: { inicial: ConfigEntregasEmpr
           </label>
           <p className="text-xs text-slate-500">Vale para as chamadas abertas daqui em diante. A empresa vê as fotos na chamada.</p>
         </fieldset>
+        <Selecao rotulo="Comprovação da entrega" value={assinatura} onChange={(e) => setAssinatura(e.target.value as ModoAssinatura)}>
+          {MODOS_ASSINATURA.map((m) => (
+            <option key={m} value={m}>
+              {ROTULO_MODO_ASSINATURA[m]}
+            </option>
+          ))}
+        </Selecao>
+        <p className="-mt-2 text-xs text-slate-500">Com assinatura, quem recebe assina na tela do celular do entregador e informa o nome; a empresa vê a assinatura na chamada.</p>
+        <Selecao rotulo="Chamadas ao mesmo tempo por entregador" value={simultaneas} onChange={(e) => setSimultaneas(e.target.value)}>
+          <option value="1">Uma por vez</option>
+          <option value="2">Até 2 (só desta empresa)</option>
+          <option value="3">Até 3 (só desta empresa)</option>
+        </Selecao>
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" className="mt-0.5" checked={chamar} onChange={(e) => setChamar(e.target.checked)} />
           <span>

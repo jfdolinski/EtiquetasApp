@@ -14,6 +14,7 @@ import {
 } from './entregas';
 import { formatarCelular, formatarCentavos, normalizarCelular } from './pedidos';
 import { formatarKm, linkNavegacao, MOTIVOS_OCORRENCIA, normalizarSerie, PROXIMA_ETAPA, ROTULO_MOTIVO_OCORRENCIA, ROTULO_SITUACAO_CHAMADA, ROTULO_TIPO_CHAMADA } from './entregas-chamadas';
+import { comprimentoDaAssinatura, LIMITES_ASSINATURA, problemaNaAssinatura, PROPORCAO_ASSINATURA } from './entregas-comprovacao';
 import { ESPERA_BLOCO_MINUTOS, ESTADOS_MAQUINA, ITENS_CHECKLIST, LIMITE_OBSERVACAO_CHECKLIST, problemaNoChecklist, ROTULO_ESTADO_MAQUINA } from './entregas-servico';
 
 /** O app do entregador só importa tipos daqui: as regras são copiadas em apps/entregador/src/regras.ts. */
@@ -52,5 +53,12 @@ describe('cópias do app do entregador', () => {
     expect(app.LIMITE_OBSERVACAO_CHECKLIST).toBe(LIMITE_OBSERVACAO_CHECKLIST);
     const lista = { carregador: true, bobina: false, chip: true, estado: 'BOA' as const, observacao: '' };
     for (const c of [null, lista, { ...lista, chip: undefined }, { ...lista, estado: 'AVARIADA' as const }, { ...lista, estado: 'X' as never }, { ...lista, observacao: 'x'.repeat(301) }]) expect(app.problemaNoChecklist(c)).toBe(problemaNoChecklist(c));
+
+    expect(app.LIMITES_ASSINATURA).toEqual(LIMITES_ASSINATURA);
+    expect(app.PROPORCAO_ASSINATURA).toBe(PROPORCAO_ASSINATURA);
+    const rabisco: [number, number][] = [[0.1, 0.5], [0.3, 0.2], [0.5, 0.8], [0.7, 0.3]];
+    expect(app.comprimentoDaAssinatura([rabisco])).toBe(comprimentoDaAssinatura([rabisco]));
+    for (const a of [null, { tracos: [rabisco], recebedor: '' }, { tracos: [rabisco], recebedor: 'Ana' }, { tracos: [[[0.5, 0.5]]] as [number, number][][], recebedor: 'Ana' }, { tracos: [[[2, 0.5]]] as [number, number][][], recebedor: 'Ana' }, { tracos: Array.from({ length: 61 }, () => rabisco), recebedor: 'Ana' }])
+      expect(app.problemaNaAssinatura(a)).toBe(problemaNaAssinatura(a));
   });
 });

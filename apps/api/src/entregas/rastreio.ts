@@ -98,7 +98,8 @@ export class RastreioService {
       pontoCliente: { lat: cliente.lat, lon: cliente.lon },
       posicao,
       previsaoMinutos: posicao && e ? previsaoMinutos(posicao, cliente, e.veiculo as TipoVeiculo) : null,
-      codigoConfirmacao: mostraCodigoAoCliente(tipo, situacao) && !entregue && !devolvida ? codigoDaParada : null,
+      // Com a assinatura no lugar do código, o código não serve para nada: não aparece.
+      codigoConfirmacao: mostraCodigoAoCliente(tipo, situacao) && !entregue && !devolvida && c.assinatura !== 'NO_LUGAR_DO_CODIGO' ? codigoDaParada : null,
       concluidaEm: c.concluidaEm?.toISOString() ?? null,
       atualizadoEm: agora.toISOString(),
       mapa: this.mapas.configuracaoDoMapa(),
@@ -122,6 +123,19 @@ export class RastreioService {
       orderBy: { criadoEm: 'desc' },
       select: { tipo: true, situacao: true, rastreioCifrado: true, devolucao: true, entregador: { select: { nome: true } } },
     });
+    // Pedidos juntos: o pedido pode ser uma parada de outra chamada, com o link dela.
+    const p = c ? null : await this.prisma.paradaExtraChamada.findFirst({
+      where: { pedidoId, rastreioCifrado: { not: null }, chamada: { situacao: { not: 'CANCELADA' } } },
+      orderBy: { criadoEm: 'desc' },
+      select: { ordem: true, entregueEm: true, rastreioCifrado: true, chamada: { select: { situacao: true, paradaAtual: true, devolucao: true, entregador: { select: { nome: true } } } } },
+    });
+    if (p) {
+      const caminhoParada = caminhoDoRastreio(p.rastreioCifrado);
+      if (!caminhoParada) return null;
+      const situacao = p.chamada.situacao as SituacaoChamada;
+      const texto = p.entregueEm ? 'Entregue' : p.chamada.devolucao ? TEXTO_DEVOLVIDO_AO_CLIENTE : (textoDaParada(p.ordem, p.chamada.paradaAtual, situacao, false) ?? textoParaCliente('ENTREGA', situacao));
+      return { caminho: caminhoParada, texto, entregadorNome: p.chamada.entregador ? primeiroNome(p.chamada.entregador.nome) : null };
+    }
     const caminho = caminhoDoRastreio(c?.rastreioCifrado ?? null);
     if (!c || !caminho) return null;
     return { caminho, texto: c.devolucao ? TEXTO_DEVOLVIDO_AO_CLIENTE : textoParaCliente(c.tipo as TipoChamada, c.situacao as SituacaoChamada), entregadorNome: c.entregador ? primeiroNome(c.entregador.nome) : null };

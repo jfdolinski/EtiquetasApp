@@ -31,3 +31,4 @@ export * from './entregas-paradas';
 export * from './entregas-operacao';
 export * from './entregas-servico';
 export * from './entregas-erp';
+export * from './entregas-comprovacao';

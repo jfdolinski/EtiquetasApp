@@ -17,14 +17,17 @@ export interface FotosObrigatorias {
 }
 
 /** Nome da foto de cada etapa; com várias paradas, a entrega de cada uma tem a sua. */
-export function etapaDaFoto(etapa: 'COLETA' | 'ENTREGA', ordem = 0): string {
-  return etapa === 'ENTREGA' && ordem > 0 ? `ENTREGA_${ordem}` : etapa;
+export function etapaDaFoto(etapa: 'COLETA' | 'ENTREGA' | 'ASSINATURA', ordem = 0): string {
+  return etapa !== 'COLETA' && ordem > 0 ? `${etapa}_${ordem}` : etapa;
 }
 
 export function rotuloDaFoto(etapa: string): string {
   if (etapa === 'COLETA') return 'Foto da coleta';
   if (etapa === 'OCORRENCIA') return 'Foto da ocorrência';
   if (etapa === 'ENTREGA') return 'Foto da entrega';
+  if (etapa === 'ASSINATURA') return 'Assinatura de quem recebeu';
+  const a = /^ASSINATURA_(\d+)$/.exec(etapa);
+  if (a) return `Assinatura na parada ${Number(a[1]) + 1}`;
   const m = /^ENTREGA_(\d+)$/.exec(etapa);
   return m ? `Foto da entrega na parada ${Number(m[1]) + 1}` : etapa;
 }

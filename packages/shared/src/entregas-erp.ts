@@ -223,3 +223,24 @@ export interface PainelPedidosErp {
 
 /** Para a tela: cada informação com os nomes de coluna aceitos. */
 export const CAMPOS_DO_PEDIDO_ERP: { campo: CampoPedidoErp; nomes: string[] }[] = (Object.keys(COLUNAS_PEDIDO_ERP) as CampoPedidoErp[]).map((campo) => ({ campo, nomes: [...COLUNAS_PEDIDO_ERP[campo]] }));
+
+/** Pedidos que podem ir juntos numa chamada (do Flow, com entrega; do ERP, de entrega e esperando). */
+export interface PedidoParaJuntar {
+  origem: 'FLOW' | 'ERP';
+  id: string;
+  rotulo: string;
+  cliente: string;
+  endereco: string;
+  temPonto: boolean;
+}
+
+export interface RascunhoJuntos {
+  origem: ParadaChamada;
+  destino: ParadaChamada;
+  pedidoId: string | null;
+  pedidoErpId: string | null;
+  paradasExtras: (ParadaChamada & { pedidoId?: string | null; pedidoErpId?: string | null })[];
+  observacao: string;
+  /** Pedidos sem ponto no mapa (marque antes de abrir). */
+  semPonto: string[];
+}

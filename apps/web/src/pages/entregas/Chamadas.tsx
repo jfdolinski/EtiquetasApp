@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  problemaNosPedidosJuntos,
+  ROTULO_MODO_ASSINATURA,
+  type ParadaComPedido,
+  type PedidoParaJuntar,
+  type RascunhoJuntos,
   type RascunhoPedidoErp,
   textoDoChecklist,
   formatarCelular,
@@ -63,6 +68,8 @@ export function Chamadas({ config, mapa, abrir }: { config: ConfigEntregasEmpres
   const { pode } = useAuth();
   const [filtro, setFiltro] = useState<'ATIVAS' | 'TODAS'>('ATIVAS');
   const [nova, setNova] = useState(false);
+  const [juntando, setJuntando] = useState(false);
+  const [juntos, setJuntos] = useState<RascunhoJuntos | null>(null);
   const [aberta, setAberta] = useState<string | null>(abrir ?? null);
   const { data = [], error, isLoading } = useQuery({ queryKey: ['chamadas', filtro], queryFn: () => api<ChamadaResumo[]>(`/entregas/chamadas?filtro=${filtro}`), refetchInterval: 10_000 });
   const gerencia = pode('entrega.gerenciar');
@@ -76,7 +83,14 @@ export function Chamadas({ config, mapa, abrir }: { config: ConfigEntregasEmpres
             <option value="TODAS">Todas</option>
           </Selecao>
         </div>
-        {gerencia && <Botao onClick={() => setNova(true)}>Nova chamada</Botao>}
+        {gerencia && (
+          <div className="flex gap-2">
+            <Botao variante="secundario" onClick={() => setJuntando(true)}>
+              Juntar pedidos
+            </Botao>
+            <Botao onClick={() => setNova(true)}>Nova chamada</Botao>
+          </div>
+        )}
       </div>
       {error && <Alerta>{error.message}</Alerta>}
       {!isLoading && (
@@ -104,6 +118,8 @@ export function Chamadas({ config, mapa, abrir }: { config: ConfigEntregasEmpres
         </Tabela>
       )}
       {nova && <NovaChamadaModal config={config} mapa={mapa} aoFechar={() => setNova(false)} aoCriar={(id) => { setNova(false); setAberta(id); }} />}
+      {juntando && <JuntarPedidos aoFechar={() => setJuntando(false)} aoMontar={(r) => { setJuntando(false); setJuntos(r); }} />}
+      {juntos && <NovaChamadaModal config={config} mapa={mapa} juntos={juntos} aoFechar={() => setJuntos(null)} aoCriar={(id) => { setJuntos(null); setAberta(id); }} />}
       {aberta && <DetalheChamada id={aberta} mapa={mapa} gerencia={gerencia} aoFechar={() => setAberta(null)} />}
     </div>
   );
@@ -111,16 +127,59 @@ export function Chamadas({ config, mapa, abrir }: { config: ConfigEntregasEmpres
 
 // Nova chamada --------------------------------------------------------------------------------
 
-export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, erp }: { config: ConfigEntregasEmpresa; mapa: ConfigMapa; aoFechar: () => void; aoCriar: (id: string) => void; rascunho?: RascunhoDoPedido; erp?: RascunhoPedidoErp }) {
+/** Escolhe os pedidos (do Flow e do ERP) que vão juntos numa chamada, um por parada. */
+function JuntarPedidos({ aoFechar, aoMontar }: { aoFechar: () => void; aoMontar: (r: RascunhoJuntos) => void }) {
+  const { data = [], error, isLoading } = useQuery({ queryKey: ['juntar-pedidos'], queryFn: () => api<PedidoParaJuntar[]>('/entregas/juntar/pedidos') });
+  const [marcados, setMarcados] = useState<string[]>([]);
+  const chave = (p: PedidoParaJuntar) => `${p.origem}:${p.id}`;
+  const montar = useMutation({
+    mutationFn: () => {
+      const escolhidos = data.filter((p) => marcados.includes(chave(p)));
+      return api<RascunhoJuntos>('/entregas/juntar', { metodo: 'POST', corpo: { pedidoIds: escolhidos.filter((p) => p.origem === 'FLOW').map((p) => p.id), pedidoErpIds: escolhidos.filter((p) => p.origem === 'ERP').map((p) => p.id) } });
+    },
+    onSuccess: aoMontar,
+  });
+  const problema = problemaNosPedidosJuntos(marcados.length);
+  return (
+    <Modal titulo="Juntar pedidos numa chamada" aberto aoFechar={aoFechar} largo>
+      <div className="space-y-3 text-sm">
+        <p className="text-slate-600">Cada pedido vira uma parada, na ordem do menor caminho a partir da loja. Os pedidos do Flow avançam sozinhos na coleta e na entrega de cada parada.</p>
+        {error && <Alerta>{error.message}</Alerta>}
+        {!isLoading && data.length === 0 && <p className="text-slate-500">Nenhum pedido com entrega esperando entregador.</p>}
+        <div className="max-h-96 space-y-1 overflow-y-auto">
+          {data.map((p) => (
+            <label key={chave(p)} className="flex items-start gap-2 rounded border border-slate-200 px-3 py-2 hover:bg-slate-50" data-testid="pedido-para-juntar">
+              <input type="checkbox" className="mt-1" checked={marcados.includes(chave(p))} onChange={(e) => setMarcados(e.target.checked ? [...marcados, chave(p)] : marcados.filter((x) => x !== chave(p)))} />
+              <span>
+                <strong>{p.rotulo}</strong> · {p.cliente || 'sem nome'}
+                <span className="block text-xs text-slate-500">
+                  {p.endereco}
+                  {!p.temPonto && ' · sem ponto no mapa (o endereço é procurado)'}
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
+        {marcados.length > 0 && problema && <Alerta tipo="aviso">{problema}</Alerta>}
+        {montar.error && <Alerta>{montar.error.message}</Alerta>}
+        <Botao onClick={() => montar.mutate()} disabled={!!problema || montar.isPending}>
+          {montar.isPending ? 'Montando…' : `Montar a chamada com ${marcados.length} pedidos`}
+        </Botao>
+      </div>
+    </Modal>
+  );
+}
+
+export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, erp, juntos }: { config: ConfigEntregasEmpresa; mapa: ConfigMapa; aoFechar: () => void; aoCriar: (id: string) => void; rascunho?: RascunhoDoPedido; erp?: RascunhoPedidoErp; juntos?: RascunhoJuntos }) {
   const cliente = useQueryClient();
   const [tipo, setTipo] = useState<TipoChamada>(erp?.tipo ?? 'ENTREGA');
   const baseComoParada = (): ParadaChamada => (config.base ? { ...paradaVazia(), lat: config.base.lat, lon: config.base.lon, endereco: config.base.endereco } : paradaVazia());
-  const [origem, setOrigem] = useState<ParadaChamada>(() => erp?.origem ?? baseComoParada());
-  const [destino, setDestino] = useState<ParadaChamada>(() => erp?.destino ?? rascunho?.destino ?? paradaVazia());
+  const [origem, setOrigem] = useState<ParadaChamada>(() => juntos?.origem ?? erp?.origem ?? baseComoParada());
+  const [destino, setDestino] = useState<ParadaChamada>(() => juntos?.destino ?? erp?.destino ?? rascunho?.destino ?? paradaVazia());
   const [marcando, setMarcando] = useState<'origem' | 'destino' | number>(erp && erp.tipo !== 'ENTREGA' ? 'origem' : 'destino');
-  const [extras, setExtras] = useState<ParadaChamada[]>([]);
+  const [extras, setExtras] = useState<ParadaComPedido[]>(() => juntos?.paradasExtras ?? []);
   const [serie, setSerie] = useState(erp?.serieEsperada ?? '');
-  const [observacao, setObservacao] = useState(erp?.observacao ?? rascunho?.observacao ?? '');
+  const [observacao, setObservacao] = useState(juntos?.observacao ?? erp?.observacao ?? rascunho?.observacao ?? '');
   const primeira = useRef(true);
   const [distribuir, setDistribuir] = useState(config.direcionamento.automatico);
 
@@ -129,7 +188,7 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, er
     // Do pedido, o destino já vem preenchido: só troca se mudar o serviço.
     if (primeira.current) {
       primeira.current = false;
-      if (rascunho || erp) return;
+      if (rascunho || erp || juntos) return;
     }
     setExtras([]);
     if (tipo === 'ENTREGA') {
@@ -144,7 +203,7 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, er
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipo]);
 
-  const corpo: NovaChamada = { tipo, origem, destino, serieEsperada: serie.trim() || null, observacao, pedidoId: rascunho?.pedidoId ?? null, pedidoErpId: erp?.pedidoErpId ?? null, paradasExtras: tipo === 'ENTREGA' ? extras : [] };
+  const corpo: NovaChamada = { tipo, origem, destino, serieEsperada: serie.trim() || null, observacao, pedidoId: juntos?.pedidoId ?? rascunho?.pedidoId ?? null, pedidoErpId: juntos?.pedidoErpId ?? erp?.pedidoErpId ?? null, paradasExtras: tipo === 'ENTREGA' ? extras : [] };
   const prontos = temPonto(origem) && temPonto(destino) && extras.every(temPonto);
   const previa = useQuery({
     queryKey: ['chamada-previa', tipo, origem.lat, origem.lon, destino.lat, destino.lon, extras.map((p) => `${p.lat},${p.lon}`).join('|')],
@@ -166,10 +225,11 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, er
   ];
 
   return (
-    <Modal titulo={rascunho ? `Entregador para o pedido nº ${rascunho.numero}` : erp ? `Entregador para o pedido ${erp.codigo} do ERP` : 'Nova chamada'} aberto aoFechar={aoFechar} largo>
+    <Modal titulo={juntos ? `Pedidos juntos (${1 + juntos.paradasExtras.length})` : rascunho ? `Entregador para o pedido nº ${rascunho.numero}` : erp ? `Entregador para o pedido ${erp.codigo} do ERP` : 'Nova chamada'} aberto aoFechar={aoFechar} largo>
       <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
         <div className="space-y-4">
           {erp && ((erp.tipo === 'ENTREGA' ? erp.destino : erp.origem)?.lat ?? 0) === 0 && <Alerta tipo="aviso">Não achamos o endereço do pedido no mapa: marque o ponto do cliente clicando no mapa.</Alerta>}
+          {juntos && juntos.semPonto.length > 0 && <Alerta tipo="aviso">Sem ponto no mapa: {juntos.semPonto.join(', ')}. Marque cada um clicando no mapa (estão no fim da lista).</Alerta>}
           {rascunho?.origemDoPonto === 'NENHUM' && <Alerta tipo="aviso">Não achamos o endereço do cliente no mapa: marque o destino clicando no mapa.</Alerta>}
           {rascunho?.origemDoPonto === 'ENDERECO' && <Alerta tipo="info">O ponto do destino veio da busca do endereço: confira no mapa e ajuste com um clique se precisar.</Alerta>}
           <Selecao rotulo="Serviço" value={tipo} onChange={(e) => setTipo(e.target.value as TipoChamada)}>
@@ -183,7 +243,7 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, er
           <EditorParada titulo="Destino" artigo="no" cor={COR_DESTINO} parada={destino} mudar={setDestino} ativa={marcando === 'destino'} marcar={() => setMarcando('destino')} />
           {extras.map((p, i) => (
             <div key={i} className="space-y-1">
-              <EditorParada titulo={`Parada ${i + 2}`} artigo="na" cor={COR_PARADA} parada={p} mudar={(n) => setExtras(extras.map((x, j) => (j === i ? n : x)))} ativa={marcando === i} marcar={() => setMarcando(i)} />
+              <EditorParada titulo={`Parada ${i + 2}${p.pedidoId || p.pedidoErpId ? ' · com pedido' : ''}`} artigo="na" cor={COR_PARADA} parada={p} mudar={(n) => setExtras(extras.map((x, j) => (j === i ? n : x)))} ativa={marcando === i} marcar={() => setMarcando(i)} />
               <button type="button" className="text-xs text-red-700 underline" onClick={() => { setExtras(extras.filter((_, j) => j !== i)); setMarcando('destino'); }}>
                 Tirar a parada {i + 2}
               </button>
@@ -195,7 +255,7 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, er
               onClick={() => {
                 // Com pedido, o destino principal fica em primeiro; senão, todas entram na conta.
                 const todos = [destino, ...extras];
-                const ordem = ordemMaisCurta(origem, todos, !!rascunho);
+                const ordem = ordemMaisCurta(origem, todos, !!rascunho || !!juntos);
                 setDestino(todos[ordem[0]]);
                 setExtras(ordem.slice(1).map((i) => todos[i]));
               }}
@@ -373,7 +433,7 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
             <Parada titulo={c.paradasExtras.length ? `Destino (parada 1 de ${c.paradasExtras.length + 1})${c.paradaAtual > 0 || c.situacao === 'CONCLUIDA' ? ' · entregue' : ''}` : 'Destino'} p={c.destino} />
             {c.paradasExtras.map((p) => (
               <div key={p.ordem} data-testid="parada-extra">
-                <Parada titulo={`Parada ${p.ordem + 1} de ${c.paradasExtras.length + 1}${p.entregueEm ? ' · entregue' : c.paradaAtual === p.ordem && c.situacao !== 'CANCELADA' && c.situacao !== 'CONCLUIDA' ? ' · a vez dela' : ''}`} p={p.parada} />
+                <Parada titulo={`Parada ${p.ordem + 1} de ${c.paradasExtras.length + 1}${p.pedido ? ` · pedido nº ${p.pedido.numero}` : p.pedidoErp ? ` · pedido ${p.pedidoErp} do ERP` : ''}${p.entregueEm ? ' · entregue' : c.paradaAtual === p.ordem && c.situacao !== 'CANCELADA' && c.situacao !== 'CONCLUIDA' ? ' · a vez dela' : ''}`} p={p.parada} />
                 {p.codigoConfirmacao && <div className="text-xs">Código desta parada: <span className="font-mono font-bold">{p.codigoConfirmacao}</span>{p.linkRastreio && <> · <a className="text-blue-700 underline" href={p.linkRastreio} target="_blank" rel="noreferrer">link do cliente</a></>}</div>}
               </div>
             ))}
@@ -400,6 +460,12 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
               ) : null;
             })}
             {c.pedidoErp && <div className="text-slate-600">Pedido <strong>{c.pedidoErp}</strong> do ERP.</div>}
+            {c.assinatura !== 'NAO' && <div className="text-slate-600">Comprovação: {ROTULO_MODO_ASSINATURA[c.assinatura].toLowerCase()}.</div>}
+            {c.fotos.filter((f) => f.startsWith('ASSINATURA')).map((f) => (
+              <button key={f} type="button" className="block text-left text-blue-700 underline" onClick={() => verFoto.mutate(f)} data-testid="ver-assinatura">
+                Ver {rotuloDaFoto(f).toLowerCase()}
+              </button>
+            ))}
             {c.observacao && <div className="text-slate-600">Obs.: {c.observacao}</div>}
             {c.pedido && <div className="text-slate-600">Entrega do <strong>pedido nº {c.pedido.numero}</strong> (o pedido avança sozinho na coleta e na entrega).</div>}
             {c.entregador && (

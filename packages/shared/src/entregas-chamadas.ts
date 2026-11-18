@@ -6,6 +6,7 @@ import type { DistribuicaoResumo, OfertaDaChamada } from './entregas-direcioname
 import type { EmergenciaChamada } from './entregas-rastreio';
 import type { AdicionalAplicado, DestinoDoEntregador, ParadaExtraResumo } from './entregas-paradas';
 import type { ChecklistsDaChamada, DevolucaoChamada, RegraEspera } from './entregas-servico';
+import type { ModoAssinatura } from './entregas-comprovacao';
 
 export const TIPOS_CHAMADA = ['ENTREGA', 'COLETA', 'DEVOLUCAO_MAQUINA'] as const;
 export type TipoChamada = (typeof TIPOS_CHAMADA)[number];
@@ -142,6 +143,12 @@ export interface ParadaChamada extends Ponto {
   instrucoes: string;
 }
 
+/** Parada extra que entrega um pedido (do Flow ou do ERP): pedidos juntos numa chamada. */
+export interface ParadaComPedido extends ParadaChamada {
+  pedidoId?: string | null;
+  pedidoErpId?: string | null;
+}
+
 export interface NovaChamada {
   tipo: TipoChamada;
   origem: ParadaChamada;
@@ -156,7 +163,7 @@ export interface NovaChamada {
   /** Pedido lido do ERP (Entregas > Pedidos do ERP) que esta chamada atende. */
   pedidoErpId?: string | null;
   /** Entregas além do destino, na ordem (só no tipo Entrega). */
-  paradasExtras?: ParadaChamada[];
+  paradasExtras?: ParadaComPedido[];
 }
 
 export function problemaNaChamada(c: NovaChamada): string | null {
@@ -265,6 +272,8 @@ export interface ChamadaResumo {
   checklists: ChecklistsDaChamada;
   /** Chamada aberta a partir de um pedido do ERP. */
   pedidoErp: string | null;
+  /** Como o entregador comprova a entrega (copiado da configuração ao abrir). */
+  assinatura: ModoAssinatura;
 }
 
 /** O que o app do entregador recebe da chamada dele. */
@@ -300,6 +309,8 @@ export interface ChamadaEntregador {
   chegouNoPontoEm?: string | null;
   espera?: RegraEspera;
   esperaCentavos?: number;
+  /** Assinatura de quem recebe: junto ao código ou no lugar dele. */
+  assinatura?: ModoAssinatura;
 }
 
 export interface GanhosEntregador {

@@ -18,6 +18,9 @@ import {
   type MaquinaEmCustodia,
   type SituacaoChamada,
   ADICIONAIS_VAZIOS,
+  LIMITES_CHAMADAS_SIMULTANEAS,
+  MODOS_ASSINATURA,
+  type ModoAssinatura,
   adicionaisVigentes,
   gradeDeDemanda,
   momentoNoFuso,
@@ -78,6 +81,8 @@ class ConfigEntregasDto {
   @IsOptional() @IsBoolean() chamarAoAceitarPedido?: boolean;
   @IsOptional() @IsObject() adicionais?: Adicionais;
   @IsOptional() @ValidateNested() @Type(() => FotosDto) fotos?: FotosDto;
+  @IsOptional() @IsIn(MODOS_ASSINATURA) assinatura?: ModoAssinatura;
+  @IsOptional() @IsInt() @Min(LIMITES_CHAMADAS_SIMULTANEAS.minimo, { message: 'Chamadas ao mesmo tempo: de 1 a 3.' }) @Max(LIMITES_CHAMADAS_SIMULTANEAS.maximo, { message: 'Chamadas ao mesmo tempo: de 1 a 3.' }) chamadasSimultaneas?: number;
   @IsInt() @Min(1, { message: 'O raio vai de 1 a 100 km.' }) @Max(RAIO_ATENDIMENTO_MAXIMO_KM, { message: 'O raio vai de 1 a 100 km.' }) raioAtendimentoKm: number;
 }
 
@@ -123,11 +128,11 @@ export class EntregasEmpresaService {
 
   async config(empresaId: string): Promise<ConfigEntregasEmpresa> {
     const [c, padrao] = await Promise.all([this.prisma.configuracaoEntregas.findUnique({ where: { empresaId } }), this.tabelaPadrao()]);
-    if (!c) return { base: null, raioAtendimentoKm: RAIO_ATENDIMENTO_PADRAO_KM, precos: padrao, segundosParaAceitar: SEGUNDOS_PARA_ACEITAR_PADRAO, direcionamento: REGRAS_DIRECIONAMENTO_PADRAO, chamarAoAceitarPedido: false, adicionais: ADICIONAIS_VAZIOS, fotos: { coleta: false, entrega: false } };
+    if (!c) return { base: null, raioAtendimentoKm: RAIO_ATENDIMENTO_PADRAO_KM, precos: padrao, segundosParaAceitar: SEGUNDOS_PARA_ACEITAR_PADRAO, direcionamento: REGRAS_DIRECIONAMENTO_PADRAO, chamarAoAceitarPedido: false, adicionais: ADICIONAIS_VAZIOS, fotos: { coleta: false, entrega: false }, assinatura: 'NAO', chamadasSimultaneas: 1 };
     const base = c.baseLat !== null && c.baseLon !== null ? { lat: c.baseLat, lon: c.baseLon, endereco: c.baseEndereco } : null;
     // Tipo novo sem preço na tabela gravada fica com o padrão.
     const precos = { ...padrao, ...((c.precos as Partial<TabelaPrecos> | null) ?? {}) };
-    return { base, raioAtendimentoKm: c.raioAtendimentoKm, precos, segundosParaAceitar: c.segundosParaAceitar, direcionamento: regrasVigentes(c.direcionamento), chamarAoAceitarPedido: c.chamarAoAceitarPedido, adicionais: adicionaisVigentes(c.adicionais), fotos: { coleta: c.fotoColeta, entrega: c.fotoEntrega } };
+    return { base, raioAtendimentoKm: c.raioAtendimentoKm, precos, segundosParaAceitar: c.segundosParaAceitar, direcionamento: regrasVigentes(c.direcionamento), chamarAoAceitarPedido: c.chamarAoAceitarPedido, adicionais: adicionaisVigentes(c.adicionais), fotos: { coleta: c.fotoColeta, entrega: c.fotoEntrega }, assinatura: c.assinatura as ModoAssinatura, chamadasSimultaneas: c.chamadasSimultaneas };
   }
 
   async salvar(empresaId: string, dto: ConfigEntregasDto, autorId: string): Promise<ConfigEntregasEmpresa> {
@@ -151,6 +156,8 @@ export class EntregasEmpresaService {
       ...(dto.chamarAoAceitarPedido !== undefined ? { chamarAoAceitarPedido: dto.chamarAoAceitarPedido } : {}),
       ...(adicionais ? { adicionais: adicionais as never } : {}),
       ...(dto.fotos ? { fotoColeta: dto.fotos.coleta, fotoEntrega: dto.fotos.entrega } : {}),
+      ...(dto.assinatura ? { assinatura: dto.assinatura } : {}),
+      ...(dto.chamadasSimultaneas ? { chamadasSimultaneas: dto.chamadasSimultaneas } : {}),
     };
     await this.prisma.configuracaoEntregas.upsert({ where: { empresaId }, create: { empresaId, ...data }, update: data });
     await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entregas.configurar', entidade: 'ConfiguracaoEntregas', entidadeId: empresaId, detalhes: { base: !!dto.base, raioAtendimentoKm: dto.raioAtendimentoKm } });

@@ -1453,6 +1453,9 @@ model ConfiguracaoEntregas {
   /// Fotos obrigatórias: na coleta e em cada entrega.
   fotoColeta            Boolean  @default(false) @map("foto_coleta")
   fotoEntrega           Boolean  @default(false) @map("foto_entrega")
+  /// Etapa 11: NAO, JUNTO_AO_CODIGO ou NO_LUGAR_DO_CODIGO; e quantas chamadas da empresa o entregador pode ter juntas.
+  assinatura            String   @default("NAO")
+  chamadasSimultaneas   Int      @default(1) @map("chamadas_simultaneas")
   /// Número da próxima chamada da empresa.
   proximoNumero         Int      @default(1) @map("proximo_numero")
   atualizadoEm          DateTime @updatedAt @map("atualizado_em")
@@ -1544,6 +1547,8 @@ model ChamadaEntrega {
   checklists              Json      @default("{}")
   /// Número do pedido no ERP, quando a chamada veio de lá.
   pedidoErp               String?   @map("pedido_erp")
+  /// Etapa 11: assinatura de quem recebe (copiada da configuração ao abrir).
+  assinatura              String    @default("NAO")
   criadoPorId             String?   @map("criado_por_id") @db.Uuid
   criadoEm                DateTime  @default(now()) @map("criado_em")
   atualizadoEm            DateTime  @updatedAt @map("atualizado_em")
@@ -1678,11 +1683,15 @@ model ParadaExtraChamada {
   entregueEm        DateTime? @map("entregue_em")
   rastreioHash      String?   @unique @map("rastreio_hash")
   rastreioCifrado   String?   @map("rastreio_cifrado")
+  /// Etapa 11: pedido (do Flow ou número do ERP) que esta parada entrega.
+  pedidoId          String?   @map("pedido_id") @db.Uuid
+  pedidoErp         String?   @map("pedido_erp")
   criadoEm          DateTime  @default(now()) @map("criado_em")
 
   chamada ChamadaEntrega @relation(fields: [chamadaId], references: [id], onDelete: Cascade)
 
   @@unique([chamadaId, ordem])
+  @@index([pedidoId])
   @@map("paradas_chamada")
 }
 

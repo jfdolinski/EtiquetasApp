@@ -6,6 +6,7 @@ import type { OfertaResumo, TabelaPrecos } from './entregas-chamadas';
 import type { RegrasDirecionamento } from './entregas-direcionamento';
 import type { Adicionais } from './entregas-paradas';
 import type { FotosObrigatorias } from './entregas-operacao';
+import type { ModoAssinatura } from './entregas-comprovacao';
 
 // Entregador ------------------------------------------------------------------------------
 
@@ -303,6 +304,10 @@ export interface ConfigEntregasEmpresa {
   adicionais: Adicionais;
   /** O entregador tira foto na coleta e/ou em cada entrega. */
   fotos: FotosObrigatorias;
+  /** Assinatura de quem recebe. */
+  assinatura: ModoAssinatura;
+  /** Quantas chamadas desta empresa o entregador pode ter ao mesmo tempo (1 a 3). */
+  chamadasSimultaneas: number;
 }
 
 export interface ResultadoEndereco extends Ponto {
@@ -401,8 +406,10 @@ export interface RespostaPosicao {
   saldoDiarias: number;
   /** Oferta esperando a resposta dele (o app toca o aviso). */
   oferta: OfertaResumo | null;
-  /** Chamada em andamento, se houver. */
+  /** Chamada em andamento, se houver (a mais antiga). */
   chamadaId: string | null;
+  /** Todas as em andamento (a empresa pode permitir mais de uma). */
+  chamadaIds?: string[];
 }
 
 /** Lista do super-admin. */

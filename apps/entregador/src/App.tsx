@@ -7,6 +7,7 @@ import type { ChamadaEntregador, OfertaResumo } from '../../../packages/shared/s
 import { apagarSessao, clienteDa, ErroApi, gravarSessao, lerSessao, versaoDoApp, versaoPublicada, type Sessao } from './api';
 import { aoReceberResposta, pararRastreio } from './localizacao';
 import { CartaoOferta, TelaChamada } from './TelaChamada';
+import { GuiaBateria, marcarGuiaVisto } from './Bateria';
 import { TelaGanhos } from './TelaGanhos';
 import { versaoMaisNova } from './regras';
 import { TelaCreditos } from './TelaCreditos';
@@ -95,7 +96,17 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
 
   // Oferta e chamada: com o app aberto, a cada 5 s; com a tela apagada, pela tarefa de localização (aviso local).
   const [oferta, setOferta] = useState<OfertaResumo | null>(null);
-  const [chamada, setChamada] = useState<ChamadaEntregador | null>(null);
+  const [chamadas, setChamadas] = useState<ChamadaEntregador[]>([]);
+  const [escolhida, setEscolhida] = useState<string | null>(null);
+  const chamada = chamadas.find((c) => c.id === escolhida) ?? chamadas[0] ?? null;
+  const [guia, setGuia] = useState(false);
+  /** Troca a chamada que mudou na lista; terminada ou cancelada sai dela. */
+  const atualizarChamada = useCallback((id: string, c: ChamadaEntregador | null) => {
+    setChamadas((l) => {
+      const resto = l.filter((x) => x.id !== id);
+      return c && c.situacao !== 'CONCLUIDA' && c.situacao !== 'CANCELADA' ? l.map((x) => (x.id === id ? c : x)).concat(l.some((x) => x.id === id) ? [] : [c]) : resto;
+    });
+  }, []);
   const trabalhando = !!perfil && perfil.situacao === 'APROVADO' && (perfil.online || !!chamada);
   const [recusas, setRecusas] = useState<string[]>([]);
   const buscarTrabalho = useCallback(async () => {
@@ -104,9 +115,9 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
       const fila = await enviarGuardadas(api);
       if (fila.recusas.length) setRecusas((r) => [...r, ...fila.recusas]);
       if ((await etapasGuardadas()).length) return;
-      const [o, c] = await Promise.all([api<OfertaResumo | null>('/entregador/oferta'), api<ChamadaEntregador | null>('/entregador/chamada')]);
+      const [o, c] = await Promise.all([api<OfertaResumo | null>('/entregador/oferta'), api<ChamadaEntregador[]>('/entregador/chamadas')]);
       setOferta(o);
-      setChamada(c);
+      setChamadas(c);
     } catch {
       // Sem internet agora: tenta de novo no próximo ciclo.
     }
@@ -166,8 +177,9 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
     );
   }
 
+  const ofertaValida = oferta && new Date(oferta.expiraEm).getTime() > Date.now() ? oferta : null;
   const abas: { id: Aba; rotulo: string }[] = [
-    { id: 'inicio', rotulo: chamada ? 'Chamada' : 'Início' },
+    { id: 'inicio', rotulo: chamadas.length > 1 ? `Chamadas (${chamadas.length})` : chamada ? 'Chamada' : 'Início' },
     { id: 'ganhos', rotulo: 'Extrato' },
     { id: 'creditos', rotulo: 'Créditos' },
     { id: 'perfil', rotulo: 'Perfil' },
@@ -183,21 +195,46 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
         </View>
       )}
       <View style={{ flex: 1 }}>
-        {aba === 'inicio' &&
+        {guia ? (
+          <GuiaBateria
+            aoFechar={() => {
+              marcarGuiaVisto();
+              setGuia(false);
+            }}
+          />
+        ) : null}
+        {!guia && aba === 'inicio' &&
           (chamada ? (
-            <TelaChamada api={api} chamada={chamada} aoMudar={(c) => setChamada(c && c.situacao !== 'CONCLUIDA' && c.situacao !== 'CANCELADA' ? c : null)} />
+            <View style={{ flex: 1 }}>
+              {ofertaValida && (
+                <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
+                  <CartaoOferta key={ofertaValida.id} api={api} oferta={ofertaValida} aoResponder={(c) => { setOferta(null); if (c) { atualizarChamada(c.id, c); setEscolhida(c.id); } }} />
+                </View>
+              )}
+              {chamadas.length > 1 && (
+                <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 8 }} accessibilityRole="tablist">
+                  {chamadas.map((c) => (
+                    <Pressable key={c.id} accessibilityRole="tab" accessibilityState={{ selected: c.id === chamada.id }} onPress={() => setEscolhida(c.id)} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: cores.borda, backgroundColor: c.id === chamada.id ? cores.azul : cores.branco }}>
+                      <Text style={{ color: c.id === chamada.id ? cores.branco : cores.texto, fontWeight: '600' }}>Chamada {c.numero}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+              <TelaChamada key={chamada.id} api={api} chamada={chamada} aoMudar={(c) => atualizarChamada(chamada.id, c)} />
+            </View>
           ) : (
             <TelaInicio
               api={api}
               perfil={perfil}
               aoMudar={setPerfil}
               irParaCreditos={() => setAba('creditos')}
-              oferta={oferta && new Date(oferta.expiraEm).getTime() > Date.now() ? <CartaoOferta key={oferta.id} api={api} oferta={oferta} aoResponder={(c) => { setOferta(null); setChamada(c); }} /> : null}
+              abrirGuia={() => setGuia(true)}
+              oferta={ofertaValida ? <CartaoOferta key={ofertaValida.id} api={api} oferta={ofertaValida} aoResponder={(c) => { setOferta(null); if (c) atualizarChamada(c.id, c); }} /> : null}
             />
           ))}
-        {aba === 'ganhos' && <TelaGanhos api={api} servidor={sessao.servidor} />}
-        {aba === 'creditos' && <TelaCreditos api={api} aoMudarSaldo={mudarSaldo} />}
-        {aba === 'perfil' && <TelaPerfil api={api} perfil={perfil} aoMudar={setPerfil} sair={() => void sair()} versao={versaoDoApp()} />}
+        {!guia && aba === 'ganhos' && <TelaGanhos api={api} servidor={sessao.servidor} />}
+        {!guia && aba === 'creditos' && <TelaCreditos api={api} aoMudarSaldo={mudarSaldo} />}
+        {!guia && aba === 'perfil' && <TelaPerfil api={api} perfil={perfil} aoMudar={setPerfil} sair={() => void sair()} versao={versaoDoApp()} abrirGuia={() => setGuia(true)} />}
       </View>
       <View style={estilos.guias} accessibilityRole="tablist">
         {abas.map((a) => (

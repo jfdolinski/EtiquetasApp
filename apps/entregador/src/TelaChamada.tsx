@@ -7,6 +7,9 @@ import { LeitorCodigo } from './LeitorCodigo';
 import { posicaoAtual } from './localizacao';
 import { ESPERA_BLOCO_MINUTOS, ESTADOS_MAQUINA, formatarCelular, formatarCentavos, formatarKm, ITENS_CHECKLIST, linkNavegacao, MOTIVOS_OCORRENCIA, normalizarSerie, problemaNoChecklist, PROXIMA_ETAPA, ROTULO_ESTADO_MAQUINA, ROTULO_MOTIVO_OCORRENCIA, ROTULO_SITUACAO_CHAMADA, ROTULO_TIPO_CHAMADA } from './regras';
 import type { ChecklistMaquina } from '../../../packages/shared/src/entregas-servico';
+import type { TracoAssinatura } from '../../../packages/shared/src/entregas-comprovacao';
+import { AreaAssinatura } from './Assinatura';
+import { problemaNaAssinatura } from './regras';
 
 const CHECKLIST_VAZIO: ChecklistMaquina = { carregador: false, bobina: false, chip: false, estado: 'BOA', observacao: '' };
 
@@ -128,6 +131,8 @@ function Parada({ titulo, p, ativa }: { titulo: string; p: ParadaChamada; ativa:
 export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: ChamadaEntregador; aoMudar: (c: ChamadaEntregador | null) => void }) {
   const [serie, setSerie] = useState('');
   const [checklist, setChecklist] = useState<ChecklistMaquina>(CHECKLIST_VAZIO);
+  const [tracos, setTracos] = useState<TracoAssinatura[]>([]);
+  const [recebedor, setRecebedor] = useState('');
   const [codigo, setCodigo] = useState('');
   const [lendo, setLendo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -155,6 +160,10 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
   const pedeMaquina = !!chamada.pedeChecklist && !chamada.devolvendo && (etapa?.para === 'COLETADA' || (etapa?.para === 'CONCLUIDA' && (chamada.paradaAtual ?? 0) === 0));
   const pedeSerie = pedeMaquina || (etapa?.para === 'COLETADA' && chamada.pedeSerie && !chamada.devolvendo);
   const noLocal = chamada.situacao === 'NA_COLETA' || chamada.situacao === 'NO_DESTINO';
+  // Assinatura de quem recebe (a empresa escolhe: junto ao código ou no lugar dele); na devolução à origem, não.
+  const modoAssinatura = chamada.devolvendo ? 'NAO' : (chamada.assinatura ?? 'NAO');
+  const pedeAssinatura = etapa?.para === 'CONCLUIDA' && modoAssinatura !== 'NAO';
+  const pedeCodigo = etapa?.para === 'CONCLUIDA' && modoAssinatura !== 'NO_LUGAR_DO_CODIGO';
   const minutosNoLocal = useMinutosNoLocal(noLocal ? chamada.chegouNoPontoEm : null);
 
   if (lendo) return <LeitorCodigo aoLer={(c) => { setSerie(normalizarSerie(c)); setLendo(false); }} aoCancelar={() => setLendo(false)} />;
@@ -168,11 +177,16 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
         const problema = problemaNoChecklist(checklist);
         if (problema) return setErro(problema);
       }
+      const assinatura = pedeAssinatura ? { tracos, recebedor: recebedor.trim() } : undefined;
+      if (assinatura) {
+        const problema = problemaNaAssinatura(assinatura);
+        if (problema) return setErro(problema);
+      }
       // A empresa pode exigir a foto da coleta ou da entrega (a maquininha sempre pede).
       const foto = pedeFoto ? await escolherImagem(Platform.OS === 'web' ? 'galeria' : 'camera') : null;
       if (pedeFoto && !foto) return setErro(etapa.para === 'COLETADA' ? 'Tire a foto da coleta para continuar.' : 'Tire a foto da entrega para continuar.');
       const p = await posicaoAtual();
-      const corpo = { para: etapa.para, lat: p.coords.latitude, lon: p.coords.longitude, precisao: p.coords.accuracy ?? null, simulada: p.mocked === true, serie: serie || undefined, codigo: codigo || undefined, foto: foto ?? undefined, checklist: pedeMaquina ? checklist : undefined, em: new Date().toISOString() };
+      const corpo = { para: etapa.para, lat: p.coords.latitude, lon: p.coords.longitude, precisao: p.coords.accuracy ?? null, simulada: p.mocked === true, serie: serie || undefined, codigo: codigo || undefined, foto: foto ?? undefined, checklist: pedeMaquina ? checklist : undefined, assinatura, em: new Date().toISOString() };
       let c: ChamadaEntregador;
       try {
         // Com outra etapa ainda esperando a internet, esta vai para a fila também, na ordem.
@@ -187,6 +201,8 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
       setCodigo('');
       setSerie('');
       setChecklist(CHECKLIST_VAZIO);
+      setTracos([]);
+      setRecebedor('');
       aoMudar(c);
     } catch (e) {
       setErro((e as Error).message);
@@ -280,7 +296,14 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
           {pedeMaquina && <Checklist valor={checklist} mudar={setChecklist} />}
         </Cartao>
       )}
-      {etapa?.para === 'CONCLUIDA' && (
+      {pedeAssinatura && (
+        <Cartao>
+          <Texto>Peça para quem recebe assinar:</Texto>
+          <AreaAssinatura tracos={tracos} mudar={setTracos} />
+          <Campo rotulo="Nome de quem recebeu" value={recebedor} onChangeText={setRecebedor} />
+        </Cartao>
+      )}
+      {pedeCodigo && (
         <Cartao>
           {chamada.devolvendo ? (
             <Campo rotulo="Código da empresa" value={codigo} onChangeText={(v) => setCodigo(v.replace(/\D/g, '').slice(0, 4))} keyboardType="number-pad" ajuda="Quem recebe de volta na empresa vê o código no sistema." />

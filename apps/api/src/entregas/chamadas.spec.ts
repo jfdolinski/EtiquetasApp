@@ -12,7 +12,7 @@ const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJA
 const parada = (p: { lat: number; lon: number }) => ({ ...p, endereco: 'Rua A, 1', contato: '', telefone: '', instrucoes: '' });
 
 function montar(chamada: Record<string, unknown>) {
-  const c = { id: 'c1', entregadorId: 'e1', tipo: 'ENTREGA', situacao: 'ACEITA', origem: parada(SE), destino: parada(PAULISTA), serieEsperada: null, codigoConfirmacao: '1234', tentativasCodigo: 0, paradaAtual: 0, paradas: [], esperaToleranciaMinutos: 10, esperaPorBlocoCentavos: 0, chegouNoPontoEm: null, devolucao: null, checklists: {}, ...chamada };
+  const c = { id: 'c1', entregadorId: 'e1', tipo: 'ENTREGA', situacao: 'ACEITA', origem: parada(SE), destino: parada(PAULISTA), serieEsperada: null, codigoConfirmacao: '1234', tentativasCodigo: 0, paradaAtual: 0, paradas: [], esperaToleranciaMinutos: 10, esperaPorBlocoCentavos: 0, chegouNoPontoEm: null, devolucao: null, checklists: {}, assinatura: 'NAO', ...chamada };
   const tx = {
     chamadaEntrega: { updateMany: jest.fn(async () => ({ count: 1 })) },
     fotoChamada: { create: jest.fn(async () => ({})) },
@@ -108,6 +108,21 @@ describe('etapas da chamada', () => {
     const { s, tx } = montar({ situacao: 'NO_DESTINO', fotoEntrega: true, paradaAtual: 1, paradas: [extra] });
     await s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...SE, codigo: '9999', foto: PNG });
     expect(tx.fotoChamada.create).toHaveBeenCalledWith({ data: expect.objectContaining({ etapa: 'ENTREGA_1' }) });
+  });
+
+  it('assinatura: no lugar do código dispensa o código; junto ao código pede os dois; vira imagem', async () => {
+    const assinatura = { tracos: [[[0.1, 0.5], [0.4, 0.2], [0.8, 0.7]]] as [number, number][][], recebedor: 'Ana Souza' };
+    const sem = montar({ situacao: 'NO_DESTINO', assinatura: 'NO_LUGAR_DO_CODIGO' });
+    await expect(sem.s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...PAULISTA })).rejects.toThrow(/assinar/);
+    await sem.s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...PAULISTA, assinatura });
+    expect(sem.tx.fotoChamada.create).toHaveBeenCalledWith({ data: expect.objectContaining({ etapa: 'ASSINATURA', mime: 'image/png' }) });
+    expect(sem.tx.chamadaEntrega.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ situacao: 'CONCLUIDA' }) }));
+    const junto = montar({ situacao: 'NO_DESTINO', assinatura: 'JUNTO_AO_CODIGO' });
+    await expect(junto.s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...PAULISTA, assinatura })).rejects.toThrow(/Código errado/);
+    await expect(junto.s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...PAULISTA, codigo: '1234' })).rejects.toThrow(/assinar/);
+    const ok = montar({ situacao: 'NO_DESTINO', assinatura: 'JUNTO_AO_CODIGO' });
+    await ok.s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...PAULISTA, codigo: '1234', assinatura });
+    expect(ok.tx.$executeRaw).toHaveBeenCalled();
   });
 
   it('mudou no meio do caminho: recusa', async () => {

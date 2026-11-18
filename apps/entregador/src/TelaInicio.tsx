@@ -4,6 +4,7 @@ import type { PerfilEntregador, RespostaPosicao } from '../../../packages/shared
 import type { Api } from './api';
 import { prepararNotificacoes } from './avisos';
 import { aoReceberResposta, enviarPosicao, iniciarRastreio, pararRastreio, pedirPermissoes, posicaoAtual, rastreando, type ProblemaPermissao } from './localizacao';
+import { AvisoBateria } from './Bateria';
 import { Alerta, Botao, Cartao, cores, Numero, Texto } from './ui';
 
 const AVISO: Record<NonNullable<RespostaPosicao['aviso']>, string> = {
@@ -18,7 +19,7 @@ const PERMISSAO: Record<NonNullable<ProblemaPermissao>, string> = {
   SEM_SEGUNDO_PLANO: 'Para continuar online com a tela apagada, permita a localização "o tempo todo" nas configurações do aplicativo.',
 };
 
-export function TelaInicio({ api, perfil, aoMudar, irParaCreditos, oferta }: { api: Api; perfil: PerfilEntregador; aoMudar: (p: PerfilEntregador) => void; irParaCreditos: () => void; oferta?: ReactNode }) {
+export function TelaInicio({ api, perfil, aoMudar, irParaCreditos, oferta, abrirGuia }: { api: Api; perfil: PerfilEntregador; aoMudar: (p: PerfilEntregador) => void; irParaCreditos: () => void; oferta?: ReactNode; abrirGuia?: () => void }) {
   const [ocupado, setOcupado] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [permissao, setPermissao] = useState<ProblemaPermissao>(null);
@@ -97,6 +98,7 @@ export function TelaInicio({ api, perfil, aoMudar, irParaCreditos, oferta }: { a
       </View>
 
       {oferta}
+      {abrirGuia && perfil.online && <AvisoBateria abrir={abrirGuia} />}
       {aviso && <Alerta tipo="aviso">{aviso}</Alerta>}
       {permissao && <Alerta tipo="aviso">{PERMISSAO[permissao]}</Alerta>}
       {permissao && Platform.OS !== 'web' && (

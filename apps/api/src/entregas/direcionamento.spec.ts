@@ -13,7 +13,8 @@ function montar(chamada: Record<string, unknown>, regras: Partial<RegrasDirecion
     $queryRaw: jest.fn(async () => [c]),
     $executeRaw: jest.fn(async () => 1),
     ofertaChamada: { count: jest.fn(async () => 0), create: jest.fn(async () => ({})), groupBy: jest.fn(async () => []) },
-    chamadaEntrega: { update: jest.fn(async () => ({})), groupBy: jest.fn(async () => []) },
+    chamadaEntrega: { update: jest.fn(async () => ({})), groupBy: jest.fn(async () => []), findMany: jest.fn(async () => []) },
+    configuracaoEntregas: { findUnique: jest.fn(async () => null) },
     entregador: { findMany: jest.fn(async () => entregadores) },
   };
   const prisma = { $transaction: jest.fn(async (f: (t: typeof tx) => unknown) => f(tx)) };

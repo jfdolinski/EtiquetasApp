@@ -19,6 +19,9 @@ export interface ParadaExtraResumo {
   codigoConfirmacao: string | null;
   entregueEm: string | null;
   linkRastreio: string | null;
+  /** Pedido que esta parada entrega (pedidos juntos numa chamada). */
+  pedido?: { id: string; numero: number } | null;
+  pedidoErp?: string | null;
 }
 
 /** Todas as entregas da chamada, na ordem, para o app do entregador. */

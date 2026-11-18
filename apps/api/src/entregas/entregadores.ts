@@ -363,14 +363,14 @@ export class EntregadoresService implements OnApplicationBootstrap, OnModuleDest
       },
     });
     const trabalho = await this.deTrabalho(id, true);
-    if (trabalho.chamadaId) await this.chamadas.gravarRastro(trabalho.chamadaId, dto, agora).catch(() => undefined);
+    for (const chamadaId of trabalho.chamadaIds) await this.chamadas.gravarRastro(chamadaId, dto, agora).catch(() => undefined);
     return { online: true, aviso: null, saldoDiarias: await saldo(), ...trabalho };
   }
 
   /** O aviso de posição leva a oferta pendente: sem Firebase, é assim que o app fica sabendo. */
   private async deTrabalho(id: string, online: boolean) {
-    const [oferta, chamadaId] = await Promise.all([online ? this.chamadas.ofertaPendente(id) : null, this.chamadas.chamadaAtivaId(id)]);
-    return { oferta, chamadaId };
+    const [oferta, chamadaIds] = await Promise.all([online ? this.chamadas.ofertaPendente(id) : null, this.chamadas.chamadasAtivasIds(id)]);
+    return { oferta, chamadaId: chamadaIds[0] ?? null, chamadaIds };
   }
 
   // Senha esquecida ------------------------------------------------------------------------

@@ -4,6 +4,7 @@
 import type { MotivoOcorrencia, SituacaoChamada, TipoChamada } from '../../../packages/shared/src/entregas-chamadas';
 import type { DadosCadastroEntregador, SituacaoEntregador, SituacaoPedidoCredito, TipoDocumentoEntregador, TipoVeiculo } from '../../../packages/shared/src/entregas';
 import type { ChecklistMaquina, EstadoMaquina } from '../../../packages/shared/src/entregas-servico';
+import type { AssinaturaEntrega, TracoAssinatura } from '../../../packages/shared/src/entregas-comprovacao';
 
 export const TIPOS_VEICULO: TipoVeiculo[] = ['MOTO', 'CARRO', 'BICICLETA', 'A_PE'];
 export const ROTULO_VEICULO: Record<TipoVeiculo, string> = { MOTO: 'Moto', CARRO: 'Carro', BICICLETA: 'Bicicleta', A_PE: 'A pé' };
@@ -174,5 +175,34 @@ export function problemaNoChecklist(c: Partial<ChecklistMaquina> | null | undefi
   if (!ESTADOS_MAQUINA.includes(c.estado as EstadoMaquina)) return 'Informe o estado da máquina.';
   if (c.estado === 'AVARIADA' && !(c.observacao ?? '').trim()) return 'Descreva a avaria.';
   if ((c.observacao ?? '').length > LIMITE_OBSERVACAO_CHECKLIST) return 'Observação longa demais.';
+  return null;
+}
+
+// Etapa 11 (cópias de entregas-comprovacao.ts): assinatura de quem recebe.
+export const LIMITES_ASSINATURA = { tracos: 60, pontos: 3000, recebedorMaximo: 80 };
+export const PROPORCAO_ASSINATURA = 2.5;
+
+export function comprimentoDaAssinatura(tracos: TracoAssinatura[]): number {
+  let total = 0;
+  for (const t of tracos)
+    for (let i = 1; i < t.length; i++) total += Math.hypot(t[i][0] - t[i - 1][0], (t[i][1] - t[i - 1][1]) / PROPORCAO_ASSINATURA);
+  return total;
+}
+
+export function problemaNaAssinatura(a: Partial<AssinaturaEntrega> | null | undefined): string | null {
+  if (!a || !Array.isArray(a.tracos)) return 'Peça para quem recebe assinar na tela.';
+  if ((a.recebedor ?? '').trim().length < 2) return 'Informe o nome de quem recebeu.';
+  if ((a.recebedor ?? '').length > LIMITES_ASSINATURA.recebedorMaximo) return 'Nome longo demais.';
+  if (a.tracos.length > LIMITES_ASSINATURA.tracos) return 'Assinatura com traços demais: limpe e assine de novo.';
+  let pontos = 0;
+  for (const t of a.tracos) {
+    if (!Array.isArray(t)) return 'Assinatura inválida.';
+    for (const p of t) {
+      if (!Array.isArray(p) || p.length !== 2 || !p.every((v) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1)) return 'Assinatura inválida.';
+      pontos++;
+    }
+  }
+  if (pontos > LIMITES_ASSINATURA.pontos) return 'Assinatura com traços demais: limpe e assine de novo.';
+  if (comprimentoDaAssinatura(a.tracos) < 0.3) return 'Peça para quem recebe assinar na tela.';
   return null;
 }

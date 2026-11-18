@@ -29,6 +29,7 @@ import {
   regrasVigentes,
   SEGUNDOS_POSICAO_VALIDA,
   SITUACOES_EM_ANDAMENTO,
+  podePegarOutra,
   SITUACOES_FINAIS,
   textoDoMotivo,
   TIPOS_CHAMADA,
@@ -127,14 +128,15 @@ export class DirecionamentoService implements OnApplicationBootstrap, OnModuleDe
   async candidatos(empresaId: string, origem: Ponto, raioMaxKm: number, chamadaId: string | null, tx: Cliente = this.prisma, agora = new Date()): Promise<CandidatoDirecionamento[]> {
     const dLat = raioMaxKm / KM_POR_GRAU_LAT;
     const dLon = raioMaxKm / (KM_POR_GRAU_LAT * Math.max(0.01, Math.cos((origem.lat * Math.PI) / 180)));
-    const lista = await tx.entregador.findMany({
+    let lista = await tx.entregador.findMany({
       where: {
         situacao: 'APROVADO',
         online: true,
         posicaoEm: { gte: new Date(agora.getTime() - SEGUNDOS_POSICAO_VALIDA * 1000) },
         lat: { gte: origem.lat - dLat, lte: origem.lat + dLat },
         lon: { gte: origem.lon - dLon, lte: origem.lon + dLon },
-        chamadas: { none: { situacao: { in: [...SITUACOES_EM_ANDAMENTO] } } },
+        // Ocupado só com chamadas desta empresa (que pode permitir mais de uma); o limite é conferido abaixo.
+        chamadas: { none: { situacao: { in: [...SITUACOES_EM_ANDAMENTO] }, empresaId: { not: empresaId } } },
         ofertas: { none: { resultado: 'PENDENTE' } },
       },
       select: {
@@ -150,6 +152,9 @@ export class DirecionamentoService implements OnApplicationBootstrap, OnModuleDe
       },
       take: 500,
     });
+    const limite = (await tx.configuracaoEntregas.findUnique({ where: { empresaId }, select: { chamadasSimultaneas: true } }))?.chamadasSimultaneas ?? 1;
+    const ativas = await tx.chamadaEntrega.findMany({ where: { entregadorId: { in: lista.map((e) => e.id) }, situacao: { in: [...SITUACOES_EM_ANDAMENTO] } }, select: { entregadorId: true, empresaId: true } });
+    lista = lista.filter((e) => podePegarOutra(ativas.filter((a) => a.entregadorId === e.id), empresaId, limite));
     if (!lista.length) return [];
     // Aceite dos últimos 30 dias: canceladas (a empresa desistiu, outro do grupo aceitou) não contam.
     const respostas = await tx.ofertaChamada.groupBy({

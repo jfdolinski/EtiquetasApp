@@ -22,6 +22,11 @@ import { Type } from 'class-transformer';
 import { randomInt } from 'node:crypto';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import {
+  podePegarOutra,
+  problemaNaAssinatura,
+  rasterizarAssinatura,
+  type ModoAssinatura,
+  type TracoAssinatura,
   checklistLimpo,
   comMinimo,
   ESPERA_BLOCO_MINUTOS,
@@ -112,6 +117,7 @@ import { EntregasEmpresaService } from './empresa';
 import { EntregadorAtual, EntregadorGuard } from './guarda';
 import { dataUrl, imagemDoDataUrl } from './imagens';
 import { MapasService } from './mapas';
+import { pngCinza } from '../modelos/png';
 
 const INTERVALO_RELOGIO_MS = 5_000;
 const DIA_MS = 86_400_000;
@@ -125,6 +131,14 @@ class ParadaDto {
   @IsString() @MaxLength(80) contato: string;
   @IsString() @MaxLength(20) telefone: string;
   @IsString() @MaxLength(300) instrucoes: string;
+  /** Pedidos juntos: a parada extra que entrega um pedido do Flow ou do ERP. */
+  @IsOptional() @IsUUID('all', { message: 'Pedido inválido.' }) pedidoId?: string | null;
+  @IsOptional() @IsUUID('all', { message: 'Pedido do ERP inválido.' }) pedidoErpId?: string | null;
+}
+
+class AssinaturaDto {
+  @IsArray() @ArrayMaxSize(60) tracos: TracoAssinatura[];
+  @IsString() @MaxLength(80) recebedor: string;
 }
 
 class NovaChamadaDto {
@@ -178,6 +192,8 @@ class AvancarDto {
   @IsOptional() @IsISO8601() em?: string;
   /** Maquininha: o que veio junto e o estado, na coleta e na entrega. */
   @IsOptional() @ValidateNested() @Type(() => ChecklistDto) checklist?: ChecklistDto;
+  /** Assinatura de quem recebe (quando a empresa pede). */
+  @IsOptional() @ValidateNested() @Type(() => AssinaturaDto) assinatura?: AssinaturaDto;
 }
 
 class DesistenciaDto {
@@ -294,7 +310,15 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     const pedidoId = dto.pedidoId ? await this.conferirPedido(empresaId, dto.pedidoId) : null;
     const erp = dto.pedidoErpId ? await this.conferirPedidoErp(empresaId, dto.pedidoErpId) : null;
     const pedidoErp = erp?.codigo ?? null;
-    const { fotos, precos } = await this.empresas.config(empresaId);
+    const { fotos, precos, assinatura } = await this.empresas.config(empresaId);
+    // Pedidos juntos: cada parada pode entregar um pedido do Flow ou do ERP, conferido como o principal.
+    const extrasDto = dto.paradasExtras ?? [];
+    const idsFlow = [dto.pedidoId, ...extrasDto.map((p) => p.pedidoId)].filter((x): x is string => !!x);
+    const idsErp = [dto.pedidoErpId, ...extrasDto.map((p) => p.pedidoErpId)].filter((x): x is string => !!x);
+    if (new Set(idsFlow).size !== idsFlow.length || new Set(idsErp).size !== idsErp.length) throw new BadRequestException('O mesmo pedido aparece duas vezes.');
+    for (const p of extrasDto) if (p.pedidoId) await this.conferirPedido(empresaId, p.pedidoId);
+    const erpsExtras = new Map<string, Awaited<ReturnType<ChamadasService['conferirPedidoErp']>>>();
+    for (const p of extrasDto) if (p.pedidoErpId) erpsExtras.set(p.pedidoErpId, await this.conferirPedidoErp(empresaId, p.pedidoErpId));
     const espera = regraDeEspera(precos[c.tipo]);
     const maquina = ehMaquina(c);
     const rastreio = novoRastreio();
@@ -321,6 +345,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
           esperaToleranciaMinutos: espera.toleranciaMinutos,
           esperaPorBlocoCentavos: espera.porBlocoCentavos,
           pedidoErp,
+          assinatura,
           historico: [evento('Chamada aberta.', 'empresa')] as never,
           criadoPorId: autorId,
           pedidoId,
@@ -335,7 +360,12 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       }
       for (const [i, p] of (dto.paradasExtras ?? []).entries()) {
         const r = novoRastreio();
-        await tx.paradaExtraChamada.create({ data: { chamadaId: criada.id, ordem: i + 1, parada: limpa(p) as never, codigoConfirmacao: novoCodigo(), rastreioHash: r.rastreioHash, rastreioCifrado: r.rastreioCifrado } });
+        const erpDaParada = p.pedidoErpId ? erpsExtras.get(p.pedidoErpId)! : null;
+        if (erpDaParada) {
+          const { count } = await tx.pedidoErpEntrega.updateMany({ where: { id: erpDaParada.id, empresaId, atualizadoEm: erpDaParada.atualizadoEm }, data: { situacao: 'CHAMADA', chamadaId: criada.id, mensagem: null } });
+          if (!count) throw new ConflictException(`O pedido ${erpDaParada.codigo} do ERP já foi chamado.`);
+        }
+        await tx.paradaExtraChamada.create({ data: { chamadaId: criada.id, ordem: i + 1, parada: limpa(p) as never, codigoConfirmacao: novoCodigo(), rastreioHash: r.rastreioHash, rastreioCifrado: r.rastreioCifrado, pedidoId: p.pedidoId ?? null, pedidoErp: erpDaParada?.codigo ?? null } });
       }
       await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.abrir', entidade: 'ChamadaEntrega', entidadeId: criada.id, detalhes: { tipo: c.tipo, valorCentavos: previa.valorCentavos, paradas: 1 + (dto.paradasExtras?.length ?? 0), adicionais: previa.adicionais } as never }, tx);
       return criada.id;
@@ -352,6 +382,8 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     if (!pedidoPodeChamarEntregador({ modalidade: p.modalidade as ModalidadeEntrega, situacao: p.situacao as SituacaoPedido, endereco: p.endereco as unknown as EnderecoPedido | null })) throw new ConflictException('Só pedido com entrega, em separação ou saindo, chama entregador.');
     const ativa = await this.prisma.chamadaEntrega.findFirst({ where: { empresaId, pedidoId, situacao: { in: ['ABERTA', ...SITUACOES_EM_ANDAMENTO] } }, select: { numero: true } });
     if (ativa) throw new ConflictException(`Este pedido já tem a chamada nº ${ativa.numero} em andamento.`);
+    const naParada = await this.prisma.paradaExtraChamada.findFirst({ where: { pedidoId, chamada: { empresaId, situacao: { in: ['ABERTA', ...SITUACOES_EM_ANDAMENTO] } } }, select: { chamada: { select: { numero: true } } } });
+    if (naParada) throw new ConflictException(`O pedido já está na chamada nº ${naParada.chamada.numero}.`);
     return p.id;
   }
 
@@ -368,22 +400,31 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
 
   async listar(empresaId: string, filtro: 'ATIVAS' | 'TODAS', pedidoId?: string): Promise<ChamadaResumo[]> {
     const lista = await this.prisma.chamadaEntrega.findMany({
-      where: { empresaId, ...(pedidoId ? { pedidoId } : {}), ...(filtro === 'ATIVAS' ? { OR: [{ situacao: { notIn: ['CONCLUIDA', 'CANCELADA'] } }, { atualizadoEm: { gt: new Date(Date.now() - DIA_MS) } }] } : {}) },
+      where: { empresaId, ...(pedidoId ? { OR: [{ pedidoId }, { paradas: { some: { pedidoId } } }] } : {}), ...(filtro === 'ATIVAS' ? { OR: [{ situacao: { notIn: ['CONCLUIDA', 'CANCELADA'] } }, { atualizadoEm: { gt: new Date(Date.now() - DIA_MS) } }] } : {}) },
       orderBy: { criadoEm: 'desc' },
       take: 200,
       include: INCLUIR,
     });
     const { direcionamento } = await this.empresas.config(empresaId);
-    return lista.map((c) => this.resumo(c, direcionamento));
+    const numeros = await this.numerosDosPedidos(lista);
+    return lista.map((c) => this.resumo(c, direcionamento, numeros));
+  }
+
+  /** Número dos pedidos entregues nas paradas (pedidos juntos). */
+  private async numerosDosPedidos(lista: { paradas: { pedidoId: string | null }[] }[]): Promise<Map<string, number>> {
+    const ids = [...new Set(lista.flatMap((c) => c.paradas.flatMap((p) => (p.pedidoId ? [p.pedidoId] : []))))];
+    if (!ids.length) return new Map();
+    const pedidos = await this.prisma.pedido.findMany({ where: { id: { in: ids } }, select: { id: true, numero: true } });
+    return new Map(pedidos.map((p) => [p.id, p.numero]));
   }
 
   async obter(empresaId: string, id: string): Promise<ChamadaResumo> {
     const c = await this.prisma.chamadaEntrega.findFirst({ where: { id, empresaId }, include: INCLUIR });
     if (!c) throw new NotFoundException('Chamada não encontrada.');
-    return this.resumo(c, (await this.empresas.config(empresaId)).direcionamento);
+    return this.resumo(c, (await this.empresas.config(empresaId)).direcionamento, await this.numerosDosPedidos([c]));
   }
 
-  private resumo(c: ChamadaDoBanco, regras: RegrasDirecionamento): ChamadaResumo {
+  private resumo(c: ChamadaDoBanco, regras: RegrasDirecionamento, numeros: Map<string, number> = new Map()): ChamadaResumo {
     const andamento = SITUACOES_EM_ANDAMENTO.includes(c.situacao as SituacaoChamada);
     const e = c.entregador;
     const oferta = c.ofertas.find((o) => o.resultado === 'PENDENTE');
@@ -429,6 +470,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       codigoDevolucao: c.devolucao && !terminou(c.situacao) ? c.codigoDevolucao : null,
       checklists: (c.checklists as unknown as ChecklistsDaChamada) ?? {},
       pedidoErp: c.pedidoErp,
+      assinatura: c.assinatura as ModoAssinatura,
       historico: c.historico as unknown as EventoChamada[],
       criadoEm: c.criadoEm.toISOString(),
       concluidaEm: c.concluidaEm?.toISOString() ?? null,
@@ -445,6 +487,8 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
           codigoConfirmacao: p.entregueEm || c.situacao === 'CANCELADA' ? null : p.codigoConfirmacao,
           entregueEm: p.entregueEm?.toISOString() ?? null,
           linkRastreio: caminhoDoRastreio(p.rastreioCifrado),
+          pedido: p.pedidoId && numeros.has(p.pedidoId) ? { id: p.pedidoId, numero: numeros.get(p.pedidoId)! } : null,
+          pedidoErp: p.pedidoErp,
         }),
       ),
       paradaAtual: c.paradaAtual,
@@ -582,6 +626,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       return this.obter(empresaId, chamadaId);
     }
     const ultima = await this.entregarParada(c, 'Entrega confirmada pela empresa, sem o código.', 'empresa');
+    await this.concluirPedidoDaParada(c, true);
     if (ultima) await this.andarPedido(chamadaId, 'CONCLUIDA', true);
     await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.concluir', entidade: 'ChamadaEntrega', entidadeId: chamadaId });
     return this.obter(empresaId, chamadaId);
@@ -633,6 +678,24 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     await this.prisma.$executeRaw`UPDATE pedidos SET situacao = ${para}, historico = historico || ${JSON.stringify(e)}::jsonb, atualizado_em = now() WHERE id = ${c.pedidoId}::uuid AND situacao = ${de}`;
   }
 
+  /** Pedidos juntos: os das paradas saem para entrega na coleta (o principal anda pelo `andarPedido`). */
+  private async coletarPedidosDasParadas(chamadaId: string) {
+    const c = await this.prisma.chamadaEntrega.findUnique({ where: { id: chamadaId }, select: { numero: true, entregador: { select: { nome: true } }, paradas: { where: { pedidoId: { not: null } }, select: { pedidoId: true } } } });
+    for (const p of c?.paradas ?? []) {
+      const e = [{ em: new Date().toISOString(), texto: `Saiu para entrega com ${primeiroNome(c!.entregador?.nome ?? '')} (chamada nº ${c!.numero})`, por: null }];
+      await this.prisma.$executeRaw`UPDATE pedidos SET situacao = 'PRONTO', historico = historico || ${JSON.stringify(e)}::jsonb, atualizado_em = now() WHERE id = ${p.pedidoId}::uuid AND situacao = 'EM_SEPARACAO'`;
+    }
+  }
+
+  /** A parada entregue (1…) que leva um pedido do Flow: ele conclui na hora, sem esperar o fim da chamada. */
+  private async concluirPedidoDaParada(c: { id: string; paradaAtual: number; paradas: (ParadaDoBanco & { pedidoId?: string | null })[] }, semCodigo = false) {
+    const p = c.paradaAtual > 0 ? c.paradas.find((x) => x.ordem === c.paradaAtual) : undefined;
+    if (!p?.pedidoId) return;
+    const ch = await this.prisma.chamadaEntrega.findUnique({ where: { id: c.id }, select: { numero: true, entregador: { select: { nome: true } } } });
+    const e = [{ em: new Date().toISOString(), texto: `Entregue por ${primeiroNome(ch?.entregador?.nome ?? '')}${semCodigo ? ', confirmado pela loja' : ''} (chamada nº ${ch?.numero}, parada ${c.paradaAtual + 1})`, por: null }];
+    await this.prisma.$executeRaw`UPDATE pedidos SET situacao = 'CONCLUIDO', historico = historico || ${JSON.stringify(e)}::jsonb, atualizado_em = now() WHERE id = ${p.pedidoId}::uuid AND situacao = 'PRONTO'`;
+  }
+
   /** A empresa viu a emergência: o aviso para de repetir. */
   async cienteDaEmergencia(empresaId: string, chamadaId: string, usuario: UsuarioRequisicao): Promise<ChamadaResumo> {
     const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, empresaId }, select: { emergencia: true, atualizadoEm: true } });
@@ -676,6 +739,8 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
 
   /** Pedido cancelado: a chamada que ainda procura entregador é cancelada junto (em andamento, a empresa decide). */
   async aoCancelarPedido(empresaId: string, pedidoId: string): Promise<void> {
+    const emParadas = await this.prisma.paradaExtraChamada.findMany({ where: { pedidoId, entregueEm: null, chamada: { empresaId, situacao: { in: ['ABERTA', ...SITUACOES_EM_ANDAMENTO] } } }, select: { chamadaId: true, ordem: true } });
+    for (const p of emParadas) await this.registrar(p.chamadaId, evento(`O pedido da parada ${p.ordem + 1} foi cancelado: combine com o entregador.`, 'sistema'));
     const abertas = await this.prisma.chamadaEntrega.findMany({ where: { empresaId, pedidoId, situacao: 'ABERTA' }, select: { id: true } });
     for (const c of abertas) {
       const { count } = await this.prisma.chamadaEntrega.updateMany({ where: { id: c.id, situacao: 'ABERTA' }, data: { situacao: 'CANCELADA', canceladaEm: new Date(), distribuicaoAtiva: false, proximaTentativaEm: null } });
@@ -716,8 +781,13 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
   }
 
   async chamadaAtivaId(entregadorId: string): Promise<string | null> {
-    const c = await this.prisma.chamadaEntrega.findFirst({ where: { entregadorId, situacao: { in: [...SITUACOES_EM_ANDAMENTO] } }, select: { id: true } });
-    return c?.id ?? null;
+    return (await this.chamadasAtivasIds(entregadorId))[0] ?? null;
+  }
+
+  /** Em andamento, a mais antiga primeiro (a empresa pode permitir mais de uma). */
+  async chamadasAtivasIds(entregadorId: string): Promise<string[]> {
+    const lista = await this.prisma.chamadaEntrega.findMany({ where: { entregadorId, situacao: { in: [...SITUACOES_EM_ANDAMENTO] } }, orderBy: { aceitaEm: 'asc' }, select: { id: true } });
+    return lista.map((c) => c.id);
   }
 
   async aceitar(entregadorId: string, ofertaId: string): Promise<ChamadaEntregador> {
@@ -727,7 +797,12 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       if (!o) throw new NotFoundException('Oferta não encontrada.');
       const { count } = await tx.ofertaChamada.updateMany({ where: { id: ofertaId, resultado: 'PENDENTE', expiraEm: { gt: agora } }, data: { resultado: 'ACEITA', respondidaEm: agora } });
       if (!count) throw new ConflictException('Esta oferta não vale mais.');
-      if (await tx.chamadaEntrega.count({ where: { entregadorId, situacao: { in: [...SITUACOES_EM_ANDAMENTO] } } })) throw new ConflictException('Termine a chamada em andamento antes.');
+      const ativas = await tx.chamadaEntrega.findMany({ where: { entregadorId, situacao: { in: [...SITUACOES_EM_ANDAMENTO] } }, select: { empresaId: true } });
+      if (ativas.length) {
+        const nova = await tx.chamadaEntrega.findUniqueOrThrow({ where: { id: o.chamadaId }, select: { empresaId: true } });
+        const limite = (await tx.configuracaoEntregas.findUnique({ where: { empresaId: nova.empresaId }, select: { chamadasSimultaneas: true } }))?.chamadasSimultaneas ?? 1;
+        if (!podePegarOutra(ativas, nova.empresaId, limite)) throw new ConflictException('Termine a chamada em andamento antes.');
+      }
       const aceita = await tx.chamadaEntrega.updateMany({ where: { id: o.chamadaId, situacao: 'ABERTA' }, data: { situacao: 'ACEITA', entregadorId, aceitaEm: agora, distribuicaoAtiva: false, proximaTentativaEm: null, semEntregadorEm: null } });
       if (!aceita.count) {
         const agoraEsta = await tx.chamadaEntrega.findUnique({ where: { id: o.chamadaId }, select: { situacao: true } });
@@ -780,6 +855,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       chegouNoPontoEm: c.chegouNoPontoEm?.toISOString() ?? null,
       espera: { toleranciaMinutos: c.esperaToleranciaMinutos, porBlocoCentavos: c.esperaPorBlocoCentavos },
       esperaCentavos: c.esperaCentavos,
+      assinatura: c.assinatura as ModoAssinatura,
       destinos,
       paradaAtual: c.paradaAtual,
       pedeFotoColeta: c.fotoColeta,
@@ -795,6 +871,11 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       aceitaEm: c.aceitaEm?.toISOString() ?? null,
       concluidaEm: c.concluidaEm?.toISOString() ?? null,
     };
+  }
+
+  async minhasChamadas(entregadorId: string): Promise<ChamadaEntregador[]> {
+    const ids = await this.chamadasAtivasIds(entregadorId);
+    return Promise.all(ids.map((id) => this.daChamada(entregadorId, id)));
   }
 
   async minhaChamada(entregadorId: string): Promise<ChamadaEntregador | null> {
@@ -863,15 +944,24 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     }
     if (dto.para === 'COLETADA') data.coletadaEm = quando;
     if (serieDiferente) return this.ocorrenciaDeSerie(c, entregadorId, serieDiferente, dto, quando);
+    // Assinatura de quem recebe: junto ao código ou no lugar dele (na devolução à origem, vale o código da empresa).
+    const modo = (c.devolucao ? 'NAO' : c.assinatura) as ModoAssinatura;
+    if (dto.para === 'CONCLUIDA' && modo !== 'NAO') {
+      const problema = problemaNaAssinatura(dto.assinatura);
+      if (problema) throw new BadRequestException(problema);
+    }
+    const assinada = dto.para === 'CONCLUIDA' && modo !== 'NAO' ? { png: pngCinza(rasterizarAssinatura(dto.assinatura!.tracos)), recebedor: dto.assinatura!.recebedor.trim() } : null;
     if (dto.para === 'CONCLUIDA') {
       if (c.tentativasCodigo >= TENTATIVAS_CODIGO) throw new ForbiddenException(c.devolucao ? 'Código errado vezes demais. Peça para a empresa confirmar a devolução.' : 'Código errado vezes demais. Peça para a empresa confirmar a entrega.');
-      if ((dto.codigo ?? '').trim() !== codigoEsperado) {
+      if (modo !== 'NO_LUGAR_DO_CODIGO' && (dto.codigo ?? '').trim() !== codigoEsperado) {
         await this.prisma.chamadaEntrega.update({ where: { id: c.id }, data: { tentativasCodigo: { increment: 1 } } });
         throw new BadRequestException(`Código errado. Restam ${TENTATIVAS_CODIGO - c.tentativasCodigo - 1} tentativas.`);
       }
       data.concluidaEm = agora;
       if (c.devolucao) texto = 'Devolvido na origem, com o código da empresa.';
+      else if (modo === 'NO_LUGAR_DO_CODIGO') texto = 'Entregue, com a assinatura de quem recebeu.';
       else if (!conferirMaquina) texto = 'Entregue, com o código do destinatário.';
+      if (assinada) texto = `${texto.replace(/\.$/, '')}. Recebido por ${assinada.recebedor}${modo === 'JUNTO_AO_CODIGO' ? ' (assinou)' : ''}.`;
     }
     texto = comEspera(texto);
     const foto = dto.foto ? imagemDoDataUrl(dto.foto, 'A foto') : null;
@@ -887,6 +977,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
         const { count } = await tx.chamadaEntrega.updateMany({ where: { id: c.id, situacao: c.situacao, entregadorId }, data });
         if (!count) throw new ConflictException('A chamada mudou. Atualize a tela.');
       }
+      if (assinada) await tx.fotoChamada.create({ data: { chamadaId: c.id, etapa: etapaDaFoto('ASSINATURA', c.paradaAtual), mime: 'image/png', bytes: new Uint8Array(assinada.png) } });
       if (foto) await tx.fotoChamada.create({ data: { chamadaId: c.id, etapa: dto.para === 'CONCLUIDA' ? etapaDaFoto('ENTREGA', c.paradaAtual) : 'COLETA', mime: foto.mime, bytes: foto.bytes } });
       // Etapa guardada sem internet: a posição dela é antiga, não vira a posição atual do entregador.
       if (!atrasada) await tx.entregador.update({ where: { id: entregadorId }, data: { lat: dto.lat, lon: dto.lon, precisaoMetros: dto.precisao ?? null, posicaoEm: agora, avisoEm: agora } });
@@ -894,6 +985,8 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       if (dto.para !== 'CONCLUIDA') await this.registrar(c.id, evento(texto, 'entregador'), tx);
     });
     // O pedido (do destino principal) só conclui quando a chamada inteira termina.
+    if (!c.devolucao && dto.para === 'COLETADA') await this.coletarPedidosDasParadas(c.id);
+    if (!c.devolucao && dto.para === 'CONCLUIDA') await this.concluirPedidoDaParada(c);
     if (!c.devolucao && (dto.para === 'COLETADA' || (dto.para === 'CONCLUIDA' && ultima))) await this.andarPedido(c.id, dto.para);
     return this.daChamada(entregadorId, c.id);
   }
@@ -1137,6 +1230,12 @@ export class ChamadasEntregadorController {
   @Get('chamada')
   chamada(@EntregadorAtual() e: { id: string }): Promise<ChamadaEntregador | null> {
     return this.chamadas.minhaChamada(e.id);
+  }
+
+  /** Todas as em andamento (app novo; o antigo usa só a primeira, em /chamada). */
+  @Get('chamadas')
+  todasAsChamadas(@EntregadorAtual() e: { id: string }): Promise<ChamadaEntregador[]> {
+    return this.chamadas.minhasChamadas(e.id);
   }
 
   @Post('chamadas/:id/avancar')

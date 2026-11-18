@@ -340,7 +340,10 @@ export class FechamentoService {
         origemDoPonto = 'ENDERECO';
       }
     }
-    const ativa = await this.prisma.chamadaEntrega.findFirst({ where: { empresaId, pedidoId, situacao: { in: ['ABERTA', ...SITUACOES_EM_ANDAMENTO] } }, select: { id: true, numero: true } });
+    const ativa =
+      (await this.prisma.chamadaEntrega.findFirst({ where: { empresaId, pedidoId, situacao: { in: ['ABERTA', ...SITUACOES_EM_ANDAMENTO] } }, select: { id: true, numero: true } })) ??
+      (await this.prisma.paradaExtraChamada.findFirst({ where: { pedidoId, chamada: { empresaId, situacao: { in: ['ABERTA', ...SITUACOES_EM_ANDAMENTO] } } }, select: { chamada: { select: { id: true, numero: true } } } }))?.chamada ??
+      null;
     return { pedidoId: p.id, numero: p.numero, destino, origemDoPonto, observacao: `Pedido nº ${p.numero}`, chamadaAtiva: ativa };
   }
 

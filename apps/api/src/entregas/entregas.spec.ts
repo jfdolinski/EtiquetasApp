@@ -78,7 +78,7 @@ describe('diária e posição', () => {
       },
     };
     const creditos = { saldo: jest.fn(async () => lotes.reduce((s, l) => s + l.restante, 0)) } as unknown as CreditosService;
-    const chamadas = { ofertaPendente: jest.fn(async () => null), chamadaAtivaId: jest.fn(async () => null) } as unknown as ChamadasService;
+    const chamadas = { ofertaPendente: jest.fn(async () => null), chamadaAtivaId: jest.fn(async () => null), chamadasAtivasIds: jest.fn(async () => []) } as unknown as ChamadasService;
     return { s: new EntregadoresService(prisma as unknown as PrismaService, creditos, chamadas, {} as never), prisma, tx, lotes };
   }
   const ponto = { lat: -23.55, lon: -46.63, precisao: 10 };

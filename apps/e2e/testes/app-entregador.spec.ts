@@ -188,3 +188,71 @@ test('sem internet: o app guarda as etapas e envia sozinho quando a conexão vol
   await sql(`UPDATE chamadas_entrega SET situacao = 'CANCELADA' WHERE id = $1`, [ch.j.id]);
   await sql(`UPDATE entregadores SET online = false WHERE id = $1`, [ent.id]);
 });
+
+test('duas chamadas ao mesmo tempo, assinatura de quem recebe e o guia da bateria', async ({ page, context }) => {
+  const erros: string[] = [];
+  page.on('pageerror', (x) => erros.push(x.message));
+  const tokenSuper = await superToken();
+  const emp = await empresaComBase(tokenSuper);
+  await pedir('PUT', '/entregas/config', { token: emp.adminToken, corpo: { base: { ...SE, endereco: 'Praça da Sé, 1, Sé, São Paulo' }, raioAtendimentoKm: 10, assinatura: 'NO_LUGAR_DO_CODIGO', chamadasSimultaneas: 2 } });
+  const ent = await entregadorOnline(tokenSuper, PERTO_DA_SE, `Gil${randomUUID().slice(0, 4)} App Teste`);
+  await context.setGeolocation({ latitude: PERTO_DA_SE.lat, longitude: PERTO_DA_SE.lon, accuracy: 10 });
+  await page.setExtraHTTPHeaders({ 'x-forwarded-for': `10.83.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}` });
+  await page.goto('/');
+  await page.getByLabel('Endereço do sistema').fill(new URL(API).origin);
+  await page.getByLabel('E-mail ou CPF').fill(ent.email);
+  await page.getByLabel('Senha').fill('SenhaEntregador1');
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  await expect(page.getByText('Você está online')).toBeVisible();
+
+  // Guia da bateria pelo aviso do Início.
+  await page.getByRole('button', { name: 'Ver como fazer' }).click();
+  await expect(page.getByText('Deixar o app sempre ligado')).toBeVisible();
+  await expect(page.getByText('Xiaomi, Redmi e Poco')).toBeVisible();
+  await page.getByRole('button', { name: 'Pronto' }).click();
+  await expect(page.getByRole('button', { name: 'Ver como fazer' })).toHaveCount(0);
+
+  const nova = async (destino: { lat: number; lon: number }, rua: string) =>
+    (await pedir('POST', '/entregas/chamadas', { token: emp.adminToken, corpo: { tipo: 'ENTREGA', origem: { ...SE, endereco: 'Praça da Sé, 1, Sé, São Paulo', contato: '', telefone: '', instrucoes: '' }, destino: { ...destino, endereco: rua, contato: 'Dona Maria', telefone: '', instrucoes: '' }, serieEsperada: null, observacao: '' } })).j;
+  const a = await nova(PAULISTA, 'Avenida Paulista, 1578, Bela Vista, São Paulo');
+  const b = await nova({ lat: -23.5587, lon: -46.6612 }, 'Rua Augusta, 1000, Consolação, São Paulo');
+  await pedir('POST', `/entregas/chamadas/${a.id}/oferecer`, { token: emp.adminToken, corpo: { entregadorId: ent.id } });
+  await expect(page.getByText('Nova chamada')).toBeVisible({ timeout: 10_000 });
+  await page.getByRole('button', { name: 'Aceitar' }).click();
+  await expect(page.getByText('A caminho da coleta')).toBeVisible();
+  // A segunda oferta aparece por cima da chamada em andamento.
+  await pedir('POST', `/entregas/chamadas/${b.id}/oferecer`, { token: emp.adminToken, corpo: { entregadorId: ent.id } });
+  await expect(page.getByText('Nova chamada')).toBeVisible({ timeout: 10_000 });
+  await page.getByRole('button', { name: 'Aceitar' }).click();
+  await expect(page.getByRole('tab', { name: `Chamada ${a.numero}` })).toBeVisible();
+  await expect(page.getByRole('tab', { name: `Chamadas (2)` })).toBeVisible();
+
+  // Cumpre a primeira até o destino; a assinatura entra no lugar do código.
+  await page.getByRole('tab', { name: `Chamada ${a.numero}` }).click();
+  await context.setGeolocation({ latitude: SE.lat, longitude: SE.lon, accuracy: 10 });
+  await page.getByRole('button', { name: 'Cheguei na coleta' }).click();
+  await page.getByRole('button', { name: 'Coletei' }).click();
+  await context.setGeolocation({ latitude: PAULISTA.lat, longitude: PAULISTA.lon, accuracy: 10 });
+  await page.getByRole('button', { name: 'Cheguei no destino' }).click();
+  await expect(page.getByText('Peça para quem recebe assinar:')).toBeVisible();
+  await expect(page.getByLabel('Código do destinatário')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Entreguei' }).click();
+  await expect(page.getByText('Informe o nome de quem recebeu.')).toBeVisible();
+  const area = await page.getByLabel('Área da assinatura').boundingBox();
+  if (!area) throw new Error('sem área');
+  await page.mouse.move(area.x + area.width * 0.1, area.y + area.height * 0.5);
+  await page.mouse.down();
+  for (const [x, y] of [[0.3, 0.2], [0.5, 0.8], [0.7, 0.3], [0.9, 0.6]]) await page.mouse.move(area.x + area.width * x, area.y + area.height * y, { steps: 5 });
+  await page.mouse.up();
+  await page.getByLabel('Nome de quem recebeu').fill('Maria Souza');
+  await page.screenshot({ path: 'test-results/app-entregador-assinatura.png' });
+  await page.getByRole('button', { name: 'Entreguei' }).click();
+  await expect.poll(async () => (await pedir('GET', `/entregas/chamadas/${a.id}`, { token: emp.adminToken })).j.situacao, { timeout: 10_000 }).toBe('CONCLUIDA');
+  expect((await pedir('GET', `/entregas/chamadas/${a.id}`, { token: emp.adminToken })).j.fotos).toContain('ASSINATURA');
+  // Sobra a segunda.
+  await expect(page.getByText('A caminho da coleta')).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Chamada' })).toBeVisible();
+  expect(erros).toEqual([]);
+  await sql(`UPDATE chamadas_entrega SET situacao = 'CANCELADA' WHERE id = $1`, [b.id]);
+  await sql(`UPDATE entregadores SET online = false WHERE id = $1`, [ent.id]);
+});
