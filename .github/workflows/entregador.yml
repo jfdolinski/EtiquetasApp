@@ -17,6 +17,8 @@ permissions:
 env:
   # Sem a Release, ninguém baixa: comitar a versão em release-publicada.txt é o que publica.
   VERSION_CODE: ${{ github.run_number }}
+  # No job inteiro: o app.config.js é lido de novo na compilação (é quando a configuração vai para dentro do APK).
+  APP_SERVIDOR: ${{ secrets.ENTREGADOR_SERVIDOR }}
 
 jobs:
   apk:
@@ -44,7 +46,6 @@ jobs:
       - name: Gera o projeto Android
         env:
           APP_VERSION_CODE: ${{ env.VERSION_CODE }}
-          APP_SERVIDOR: ${{ secrets.ENTREGADOR_SERVIDOR }}
         run: npx expo prebuild -p android --no-install
 
       - name: Compila
@@ -70,6 +71,10 @@ jobs:
             echo "::warning::Sem APP_KEYSTORE_BASE64: APK de TESTE, assinado com a chave de depuração."
             cp "$apk" saida/flow-entregas.apk
             echo "PRERELEASE=--prerelease" >> "$GITHUB_ENV"
+          fi
+          # Confere que o endereço do servidor entrou no APK (sem mostrar qual é).
+          if [ -n "$APP_SERVIDOR" ]; then
+            unzip -p saida/flow-entregas.apk assets/app.config | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{if(!JSON.parse(s).extra?.servidor){console.log("::error title=APK::O endereço do servidor não entrou no APK.");process.exit(1)}})'
           fi
           node -p "require('./package.json').version" > saida/entregador-versao.txt
           echo "VERSAO=$(cat saida/entregador-versao.txt)" >> "$GITHUB_ENV"
