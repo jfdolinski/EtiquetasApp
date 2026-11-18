@@ -4,6 +4,7 @@
 import { normalizarCelular } from './pedidos';
 import type { OfertaResumo, TabelaPrecos } from './entregas-chamadas';
 import type { RegrasDirecionamento } from './entregas-direcionamento';
+import type { Adicionais } from './entregas-paradas';
 
 // Entregador ------------------------------------------------------------------------------
 
@@ -293,6 +294,8 @@ export interface ConfigEntregasEmpresa {
   direcionamento: RegrasDirecionamento;
   /** Pedido com entrega aceito (em separação) já abre a chamada, na distribuição automática. */
   chamarAoAceitarPedido: boolean;
+  /** Somam ao valor da tabela por horário e por região. */
+  adicionais: Adicionais;
 }
 
 export interface ResultadoEndereco extends Ponto {

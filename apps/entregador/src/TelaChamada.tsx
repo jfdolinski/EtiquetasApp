@@ -43,7 +43,7 @@ export function CartaoOferta({ api, oferta, aoResponder }: { api: Api; oferta: O
         {ROTULO_TIPO_CHAMADA[oferta.tipo]} · {oferta.empresa}
       </Text>
       <Text style={estilos.linha}>Coleta: {oferta.origemResumo || 'ver no mapa'}{oferta.metrosAteColeta != null ? ` (${formatarKm(oferta.metrosAteColeta)} de você)` : ''}</Text>
-      <Text style={estilos.linha}>Destino: {oferta.destinoResumo || 'ver no mapa'}</Text>
+      <Text style={estilos.linha}>Destino: {oferta.destinoResumo || 'ver no mapa'}{(oferta.entregas ?? 1) > 1 ? ` e mais ${(oferta.entregas ?? 1) - 1} entrega${(oferta.entregas ?? 1) > 2 ? 's' : ''}` : ''}</Text>
       <Text style={estilos.linha}>
         Percurso: {formatarKm(oferta.metros)}
         {oferta.estimada ? ' (estimado)' : ''}
@@ -154,7 +154,17 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
       )}
 
       <Parada titulo="Coleta" p={chamada.origem} ativa={indoColetar} />
-      <Parada titulo="Destino" p={chamada.destino} ativa={!indoColetar} />
+      <Parada titulo={(chamada.destinos?.length ?? 1) > 1 ? `Entrega ${(chamada.paradaAtual ?? 0) + 1} de ${chamada.destinos!.length}` : 'Destino'} p={chamada.destino} ativa={!indoColetar} />
+      {(chamada.destinos?.length ?? 1) > 1 && (
+        <Cartao>
+          {chamada.destinos!.map((d) => (
+            <Text key={d.ordem} style={{ color: d.entregue ? cores.ok : d.ordem === chamada.paradaAtual ? cores.texto : cores.suave, fontWeight: d.ordem === chamada.paradaAtual ? '700' : '400' }}>
+              {d.entregue ? '✓ ' : `${d.ordem + 1}. `}
+              {d.parada.endereco}
+            </Text>
+          ))}
+        </Cartao>
+      )}
 
       {etapa?.para === 'COLETADA' && chamada.pedeSerie && (
         <Cartao>

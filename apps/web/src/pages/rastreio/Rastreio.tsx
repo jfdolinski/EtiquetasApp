@@ -71,6 +71,7 @@ export function Rastreio() {
                 {dados.texto}
               </h1>
               {dados.previsaoMinutos != null && <p className="text-lg text-blue-700">Chega em cerca de {dados.previsaoMinutos} min</p>}
+              {dados.parada && <p className="text-sm text-slate-500">Sua entrega é a {dados.parada.ordem}ª de {dados.parada.total} deste entregador.</p>}
               {dados.concluidaEm && <p className="text-slate-600">em {new Date(dados.concluidaEm).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</p>}
             </header>
 

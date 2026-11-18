@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, Get, Injectable, Put, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import {
   coordenadaValida,
   distanciaMetros,
@@ -14,6 +14,16 @@ import {
   SEGUNDOS_PARA_ACEITAR_PADRAO,
   SITUACOES_EM_ANDAMENTO,
   TABELA_PRECOS_PADRAO,
+  ADICIONAIS_VAZIOS,
+  adicionaisVigentes,
+  gradeDeDemanda,
+  momentoNoFuso,
+  pontoDoCliente,
+  problemaNosAdicionais,
+  type Adicionais,
+  type DemandaEntregas,
+  type ParadaChamada,
+  type TipoChamada,
   REGRAS_DIRECIONAMENTO_PADRAO,
   regrasVigentes,
   type TabelaPrecos,
@@ -27,6 +37,7 @@ import {
 import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { config } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import { MapasService } from './mapas';
 
@@ -40,6 +51,7 @@ class PrecoTipoDto {
   @IsInt() @Min(0) baseCentavos: number;
   @IsInt() @Min(0) porKmCentavos: number;
   @IsNumber() @Min(0) kmIncluso: number;
+  @IsOptional() @IsInt() @Min(0) porParadaCentavos?: number;
 }
 
 class TabelaPrecosDto {
@@ -53,6 +65,7 @@ class ConfigEntregasDto {
   @IsOptional() @IsInt() @Min(LIMITES_SEGUNDOS_PARA_ACEITAR.minimo) @Max(LIMITES_SEGUNDOS_PARA_ACEITAR.maximo) segundosParaAceitar?: number;
   @IsOptional() @ValidateNested() @Type(() => BaseDto) base: BaseDto | null;
   @IsOptional() @IsBoolean() chamarAoAceitarPedido?: boolean;
+  @IsOptional() @IsObject() adicionais?: Adicionais;
   @IsInt() @Min(1, { message: 'O raio vai de 1 a 100 km.' }) @Max(RAIO_ATENDIMENTO_MAXIMO_KM, { message: 'O raio vai de 1 a 100 km.' }) raioAtendimentoKm: number;
 }
 
@@ -61,6 +74,20 @@ class BuscaEnderecoDto {
 }
 
 const KM_POR_GRAU_LAT = 111.32;
+
+class DemandaDto {
+  @IsOptional() @IsIn(['7', '30', '90']) dias?: string;
+}
+
+/** Só os campos conhecidos de cada adicional (o corpo é JSON livre). */
+function adicionaisLimpos(a: Adicionais): Adicionais {
+  const v = adicionaisVigentes(a);
+  const base = (x: { nome?: unknown; percentual?: unknown; fixoCentavos?: unknown }) => ({ nome: String(x.nome ?? '').trim().slice(0, 40), percentual: Number(x.percentual), fixoCentavos: Number(x.fixoCentavos) });
+  return {
+    horarios: v.horarios.map((h) => ({ ...base(h), dias: Array.isArray(h.dias) ? [...new Set(h.dias.map(Number))].sort() : [], inicio: String(h.inicio ?? ''), fim: String(h.fim ?? '') })),
+    regioes: v.regioes.map((r) => ({ ...base(r), centro: { lat: Number(r.centro?.lat), lon: Number(r.centro?.lon) }, raioKm: Number(r.raioKm) })),
+  };
+}
 
 /** O que a empresa vê das entregas: o ponto de partida dela e os entregadores online por perto. */
 @Injectable()
@@ -73,17 +100,22 @@ export class EntregasEmpresaService {
 
   async config(empresaId: string): Promise<ConfigEntregasEmpresa> {
     const c = await this.prisma.configuracaoEntregas.findUnique({ where: { empresaId } });
-    if (!c) return { base: null, raioAtendimentoKm: RAIO_ATENDIMENTO_PADRAO_KM, precos: TABELA_PRECOS_PADRAO, segundosParaAceitar: SEGUNDOS_PARA_ACEITAR_PADRAO, direcionamento: REGRAS_DIRECIONAMENTO_PADRAO, chamarAoAceitarPedido: false };
+    if (!c) return { base: null, raioAtendimentoKm: RAIO_ATENDIMENTO_PADRAO_KM, precos: TABELA_PRECOS_PADRAO, segundosParaAceitar: SEGUNDOS_PARA_ACEITAR_PADRAO, direcionamento: REGRAS_DIRECIONAMENTO_PADRAO, chamarAoAceitarPedido: false, adicionais: ADICIONAIS_VAZIOS };
     const base = c.baseLat !== null && c.baseLon !== null ? { lat: c.baseLat, lon: c.baseLon, endereco: c.baseEndereco } : null;
     // Tipo novo sem preço na tabela gravada fica com o padrão.
     const precos = { ...TABELA_PRECOS_PADRAO, ...((c.precos as Partial<TabelaPrecos> | null) ?? {}) };
-    return { base, raioAtendimentoKm: c.raioAtendimentoKm, precos, segundosParaAceitar: c.segundosParaAceitar, direcionamento: regrasVigentes(c.direcionamento), chamarAoAceitarPedido: c.chamarAoAceitarPedido };
+    return { base, raioAtendimentoKm: c.raioAtendimentoKm, precos, segundosParaAceitar: c.segundosParaAceitar, direcionamento: regrasVigentes(c.direcionamento), chamarAoAceitarPedido: c.chamarAoAceitarPedido, adicionais: adicionaisVigentes(c.adicionais) };
   }
 
   async salvar(empresaId: string, dto: ConfigEntregasDto, autorId: string): Promise<ConfigEntregasEmpresa> {
     if (dto.base && !coordenadaValida(dto.base)) throw new BadRequestException('Ponto inválido.');
     if (dto.precos) {
       const problema = problemaNaTabelaPrecos(dto.precos);
+      if (problema) throw new BadRequestException(problema);
+    }
+    const adicionais = dto.adicionais ? adicionaisLimpos(dto.adicionais) : null;
+    if (adicionais) {
+      const problema = problemaNosAdicionais(adicionais);
       if (problema) throw new BadRequestException(problema);
     }
     const data = {
@@ -94,10 +126,32 @@ export class EntregasEmpresaService {
       ...(dto.precos ? { precos: dto.precos as never } : {}),
       ...(dto.segundosParaAceitar ? { segundosParaAceitar: dto.segundosParaAceitar } : {}),
       ...(dto.chamarAoAceitarPedido !== undefined ? { chamarAoAceitarPedido: dto.chamarAoAceitarPedido } : {}),
+      ...(adicionais ? { adicionais: adicionais as never } : {}),
     };
     await this.prisma.configuracaoEntregas.upsert({ where: { empresaId }, create: { empresaId, ...data }, update: data });
     await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entregas.configurar', entidade: 'ConfiguracaoEntregas', entidadeId: empresaId, detalhes: { base: !!dto.base, raioAtendimentoKm: dto.raioAtendimentoKm } });
     return this.config(empresaId);
+  }
+
+  /** Onde e quando a empresa mais chama: pontos dos clientes em células (~550 m) e contagem por hora e dia. */
+  async demanda(empresaId: string, dias: number, agora = new Date()): Promise<DemandaEntregas> {
+    const lista = await this.prisma.chamadaEntrega.findMany({
+      where: { empresaId, criadoEm: { gte: new Date(agora.getTime() - dias * 86_400_000) }, situacao: { not: 'CANCELADA' } },
+      select: { tipo: true, origem: true, destino: true, criadoEm: true, paradas: { select: { parada: true } } },
+      take: 20_000,
+    });
+    const fuso = config().fusoHorario;
+    const porHora = Array.from({ length: 24 }, () => 0);
+    const porDia = Array.from({ length: 7 }, () => 0);
+    const pontos: { lat: number; lon: number }[] = [];
+    for (const c of lista) {
+      const m = momentoNoFuso(c.criadoEm, fuso);
+      porHora[Number(m.hhmm.slice(0, 2))]++;
+      porDia[m.dia]++;
+      pontos.push(pontoDoCliente(c.tipo as TipoChamada, c.origem as unknown as ParadaChamada, c.destino as unknown as ParadaChamada));
+      for (const p of c.paradas) pontos.push(p.parada as unknown as ParadaChamada);
+    }
+    return { dias, total: lista.length, celulas: gradeDeDemanda(pontos).slice(0, 400), porHora, porDia };
   }
 
   configuracaoDoMapa(): ConfigMapa {
@@ -164,6 +218,12 @@ export class EntregasEmpresaController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   enderecos(@Query() dto: BuscaEnderecoDto): Promise<ResultadoEndereco[]> {
     return this.entregas.geocodificar(dto.q);
+  }
+
+  @Get('demanda')
+  @RequerPermissao('entrega.ver')
+  demanda(@EmpresaAtual() empresaId: string, @Query() dto: DemandaDto): Promise<DemandaEntregas> {
+    return this.entregas.demanda(empresaId, Number(dto.dias ?? 30));
   }
 
   @Get('mapa')

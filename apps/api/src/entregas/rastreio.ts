@@ -10,6 +10,7 @@ import {
   previsaoMinutos,
   primeiroNome,
   SITUACOES_EM_ANDAMENTO,
+  textoDaParada,
   textoParaCliente,
   type EntregaDoPedidoPublica,
   type ParadaChamada,
@@ -56,38 +57,48 @@ export class RastreioService {
 
   private async achar(codigo: string, agora: Date) {
     if (!CODIGO.test(codigo)) throw new NotFoundException('Acompanhamento não encontrado. Confira o link.');
+    const hash = sha256(codigo);
+    // O link pode ser do destino principal (na chamada) ou de uma parada extra.
+    const extra = await this.prisma.paradaExtraChamada.findUnique({ where: { rastreioHash: hash }, select: { chamadaId: true, ordem: true } });
     const c = await this.prisma.chamadaEntrega.findUnique({
-      where: { rastreioHash: sha256(codigo) },
-      include: { empresa: { select: { nomeFantasia: true, razaoSocial: true } }, entregador: { select: { id: true, nome: true, veiculo: true, placa: true, lat: true, lon: true, posicaoEm: true, documentos: { where: { tipo: 'SELFIE' }, select: { id: true }, take: 1 } } } },
+      where: extra ? { id: extra.chamadaId } : { rastreioHash: hash },
+      include: { paradas: { orderBy: { ordem: 'asc' } }, empresa: { select: { nomeFantasia: true, razaoSocial: true } }, entregador: { select: { id: true, nome: true, veiculo: true, placa: true, lat: true, lon: true, posicaoEm: true, documentos: { where: { tipo: 'SELFIE' }, select: { id: true }, take: 1 } } } },
     });
     if (!c) throw new NotFoundException('Acompanhamento não encontrado. Confira o link.');
     const fim = c.concluidaEm ?? c.canceladaEm;
     if (fim && agora.getTime() - fim.getTime() > HORAS_RASTREIO_DEPOIS_DE_TERMINAR * 3_600_000) throw new NotFoundException('Este acompanhamento já terminou.');
-    return c;
+    return { ...c, ordem: extra?.ordem ?? 0 };
   }
 
   async publico(codigo: string, agora = new Date()): Promise<RastreioPublico> {
     const c = await this.achar(codigo, agora);
     const tipo = c.tipo as TipoChamada;
     const situacao = c.situacao as SituacaoChamada;
-    const cliente = pontoDoCliente(tipo, c.origem as unknown as ParadaChamada, c.destino as unknown as ParadaChamada);
+    const total = 1 + c.paradas.length;
+    const minha = c.ordem > 0 ? c.paradas.find((p) => p.ordem === c.ordem)! : null;
+    const cliente = minha ? (minha.parada as unknown as ParadaChamada) : pontoDoCliente(tipo, c.origem as unknown as ParadaChamada, c.destino as unknown as ParadaChamada);
+    // Com várias paradas, cada destinatário só vê a posição quando a vez é dele.
+    const entregue = situacao === 'CONCLUIDA' || (minha ? !!minha.entregueEm : total > 1 && c.paradaAtual > 0);
+    const vez = c.paradaAtual === c.ordem && !entregue;
+    const codigoDaParada = minha ? minha.codigoConfirmacao : c.codigoConfirmacao;
     const e = c.entregador;
     const andamento = SITUACOES_EM_ANDAMENTO.includes(situacao);
-    const posicao = e && andamento && mostraPosicaoAoCliente(tipo, situacao) && e.lat != null && e.lon != null && e.posicaoEm ? { lat: e.lat, lon: e.lon, em: e.posicaoEm.toISOString() } : null;
+    const posicao = e && andamento && vez && mostraPosicaoAoCliente(tipo, situacao) && e.lat != null && e.lon != null && e.posicaoEm ? { lat: e.lat, lon: e.lon, em: e.posicaoEm.toISOString() } : null;
     return {
       numero: c.numero,
       tipo,
       situacao,
-      texto: textoParaCliente(tipo, situacao),
+      texto: (total > 1 ? textoDaParada(c.ordem, c.paradaAtual, situacao, entregue) : null) ?? textoParaCliente(tipo, situacao),
       empresa: c.empresa.nomeFantasia || c.empresa.razaoSocial,
       entregador: e && andamento ? { nome: primeiroNome(e.nome), veiculo: e.veiculo as TipoVeiculo, placa: e.placa, temFoto: e.documentos.length > 0 } : e && situacao === 'CONCLUIDA' ? { nome: primeiroNome(e.nome), veiculo: e.veiculo as TipoVeiculo, placa: null, temFoto: false } : null,
       pontoCliente: { lat: cliente.lat, lon: cliente.lon },
       posicao,
       previsaoMinutos: posicao && e ? previsaoMinutos(posicao, cliente, e.veiculo as TipoVeiculo) : null,
-      codigoConfirmacao: mostraCodigoAoCliente(tipo, situacao) ? c.codigoConfirmacao : null,
+      codigoConfirmacao: mostraCodigoAoCliente(tipo, situacao) && !entregue ? codigoDaParada : null,
       concluidaEm: c.concluidaEm?.toISOString() ?? null,
       atualizadoEm: agora.toISOString(),
       mapa: this.mapas.configuracaoDoMapa(),
+      parada: total > 1 ? { ordem: c.ordem + 1, total } : null,
     };
   }
 

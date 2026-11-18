@@ -85,7 +85,10 @@ test('API: aceitar o pedido chama o entregador; rastreio, emergência, cancelame
   await avancar(ent, ch.id, { para: 'NA_COLETA', ...C, precisao: 5 });
   await avancar(ent, ch.id, { para: 'COLETADA', ...C });
   r = await pedir('GET', `/rastreio/${codigoRastreio}`);
-  expect(r.j).toMatchObject({ situacao: 'COLETADA', texto: 'Saiu para entrega', posicao: { lat: C.lat, lon: C.lon } });
+  expect(r.j).toMatchObject({ situacao: 'COLETADA', texto: 'Saiu para entrega' });
+  // O banco devolve o número com outro arredondamento na última casa.
+  expect(r.j.posicao.lat).toBeCloseTo(C.lat, 6);
+  expect(r.j.posicao.lon).toBeCloseTo(C.lon, 6);
   expect(r.j.previsaoMinutos).toBeGreaterThan(0);
   expect((await pedir('GET', `/rastreio/${codigoRastreio}/foto`)).j.dados).toBe(PNG);
 

@@ -15,6 +15,7 @@ export function MapaEntregadores({
   raioKm,
   entregadores = [],
   marcas = [],
+  areas = [],
   aoClicar,
   altura = 480,
 }: {
@@ -24,6 +25,8 @@ export function MapaEntregadores({
   entregadores?: EntregadorNoMapa[];
   /** Pontos soltos (coleta, destino, entregador em chamada). */
   marcas?: { lat: number; lon: number; cor: string; rotulo: string }[];
+  /** Círculos em metros (regiões dos adicionais, células da demanda), com a opacidade do preenchimento. */
+  areas?: { lat: number; lon: number; raioMetros: number; cor: string; opacidade: number; rotulo: string }[];
   aoClicar?: (p: Ponto) => void;
   altura?: number;
 }) {
@@ -66,6 +69,16 @@ export function MapaEntregadores({
         enquadrado.current = chave;
       }
     }
+    for (const a of areas) {
+      L.circle([a.lat, a.lon], { radius: a.raioMetros, color: a.cor, weight: 1, fillColor: a.cor, fillOpacity: a.opacidade }).bindTooltip(a.rotulo).addTo(g);
+    }
+    if (!base && !marcas.length && areas.length) {
+      const chave = `areas:${areas.length}:${areas[0].lat},${areas[0].lon}`;
+      if (enquadrado.current !== chave) {
+        m.fitBounds(L.latLngBounds(areas.map((a) => [a.lat, a.lon] as [number, number])).pad(0.2), { animate: false, maxZoom: 14 });
+        enquadrado.current = chave;
+      }
+    }
     for (const p of marcas) {
       L.circleMarker([p.lat, p.lon], { radius: 9, color: '#ffffff', weight: 2, fillColor: p.cor, fillOpacity: 1 }).bindTooltip(p.rotulo).addTo(g);
     }
@@ -83,7 +96,7 @@ export function MapaEntregadores({
         .bindTooltip(`${e.nome} · ${ROTULO_VEICULO[e.veiculo]} · ${ROTULO_SITUACAO_MAPA[e.situacao]} · ${e.distanciaKm.toLocaleString('pt-BR')} km`)
         .addTo(g);
     }
-  }, [base?.lat, base?.lon, raioKm, entregadores, marcas]);
+  }, [base?.lat, base?.lon, raioKm, entregadores, marcas, areas]);
 
   return <div ref={elemento} style={{ height: altura }} className={`z-0 w-full rounded-lg border border-slate-200 ${aoClicar ? 'cursor-crosshair' : ''}`} data-testid="mapa-entregas" />;
 }

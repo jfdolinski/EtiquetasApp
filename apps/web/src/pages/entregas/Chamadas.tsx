@@ -9,6 +9,7 @@ import {
   ROTULO_SITUACAO_CHAMADA,
   ROTULO_TIPO_CHAMADA,
   ROTULO_VEICULO,
+  MAX_PARADAS_EXTRAS,
   TIPOS_CHAMADA,
   type ChamadaResumo,
   type ConfigEntregasEmpresa,
@@ -47,6 +48,7 @@ const ROTULO_RESULTADO: Record<OfertaDaChamada['resultado'], string> = { PENDENT
 const COR_COLETA = '#ea580c';
 const COR_DESTINO = '#7c3aed';
 const COR_ENTREGADOR = '#2563eb';
+const COR_PARADA = '#db2777';
 
 const paradaVazia = (): ParadaChamada => ({ lat: 0, lon: 0, endereco: '', contato: '', telefone: '', instrucoes: '' });
 const temPonto = (p: Ponto) => !(p.lat === 0 && p.lon === 0);
@@ -109,7 +111,8 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho }: 
   const baseComoParada = (): ParadaChamada => (config.base ? { ...paradaVazia(), lat: config.base.lat, lon: config.base.lon, endereco: config.base.endereco } : paradaVazia());
   const [origem, setOrigem] = useState<ParadaChamada>(baseComoParada);
   const [destino, setDestino] = useState<ParadaChamada>(() => rascunho?.destino ?? paradaVazia());
-  const [marcando, setMarcando] = useState<'origem' | 'destino'>('destino');
+  const [marcando, setMarcando] = useState<'origem' | 'destino' | number>('destino');
+  const [extras, setExtras] = useState<ParadaChamada[]>([]);
   const [serie, setSerie] = useState('');
   const [observacao, setObservacao] = useState(rascunho?.observacao ?? '');
   const primeira = useRef(true);
@@ -122,6 +125,7 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho }: 
       primeira.current = false;
       if (rascunho) return;
     }
+    setExtras([]);
     if (tipo === 'ENTREGA') {
       setOrigem(baseComoParada());
       setDestino(paradaVazia());
@@ -134,11 +138,11 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipo]);
 
-  const corpo: NovaChamada = { tipo, origem, destino, serieEsperada: serie.trim() || null, observacao, pedidoId: rascunho?.pedidoId ?? null };
-  const prontos = temPonto(origem) && temPonto(destino);
+  const corpo: NovaChamada = { tipo, origem, destino, serieEsperada: serie.trim() || null, observacao, pedidoId: rascunho?.pedidoId ?? null, paradasExtras: tipo === 'ENTREGA' ? extras : [] };
+  const prontos = temPonto(origem) && temPonto(destino) && extras.every(temPonto);
   const previa = useQuery({
-    queryKey: ['chamada-previa', tipo, origem.lat, origem.lon, destino.lat, destino.lon],
-    queryFn: () => api<PreviaChamada>('/entregas/chamadas/previa', { metodo: 'POST', corpo: { ...corpo, origem: { ...origem, endereco: origem.endereco || 'ponto marcado' }, destino: { ...destino, endereco: destino.endereco || 'ponto marcado' } } }),
+    queryKey: ['chamada-previa', tipo, origem.lat, origem.lon, destino.lat, destino.lon, extras.map((p) => `${p.lat},${p.lon}`).join('|')],
+    queryFn: () => api<PreviaChamada>('/entregas/chamadas/previa', { metodo: 'POST', corpo: { ...corpo, origem: { ...origem, endereco: origem.endereco || 'ponto marcado' }, destino: { ...destino, endereco: destino.endereco || 'ponto marcado' }, paradasExtras: corpo.paradasExtras?.map((p) => ({ ...p, endereco: p.endereco || 'ponto marcado' })) } }),
     enabled: prontos,
     retry: false,
   });
@@ -152,6 +156,7 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho }: 
   const marcas = [
     ...(temPonto(origem) ? [{ ...origem, cor: COR_COLETA, rotulo: 'Coleta' }] : []),
     ...(temPonto(destino) ? [{ ...destino, cor: COR_DESTINO, rotulo: 'Destino' }] : []),
+    ...extras.flatMap((p, i) => (temPonto(p) ? [{ ...p, cor: COR_PARADA, rotulo: `Parada ${i + 2}` }] : [])),
   ];
 
   return (
@@ -169,6 +174,19 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho }: 
           </Selecao>
           <EditorParada titulo="Coleta" artigo="na" cor={COR_COLETA} parada={origem} mudar={setOrigem} ativa={marcando === 'origem'} marcar={() => setMarcando('origem')} />
           <EditorParada titulo="Destino" artigo="no" cor={COR_DESTINO} parada={destino} mudar={setDestino} ativa={marcando === 'destino'} marcar={() => setMarcando('destino')} />
+          {extras.map((p, i) => (
+            <div key={i} className="space-y-1">
+              <EditorParada titulo={`Parada ${i + 2}`} artigo="na" cor={COR_PARADA} parada={p} mudar={(n) => setExtras(extras.map((x, j) => (j === i ? n : x)))} ativa={marcando === i} marcar={() => setMarcando(i)} />
+              <button type="button" className="text-xs text-red-700 underline" onClick={() => { setExtras(extras.filter((_, j) => j !== i)); setMarcando('destino'); }}>
+                Tirar a parada {i + 2}
+              </button>
+            </div>
+          ))}
+          {tipo === 'ENTREGA' && extras.length < MAX_PARADAS_EXTRAS && (
+            <Botao variante="secundario" onClick={() => { setExtras([...extras, paradaVazia()]); setMarcando(extras.length); }}>
+              + Adicionar parada
+            </Botao>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <Campo rotulo={tipo === 'DEVOLUCAO_MAQUINA' ? 'Número de série da máquina (opcional)' : 'Número de série (opcional)'} value={serie} onChange={(e) => setSerie(e.target.value)} ajuda={tipo === 'DEVOLUCAO_MAQUINA' ? 'O entregador sempre lê a série na coleta; se informada aqui, precisa conferir.' : undefined} />
             <Campo rotulo="Observação para o entregador" value={observacao} onChange={(e) => setObservacao(e.target.value)} />
@@ -176,9 +194,9 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho }: 
         </div>
         <div className="space-y-3">
           <p className="text-sm text-slate-600">
-            Clique no mapa para marcar <strong style={{ color: marcando === 'origem' ? COR_COLETA : COR_DESTINO }}>{marcando === 'origem' ? 'a coleta' : 'o destino'}</strong>.
+            Clique no mapa para marcar <strong style={{ color: marcando === 'origem' ? COR_COLETA : marcando === 'destino' ? COR_DESTINO : COR_PARADA }}>{marcando === 'origem' ? 'a coleta' : marcando === 'destino' ? 'o destino' : `a parada ${marcando + 2}`}</strong>.
           </p>
-          <MapaEntregadores config={mapa} base={null} raioKm={1} marcas={marcas} altura={360} aoClicar={(p) => (marcando === 'origem' ? setOrigem({ ...origem, ...p }) : setDestino({ ...destino, ...p }))} />
+          <MapaEntregadores config={mapa} base={null} raioKm={1} marcas={marcas} altura={360} aoClicar={(p) => (marcando === 'origem' ? setOrigem({ ...origem, ...p }) : marcando === 'destino' ? setDestino({ ...destino, ...p }) : setExtras(extras.map((x, j) => (j === marcando ? { ...x, ...p } : x))))} />
           {previa.data && (
             <div className="rounded-md bg-slate-50 px-3 py-2 text-sm">
               <div>
@@ -186,6 +204,12 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho }: 
                 {previa.data.estimada && <span className="text-slate-500"> (estimada)</span>} · cerca de {Math.max(1, Math.round(previa.data.segundos / 60))} min
               </div>
               <div className="text-lg font-semibold">Valor para o entregador: {formatarCentavos(previa.data.valorCentavos)}</div>
+              {previa.data.adicionais.length > 0 && (
+                <div className="text-xs text-slate-600" data-testid="previa-adicionais">
+                  Tabela {formatarCentavos(previa.data.valorTabelaCentavos)}
+                  {previa.data.adicionais.map((a) => ` + ${a.nome} ${formatarCentavos(a.centavos)}`).join('')}
+                </div>
+              )}
             </div>
           )}
           {previa.error && <Alerta tipo="aviso">{previa.error.message}</Alerta>}
@@ -197,7 +221,7 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho }: 
               <span className="block text-xs text-slate-500">O sistema oferece pelas regras do Direcionamento. Desmarcado, você escolhe o entregador depois de abrir.</span>
             </span>
           </label>
-          <Botao onClick={() => criar.mutate()} disabled={!prontos || !origem.endereco || !destino.endereco || criar.isPending}>
+          <Botao onClick={() => criar.mutate()} disabled={!prontos || !origem.endereco || !destino.endereco || extras.some((p) => !p.endereco.trim()) || criar.isPending}>
             {criar.isPending ? 'Abrindo…' : 'Abrir chamada'}
           </Botao>
         </div>
@@ -272,6 +296,7 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
         ? [
             { ...c.origem, cor: COR_COLETA, rotulo: `Coleta: ${c.origem.endereco}` },
             { ...c.destino, cor: COR_DESTINO, rotulo: `Destino: ${c.destino.endereco}` },
+            ...c.paradasExtras.map((p) => ({ ...p.parada, cor: COR_PARADA, rotulo: `Parada ${p.ordem + 1}: ${p.parada.endereco}` })),
             ...(c.posicaoEntregador ? [{ ...c.posicaoEntregador, cor: COR_ENTREGADOR, rotulo: `${c.entregador?.nome ?? 'Entregador'} (${new Date(c.posicaoEntregador.em).toLocaleTimeString('pt-BR')})` }] : []),
           ]
         : [],
@@ -290,6 +315,7 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
             <div className="flex flex-wrap items-center gap-3">
               <Selo cor={COR_SITUACAO[c.situacao]}>{ROTULO_SITUACAO_CHAMADA[c.situacao]}</Selo>
               <span className="font-semibold">{formatarCentavos(c.valorCentavos)}</span>
+              {c.adicionais.length > 0 && <span className="text-xs text-slate-500">(inclui {c.adicionais.map((a) => `${a.nome} ${formatarCentavos(a.centavos)}`).join(', ')})</span>}
               <span className="text-slate-500">
                 {formatarKm(c.metros)}
                 {c.estimada ? ' (estimada)' : ''}
@@ -306,7 +332,13 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
             <LinkRastreio c={c} />
             <AlertaEmergencia c={c} aoCiente={() => acao.mutate({ caminho: 'emergencia/ciente' })} ocupado={acao.isPending} />
             <Parada titulo="Coleta" p={c.origem} />
-            <Parada titulo="Destino" p={c.destino} />
+            <Parada titulo={c.paradasExtras.length ? `Destino (parada 1 de ${c.paradasExtras.length + 1})${c.paradaAtual > 0 || c.situacao === 'CONCLUIDA' ? ' · entregue' : ''}` : 'Destino'} p={c.destino} />
+            {c.paradasExtras.map((p) => (
+              <div key={p.ordem} data-testid="parada-extra">
+                <Parada titulo={`Parada ${p.ordem + 1} de ${c.paradasExtras.length + 1}${p.entregueEm ? ' · entregue' : c.paradaAtual === p.ordem && c.situacao !== 'CANCELADA' && c.situacao !== 'CONCLUIDA' ? ' · a vez dela' : ''}`} p={p.parada} />
+                {p.codigoConfirmacao && <div className="text-xs">Código desta parada: <span className="font-mono font-bold">{p.codigoConfirmacao}</span>{p.linkRastreio && <> · <a className="text-blue-700 underline" href={p.linkRastreio} target="_blank" rel="noreferrer">link do cliente</a></>}</div>}
+              </div>
+            ))}
             {(c.serieEsperada || c.serieColetada) && (
               <div>
                 Série: {c.serieEsperada ? `esperada ${c.serieEsperada}` : ''}

@@ -76,6 +76,8 @@ export interface RastreioPublico {
   concluidaEm: string | null;
   atualizadoEm: string;
   mapa: ConfigMapa;
+  /** Com várias paradas: qual é a deste link. */
+  parada: { ordem: number; total: number } | null;
 }
 
 /** O que o acompanhamento do pedido mostra da entrega dele. */

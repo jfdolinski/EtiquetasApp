@@ -11,10 +11,11 @@ const PAULISTA = { lat: -23.5614, lon: -46.6559 };
 const parada = (p: { lat: number; lon: number }) => ({ ...p, endereco: 'Rua A, 1', contato: '', telefone: '', instrucoes: '' });
 
 function montar(chamada: Record<string, unknown>) {
-  const c = { id: 'c1', entregadorId: 'e1', tipo: 'ENTREGA', situacao: 'ACEITA', origem: parada(SE), destino: parada(PAULISTA), serieEsperada: null, codigoConfirmacao: '1234', tentativasCodigo: 0, ...chamada };
+  const c = { id: 'c1', entregadorId: 'e1', tipo: 'ENTREGA', situacao: 'ACEITA', origem: parada(SE), destino: parada(PAULISTA), serieEsperada: null, codigoConfirmacao: '1234', tentativasCodigo: 0, paradaAtual: 0, paradas: [], ...chamada };
   const tx = {
     chamadaEntrega: { updateMany: jest.fn(async () => ({ count: 1 })) },
     fotoChamada: { create: jest.fn(async () => ({})) },
+    paradaExtraChamada: { updateMany: jest.fn(async () => ({ count: 1 })) },
     entregador: { update: jest.fn(async () => ({})) },
     $executeRaw: jest.fn(async () => 1),
   };
@@ -56,6 +57,20 @@ describe('etapas da chamada', () => {
     const ok = montar({ situacao: 'NO_DESTINO' });
     await ok.s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...PAULISTA, codigo: '1234' });
     expect(ok.tx.chamadaEntrega.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { situacao: 'CONCLUIDA', concluidaEm: expect.any(Date) } }));
+  });
+
+  it('com várias paradas, entregar a primeira passa para a próxima, com o código dela', async () => {
+    const extra = { ordem: 1, parada: parada(SE), codigoConfirmacao: '9999', entregueEm: null };
+    const { s, tx } = montar({ situacao: 'NO_DESTINO', paradas: [extra] });
+    await s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...PAULISTA, codigo: '1234' });
+    expect(tx.chamadaEntrega.updateMany).toHaveBeenCalledWith({ where: { id: 'c1', situacao: 'NO_DESTINO', paradaAtual: 0 }, data: { situacao: 'COLETADA', paradaAtual: 1, tentativasCodigo: 0 } });
+    // Na segunda parada, o código é o dela e a chegada é no ponto dela.
+    const segunda = montar({ situacao: 'NO_DESTINO', paradaAtual: 1, paradas: [extra] });
+    await expect(segunda.s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...SE, codigo: '1234' })).rejects.toThrow(/Código errado/);
+    await segunda.s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...SE, codigo: '9999' });
+    expect(segunda.tx.chamadaEntrega.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { situacao: 'CONCLUIDA', concluidaEm: expect.any(Date) } }));
+    expect(segunda.tx.paradaExtraChamada.updateMany).toHaveBeenCalledWith({ where: { chamadaId: 'c1', ordem: 1 }, data: { entregueEm: expect.any(Date) } });
+    await expect(montar({ situacao: 'COLETADA', paradaAtual: 1, paradas: [extra] }).s.avancar('e1', 'c1', { para: 'NO_DESTINO', ...PAULISTA })).rejects.toThrow(/não está no destino/);
   });
 
   it('mudou no meio do caminho: recusa', async () => {

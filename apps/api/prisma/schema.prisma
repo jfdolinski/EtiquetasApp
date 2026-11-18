@@ -1440,6 +1440,8 @@ model ConfiguracaoEntregas {
   direcionamento        Json?
   /// Pedido com entrega aceito já abre a chamada (distribuição automática).
   chamarAoAceitarPedido Boolean  @default(false) @map("chamar_ao_aceitar_pedido")
+  /// Adicionais (shared): por horário e por região.
+  adicionais            Json?
   /// Número da próxima chamada da empresa.
   proximoNumero         Int      @default(1) @map("proximo_numero")
   atualizadoEm          DateTime @updatedAt @map("atualizado_em")
@@ -1507,6 +1509,10 @@ model ChamadaEntrega {
   rastreioCifrado     String?   @map("rastreio_cifrado")
   /// EmergenciaChamada (shared): o entregador pediu ajuda; a empresa marca como ciente.
   emergencia          Json?
+  /// Várias paradas: 0 = destino principal; 1… = paradas_chamada.ordem.
+  paradaAtual         Int       @default(0) @map("parada_atual")
+  /// AdicionalAplicado[] (shared) que entraram no valor.
+  adicionais          Json      @default("[]")
   criadoPorId         String?   @map("criado_por_id") @db.Uuid
   criadoEm            DateTime  @default(now()) @map("criado_em")
   atualizadoEm        DateTime  @updatedAt @map("atualizado_em")
@@ -1518,6 +1524,7 @@ model ChamadaEntrega {
   pedido       Pedido?              @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
   fechamento   FechamentoEntrega?   @relation(fields: [fechamentoId], references: [id], onDelete: SetNull)
   contestacoes ContestacaoEntrega[]
+  paradas      ParadaExtraChamada[]
 
   @@unique([empresaId, numero])
   @@index([empresaId, criadoEm])
@@ -1626,4 +1633,23 @@ model ContestacaoEntrega {
   @@index([empresaId, respondidaEm])
   @@index([chamadaId])
   @@map("contestacoes_entrega")
+}
+
+/// Entregas além do destino principal da chamada (ordem 1, 2…), cada uma com o seu código e o seu link.
+model ParadaExtraChamada {
+  id                String    @id @default(uuid()) @db.Uuid
+  chamadaId         String    @map("chamada_id") @db.Uuid
+  ordem             Int
+  /// ParadaChamada (shared).
+  parada            Json
+  codigoConfirmacao String    @map("codigo_confirmacao")
+  entregueEm        DateTime? @map("entregue_em")
+  rastreioHash      String?   @unique @map("rastreio_hash")
+  rastreioCifrado   String?   @map("rastreio_cifrado")
+  criadoEm          DateTime  @default(now()) @map("criado_em")
+
+  chamada ChamadaEntrega @relation(fields: [chamadaId], references: [id], onDelete: Cascade)
+
+  @@unique([chamadaId, ordem])
+  @@map("paradas_chamada")
 }

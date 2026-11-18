@@ -87,6 +87,16 @@ export class MapasService implements ProvedorMapas {
     return { ...rotaEstimada(de, para), estimada: true };
   }
 
+  /** Soma dos trechos, na ordem (sem reordenar as paradas). Estimada se algum trecho foi. */
+  async rotaPorPontos(pontos: Ponto[]): Promise<Rota> {
+    let total: Rota = { metros: 0, segundos: 0, estimada: false };
+    for (let i = 1; i < pontos.length; i++) {
+      const r = await this.rota(pontos[i - 1], pontos[i]);
+      total = { metros: total.metros + r.metros, segundos: total.segundos + r.segundos, estimada: total.estimada || r.estimada };
+    }
+    return total;
+  }
+
   private naFila<T>(f: () => Promise<T>): Promise<T> {
     const vez = this.fila.then(async () => {
       const espera = this.ultimaEm + INTERVALO_MINIMO_MS - Date.now();

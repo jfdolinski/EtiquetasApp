@@ -4,6 +4,7 @@
 import { distanciaMetros, type Ponto, type TipoVeiculo } from './entregas';
 import type { DistribuicaoResumo, OfertaDaChamada } from './entregas-direcionamento';
 import type { EmergenciaChamada } from './entregas-rastreio';
+import type { AdicionalAplicado, DestinoDoEntregador, ParadaExtraResumo } from './entregas-paradas';
 
 export const TIPOS_CHAMADA = ['ENTREGA', 'COLETA', 'DEVOLUCAO_MAQUINA'] as const;
 export type TipoChamada = (typeof TIPOS_CHAMADA)[number];
@@ -67,12 +68,14 @@ export interface PrecoTipo {
   porKmCentavos: number;
   /** Km já pagos na base. */
   kmIncluso: number;
+  /** Cada parada além do destino principal (tabela antiga sem o campo = 0). */
+  porParadaCentavos?: number;
 }
 
 export type TabelaPrecos = Record<TipoChamada, PrecoTipo>;
 
 export const TABELA_PRECOS_PADRAO: TabelaPrecos = {
-  ENTREGA: { baseCentavos: 800, porKmCentavos: 150, kmIncluso: 3 },
+  ENTREGA: { baseCentavos: 800, porKmCentavos: 150, kmIncluso: 3, porParadaCentavos: 300 },
   COLETA: { baseCentavos: 800, porKmCentavos: 150, kmIncluso: 3 },
   DEVOLUCAO_MAQUINA: { baseCentavos: 1200, porKmCentavos: 150, kmIncluso: 3 },
 };
@@ -84,15 +87,16 @@ export function problemaNaTabelaPrecos(t: TabelaPrecos): string | null {
     if (!p) return `Informe os preços de ${nome}.`;
     if (!Number.isInteger(p.baseCentavos) || p.baseCentavos < 0 || p.baseCentavos > 100_000_00) return `Valor base inválido em ${nome}.`;
     if (!Number.isInteger(p.porKmCentavos) || p.porKmCentavos < 0 || p.porKmCentavos > 10_000_00) return `Valor por km inválido em ${nome}.`;
+    if (p.porParadaCentavos !== undefined && (!Number.isInteger(p.porParadaCentavos) || p.porParadaCentavos < 0 || p.porParadaCentavos > 100_000)) return `Valor por parada inválido em ${nome}.`;
     if (typeof p.kmIncluso !== 'number' || !Number.isFinite(p.kmIncluso) || p.kmIncluso < 0 || p.kmIncluso > 500) return `Km incluso inválido em ${nome}.`;
   }
   return null;
 }
 
 /** Base + cada km além do incluso (proporcional, arredondado no fim). */
-export function valorDaChamada(p: PrecoTipo, metros: number): number {
+export function valorDaChamada(p: PrecoTipo, metros: number, paradasExtras = 0): number {
   const km = Math.max(0, metros) / 1000;
-  return Math.round(p.baseCentavos + Math.max(0, km - p.kmIncluso) * p.porKmCentavos);
+  return Math.round(p.baseCentavos + Math.max(0, km - p.kmIncluso) * p.porKmCentavos + Math.max(0, paradasExtras) * (p.porParadaCentavos ?? 0));
 }
 
 /** Sem servidor de rotas: a rua dá voltas, então a linha reta vale 1,4 vez. */
@@ -139,6 +143,8 @@ export interface NovaChamada {
   distribuir?: boolean;
   /** Chamada para entregar um Pedido do Flow. */
   pedidoId?: string | null;
+  /** Entregas além do destino, na ordem (só no tipo Entrega). */
+  paradasExtras?: ParadaChamada[];
 }
 
 export function problemaNaChamada(c: NovaChamada): string | null {
@@ -157,7 +163,10 @@ export interface PreviaChamada {
   metros: number;
   segundos: number;
   estimada: boolean;
+  /** Já com os adicionais. */
   valorCentavos: number;
+  valorTabelaCentavos: number;
+  adicionais: AdicionalAplicado[];
 }
 
 export interface EventoChamada {
@@ -182,6 +191,8 @@ export interface OfertaResumo {
   estimada: boolean;
   valorCentavos: number;
   expiraEm: string;
+  /** Quantas entregas (destinos) a chamada tem. */
+  entregas?: number;
   /** Por que ele recebeu (distribuição automática). */
   motivo: string | null;
 }
@@ -222,6 +233,10 @@ export interface ChamadaResumo {
   /** Caminho público do acompanhamento (/rastreio/...), para mandar ao cliente. */
   linkRastreio: string | null;
   emergencia: EmergenciaChamada | null;
+  paradasExtras: ParadaExtraResumo[];
+  /** 0 = destino principal; 1… = paradas extras. */
+  paradaAtual: number;
+  adicionais: AdicionalAplicado[];
 }
 
 /** O que o app do entregador recebe da chamada dele. */
@@ -242,6 +257,9 @@ export interface ChamadaEntregador {
   ocorrencia: { motivo: MotivoOcorrencia; texto: string } | null;
   /** Quando o entregador pediu ajuda nesta chamada. */
   emergenciaEm: string | null;
+  /** Todas as entregas, na ordem; `destino` é sempre a atual. */
+  destinos?: DestinoDoEntregador[];
+  paradaAtual?: number;
   aceitaEm: string | null;
   concluidaEm: string | null;
 }
