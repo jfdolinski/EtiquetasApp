@@ -58,3 +58,18 @@ describe('ordem das paradas', () => {
     expect(comprimentoDoPercurso(origem, ordem.map((i) => pontos[i]))).toBeLessThanOrEqual(comprimentoDoPercurso(origem, pontos));
   });
 });
+
+describe('etapa sem internet', () => {
+  it('aceita a hora guardada só se for plausível', async () => {
+    const { momentoDaEtapa, etapaAtrasada } = await import('./entregas-operacao');
+    const agora = new Date('2026-11-18T12:00:00Z');
+    expect(momentoDaEtapa('2026-11-18T11:30:00Z', agora).toISOString()).toBe('2026-11-18T11:30:00.000Z');
+    expect(momentoDaEtapa('2026-11-16T11:30:00Z', agora)).toBe(agora);
+    expect(momentoDaEtapa('2026-11-18T12:10:00Z', agora)).toBe(agora);
+    expect(momentoDaEtapa('2026-11-18T12:01:00Z', agora).toISOString()).toBe(agora.toISOString());
+    expect(momentoDaEtapa('lixo', agora)).toBe(agora);
+    expect(momentoDaEtapa(undefined, agora)).toBe(agora);
+    expect(etapaAtrasada(new Date('2026-11-18T11:58:00Z'), agora)).toBe(true);
+    expect(etapaAtrasada(new Date('2026-11-18T11:59:30Z'), agora)).toBe(false);
+  });
+});

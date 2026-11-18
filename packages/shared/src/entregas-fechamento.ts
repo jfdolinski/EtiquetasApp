@@ -73,6 +73,8 @@ export interface LinhaExtrato {
   extraMotivo: string;
   situacao: SituacaoFinanceira;
   pagoEm: string | null;
+  /** Pagamento que cobriu esta chamada (comprovante em PDF). */
+  fechamentoId: string | null;
   /** Cancelada depois do aceite: o valor é a taxa de deslocamento. */
   cancelada: boolean;
   contestacao: ContestacaoResumo | null;

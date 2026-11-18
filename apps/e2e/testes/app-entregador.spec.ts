@@ -142,3 +142,49 @@ test('chamada pelo app: a oferta aparece, aceita, cumpre as etapas e conclui com
   expect(erros).toEqual([]);
   await sql(`UPDATE entregadores SET online = false WHERE id = $1`, [ent.id]);
 });
+
+test('sem internet: o app guarda as etapas e envia sozinho quando a conexão volta', async ({ page, context }) => {
+  const erros: string[] = [];
+  page.on('pageerror', (x) => erros.push(x.message));
+  const tokenSuper = await superToken();
+  const emp = await empresaComBase(tokenSuper);
+  const ent = await entregadorOnline(tokenSuper, PERTO_DA_SE, `Rui${randomUUID().slice(0, 4)} App Teste`);
+  await context.setGeolocation({ latitude: PERTO_DA_SE.lat, longitude: PERTO_DA_SE.lon, accuracy: 10 });
+  await page.setExtraHTTPHeaders({ 'x-forwarded-for': `10.84.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}` });
+  await page.goto('/');
+  await page.getByLabel('Endereço do sistema').fill(new URL(API).origin);
+  await page.getByLabel('E-mail ou CPF').fill(ent.email);
+  await page.getByLabel('Senha').fill('SenhaEntregador1');
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  await expect(page.getByText('Você está online')).toBeVisible();
+
+  const ch = await pedir('POST', '/entregas/chamadas', {
+    token: emp.adminToken,
+    corpo: { tipo: 'ENTREGA', origem: { ...SE, endereco: 'Praça da Sé, 1, Sé, São Paulo', contato: '', telefone: '', instrucoes: '' }, destino: { ...PAULISTA, endereco: 'Avenida Paulista, 1578, Bela Vista, São Paulo', contato: 'Dona Maria', telefone: '11912345678', instrucoes: '' }, serieEsperada: null, observacao: '' },
+  });
+  await pedir('POST', `/entregas/chamadas/${ch.j.id}/oferecer`, { token: emp.adminToken, corpo: { entregadorId: ent.id } });
+  await expect(page.getByText('Nova chamada')).toBeVisible({ timeout: 10_000 });
+  await page.getByRole('button', { name: 'Aceitar' }).click();
+  await expect(page.getByText('A caminho da coleta')).toBeVisible();
+
+  // Sem internet: chega e coleta; as duas etapas ficam no celular e a tela segue.
+  await context.setGeolocation({ latitude: SE.lat, longitude: SE.lon, accuracy: 10 });
+  await context.setOffline(true);
+  await page.getByRole('button', { name: 'Cheguei na coleta' }).click();
+  await expect(page.getByText('No local da coleta')).toBeVisible();
+  await expect(page.getByText(/Sem internet: uma etapa guardada/)).toBeVisible();
+  await page.getByRole('button', { name: 'Coletei' }).click();
+  await expect(page.getByText('A caminho do destino')).toBeVisible();
+  await expect(page.getByText(/Sem internet: 2 etapas guardadas/)).toBeVisible();
+  await page.screenshot({ path: 'test-results/app-entregador-sem-internet.png' });
+  expect((await pedir('GET', `/entregas/chamadas/${ch.j.id}`, { token: emp.adminToken })).j.situacao).toBe('ACEITA');
+
+  // A internet volta: o app manda as duas, na ordem, e o aviso some.
+  await context.setOffline(false);
+  await expect.poll(async () => (await pedir('GET', `/entregas/chamadas/${ch.j.id}`, { token: emp.adminToken })).j.situacao, { timeout: 20_000 }).toBe('COLETADA');
+  await expect(page.getByText(/Sem internet:/)).toHaveCount(0, { timeout: 10_000 });
+  await expect(page.getByText('A caminho do destino')).toBeVisible();
+  expect(erros).toEqual([]);
+  await sql(`UPDATE chamadas_entrega SET situacao = 'CANCELADA' WHERE id = $1`, [ch.j.id]);
+  await sql(`UPDATE entregadores SET online = false WHERE id = $1`, [ent.id]);
+});

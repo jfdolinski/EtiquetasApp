@@ -14,6 +14,7 @@ import { TelaDocumentos } from './TelaDocumentos';
 import { TelaEntrar } from './TelaEntrar';
 import { TelaInicio } from './TelaInicio';
 import { TelaPerfil } from './TelaPerfil';
+import { enviarGuardadas, etapasGuardadas } from './fila';
 import { Alerta, Botao, cores } from './ui';
 
 type Aba = 'inicio' | 'ganhos' | 'creditos' | 'perfil';
@@ -96,8 +97,13 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
   const [oferta, setOferta] = useState<OfertaResumo | null>(null);
   const [chamada, setChamada] = useState<ChamadaEntregador | null>(null);
   const trabalhando = !!perfil && perfil.situacao === 'APROVADO' && (perfil.online || !!chamada);
+  const [recusas, setRecusas] = useState<string[]>([]);
   const buscarTrabalho = useCallback(async () => {
     try {
+      // Etapas feitas sem internet vão primeiro: a chamada que vem depois já reflete o que aconteceu.
+      const fila = await enviarGuardadas(api);
+      if (fila.recusas.length) setRecusas((r) => [...r, ...fila.recusas]);
+      if ((await etapasGuardadas()).length) return;
       const [o, c] = await Promise.all([api<OfertaResumo | null>('/entregador/oferta'), api<ChamadaEntregador | null>('/entregador/chamada')]);
       setOferta(o);
       setChamada(c);
@@ -139,6 +145,12 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
     );
   }
 
+  const avisoFila = recusas.length ? (
+    <Pressable accessibilityRole="button" onPress={() => setRecusas([])} style={{ padding: 12 }}>
+      <Alerta>{recusas.join('\n')} (toque para fechar)</Alerta>
+    </Pressable>
+  ) : null;
+
   const aviso = versaoNova ? (
     <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(`${sessao.servidor}/downloads/flow-entregas.apk`)} style={estilos.versao}>
       <Text style={{ color: cores.branco, fontWeight: '600' }}>Há uma versão nova do aplicativo ({versaoNova}). Toque para baixar.</Text>
@@ -164,6 +176,7 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
   return (
     <View style={{ flex: 1, backgroundColor: cores.fundo }}>
       {aviso}
+      {avisoFila}
       {erro && (
         <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
           <Alerta>{erro}</Alerta>

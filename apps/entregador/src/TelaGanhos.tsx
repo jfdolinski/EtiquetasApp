@@ -82,7 +82,7 @@ export function TelaGanhos({ api, servidor }: { api: Api; servidor: string }) {
           <Titulo>Entregas concluídas</Titulo>
           {linhas.length === 0 && <Texto suave>Nenhuma no período.</Texto>}
           {linhas.map((l) => (
-            <Linha key={l.chamadaId} l={l} api={api} aberta={aberta === l.chamadaId} alternar={() => setAberta(aberta === l.chamadaId ? null : l.chamadaId)} aoContestar={() => void carregar()} />
+            <Linha key={l.chamadaId} l={l} api={api} servidor={servidor} aberta={aberta === l.chamadaId} alternar={() => setAberta(aberta === l.chamadaId ? null : l.chamadaId)} aoContestar={() => void carregar()} />
           ))}
         </>
       )}
@@ -90,11 +90,21 @@ export function TelaGanhos({ api, servidor }: { api: Api; servidor: string }) {
   );
 }
 
-function Linha({ l, api, aberta, alternar, aoContestar }: { l: LinhaExtrato; api: Api; aberta: boolean; alternar: () => void; aoContestar: () => void }) {
+function Linha({ l, api, servidor, aberta, alternar, aoContestar }: { l: LinhaExtrato; api: Api; servidor: string; aberta: boolean; alternar: () => void; aoContestar: () => void }) {
   const [mensagem, setMensagem] = useState('');
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const total = l.valorCentavos + l.extraCentavos;
+
+  async function comprovante() {
+    setErro(null);
+    try {
+      const { caminho } = await api<{ caminho: string }>(`/entregador/pagamentos/${l.fechamentoId}/link`, { metodo: 'POST' });
+      await Linking.openURL(`${servidor}/api${caminho}`);
+    } catch (e) {
+      setErro((e as Error).message);
+    }
+  }
 
   async function contestar() {
     setErro(null);
@@ -135,6 +145,9 @@ function Linha({ l, api, aberta, alternar, aoContestar }: { l: LinhaExtrato; api
               Extra: {formatarCentavos(l.extraCentavos)} ({l.extraMotivo})
             </Texto>
           )}
+          {l.cancelada && <Texto suave>Cancelada depois do aceite: você recebe a taxa de deslocamento.</Texto>}
+          {l.fechamentoId && <Botao titulo="Comprovante do pagamento (PDF)" variante="secundario" onPress={() => void comprovante()} />}
+          {!l.podeContestar && erro && <Alerta>{erro}</Alerta>}
           {l.contestacao && (
             <View style={{ backgroundColor: cores.azulClaro, borderRadius: 8, padding: 8, gap: 4 }}>
               <Text style={{ color: cores.texto }}>Sua contestação: {l.contestacao.mensagem}</Text>

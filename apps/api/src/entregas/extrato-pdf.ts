@@ -65,3 +65,58 @@ export async function extratoPdf(e: ExtratoEntregador, entregador: { nome: strin
   escrever(pagina, 'O Flow registra os valores; cada empresa paga direto ao entregador.', MARGEM, MARGEM - 14, 8, normal, CINZA);
   return pdf.save();
 }
+
+/** Comprovante de um pagamento registrado: quem pagou, a quem, quando, as chamadas e o total. */
+export async function pagamentoPdf(
+  p: { pagoEm: string; totalCentavos: number; observacao: string; criadoEm: string; criadoPorNome: string | null },
+  empresa: string,
+  entregador: { nome: string; chavePix: string },
+  linhas: { numero: number; tipo: keyof typeof ROTULO_TIPO_CHAMADA; concluidaEm: string; destino: string; valorCentavos: number; extraCentavos: number; cancelada: boolean }[],
+  fuso: string,
+): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  pdf.setTitle(`Pagamento Flow Entregas - ${limpo(entregador.nome)}`);
+  const normal = await pdf.embedFont(StandardFonts.Helvetica);
+  const negrito = await pdf.embedFont(StandardFonts.HelveticaBold);
+  let pagina = pdf.addPage(A4);
+  let y = A4[1] - MARGEM;
+  const escrever = (texto: string, x: number, tamanho: number, fonte: PDFFont = normal, cor = rgb(0, 0, 0)) => pagina.drawText(limpo(texto), { x, y, size: tamanho, font: fonte, color: cor });
+
+  escrever('Comprovante de pagamento - Flow Entregas', MARGEM, 16, negrito);
+  y -= 24;
+  for (const [rotulo, valor] of [
+    ['Empresa', empresa],
+    ['Entregador', entregador.nome],
+    ['Chave Pix', entregador.chavePix],
+    ['Pago em', data(p.pagoEm)],
+    ['Registrado por', `${p.criadoPorNome ?? '-'} em ${new Intl.DateTimeFormat('pt-BR', { timeZone: fuso, dateStyle: 'short', timeStyle: 'short' }).format(new Date(p.criadoEm))}`],
+    ...(p.observacao ? [['Observação', p.observacao]] : []),
+  ]) {
+    escrever(rotulo, MARGEM, 10, normal, CINZA);
+    escrever(valor, MARGEM + 110, 10);
+    y -= 15;
+  }
+  y -= 6;
+  escrever(`Total: ${formatarCentavos(p.totalCentavos)} (${linhas.length} chamada${linhas.length === 1 ? '' : 's'})`, MARGEM, 13, negrito);
+  y -= 24;
+  const colunas = [MARGEM, MARGEM + 40, MARGEM + 110, MARGEM + 190, MARGEM + 430];
+  const cabecalho = () => {
+    ['Nº', 'Data', 'Serviço', 'Destino', 'Valor'].forEach((t, i) => pagina.drawText(t, { x: colunas[i], y, size: 9, font: negrito }));
+    y -= 4;
+    pagina.drawLine({ start: { x: MARGEM, y }, end: { x: A4[0] - MARGEM, y }, thickness: 0.5, color: CINZA });
+    y -= 12;
+  };
+  cabecalho();
+  for (const l of linhas) {
+    if (y < MARGEM + 20) {
+      pagina = pdf.addPage(A4);
+      y = A4[1] - MARGEM;
+      cabecalho();
+    }
+    const celulas = [String(l.numero), data(diaNoFuso(new Date(l.concluidaEm), fuso)), l.cancelada ? 'Taxa de cancelamento' : ROTULO_TIPO_CHAMADA[l.tipo], l.destino.slice(0, 44), formatarCentavos(l.valorCentavos + l.extraCentavos)];
+    celulas.forEach((t, i) => escrever(t, colunas[i], 9));
+    y -= 13;
+  }
+  pagina.drawText(limpo('O Flow só registra: o pagamento foi feito pela empresa, fora do sistema.'), { x: MARGEM, y: MARGEM - 14, size: 8, font: normal, color: CINZA });
+  return pdf.save();
+}

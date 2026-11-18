@@ -10,7 +10,7 @@ import {
   type FechamentoResumo,
   type LinhaFechamento,
 } from '@etiquetas/shared';
-import { api } from '../../api';
+import { api, apiArquivo } from '../../api';
 import { Alerta, Botao, Campo, formatarData, Modal, Selo, Tabela } from '../../components/ui';
 
 const dataBr = (iso: string) => iso.slice(0, 10).split('-').reverse().join('/');
@@ -242,6 +242,17 @@ function DetalhePagamento({ id, aoFechar }: { id: string; aoFechar: () => void }
       aoFechar();
     },
   });
+  const pdf = useMutation({
+    mutationFn: async () => {
+      const blob = await apiArquivo(`/entregas/financeiro/fechamentos/${id}/pdf`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pagamento-${f.data?.entregadorNome ?? 'entregador'}-${f.data?.pagoEm ?? ''}.pdf`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    },
+  });
   const d = f.data;
   return (
     <Modal titulo={d ? `Pagamento a ${d.entregadorNome} em ${dataBr(d.pagoEm)}` : 'Pagamento'} aberto aoFechar={aoFechar} largo>
@@ -263,7 +274,11 @@ function DetalhePagamento({ id, aoFechar }: { id: string; aoFechar: () => void }
             ))}
           </ul>
           {desfazer.error && <Alerta>{desfazer.error.message}</Alerta>}
+          {pdf.error && <Alerta>{pdf.error.message}</Alerta>}
           <div className="flex flex-wrap gap-2">
+            <Botao variante="secundario" onClick={() => pdf.mutate()} disabled={pdf.isPending}>
+              {pdf.isPending ? 'Gerando…' : 'Baixar comprovante (PDF)'}
+            </Botao>
             {d.temComprovante && (
               <Botao variante="secundario" onClick={() => comprovante.mutate()}>
                 Ver comprovante

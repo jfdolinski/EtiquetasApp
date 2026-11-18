@@ -20,9 +20,11 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
 import { randomInt } from 'node:crypto';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import {
   chegouPerto,
+  etapaAtrasada,
+  momentoDaEtapa,
   etapaDaFoto,
   formatarCentavos,
   podeDesistir,
@@ -148,6 +150,8 @@ class AvancarDto {
   @IsOptional() @IsString() @MaxLength(60) serie?: string;
   @IsOptional() @IsString() @MaxLength(10) codigo?: string;
   @IsOptional() @IsString() @MaxLength(7_200_000) foto?: string | null;
+  /** Quando o entregador fez a etapa (o app guardou sem internet e mandou depois). */
+  @IsOptional() @IsISO8601() em?: string;
 }
 
 class DesistenciaDto {
@@ -489,10 +493,10 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
    * Entrega a parada atual. Com mais paradas, a chamada volta a "a caminho do destino" e passa
    * para a próxima (código e tentativas zerados); na última, conclui. Devolve se foi a última.
    */
-  private async entregarParada(c: { id: string; situacao: string; paradaAtual: number; paradas: ParadaDoBanco[] }, texto: string, por: EventoChamada['por'], tx?: Prisma.TransactionClient): Promise<boolean> {
+  private async entregarParada(c: { id: string; situacao: string; paradaAtual: number; paradas: ParadaDoBanco[] }, texto: string, por: EventoChamada['por'], tx?: Prisma.TransactionClient, quando = new Date()): Promise<boolean> {
     const total = 1 + c.paradas.length;
     const { ultima, proxima } = aposEntregarParada(c.paradaAtual, total);
-    const agora = new Date();
+    const agora = quando;
     const feito = async (t: Prisma.TransactionClient) => {
       const { count } = await t.chamadaEntrega.updateMany({
         where: { id: c.id, situacao: c.situacao, paradaAtual: c.paradaAtual },
@@ -696,6 +700,8 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     const atual = destinoAtual(c, c.paradas);
     const destino = atual.parada;
     const agora = new Date();
+    const quando = momentoDaEtapa(dto.em, agora);
+    const atrasada = etapaAtrasada(quando, agora);
     const data: Prisma.ChamadaEntregaUpdateManyMutationInput = { situacao: dto.para };
     let texto = ROTULO_SITUACAO_CHAMADA[dto.para];
 
@@ -703,7 +709,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     if (dto.para === 'NO_DESTINO' && !chegouPerto(dto, destino, dto.precisao ?? null)) throw new BadRequestException('Você ainda não está no destino.');
     if (dto.para === 'COLETADA' && c.fotoColeta && !dto.foto) throw new BadRequestException('Tire a foto da coleta para continuar.');
     if (dto.para === 'CONCLUIDA' && c.fotoEntrega && !dto.foto) throw new BadRequestException('Tire a foto da entrega para continuar.');
-    if (dto.para === 'COLETADA') data.coletadaEm = agora;
+    if (dto.para === 'COLETADA') data.coletadaEm = quando;
     if (dto.para === 'COLETADA') {
       const pede = c.tipo === 'DEVOLUCAO_MAQUINA' || !!c.serieEsperada;
       const serie = normalizarSerie(dto.serie ?? '');
@@ -727,14 +733,16 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
 
     let ultima = true;
     await this.prisma.$transaction(async (tx) => {
-      if (dto.para === 'CONCLUIDA') ultima = await this.entregarParada(c, texto, 'entregador', tx);
+      if (atrasada) texto = `${texto.replace(/\.$/, '')} (feito às ${new Intl.DateTimeFormat('pt-BR', { timeZone: config().fusoHorario, hour: '2-digit', minute: '2-digit' }).format(quando)}, enviado depois por falta de internet).`;
+      if (dto.para === 'CONCLUIDA') ultima = await this.entregarParada(c, texto, 'entregador', tx, quando);
       else {
         const { count } = await tx.chamadaEntrega.updateMany({ where: { id: c.id, situacao: c.situacao, entregadorId }, data });
         if (!count) throw new ConflictException('A chamada mudou. Atualize a tela.');
       }
       if (foto) await tx.fotoChamada.create({ data: { chamadaId: c.id, etapa: dto.para === 'CONCLUIDA' ? etapaDaFoto('ENTREGA', c.paradaAtual) : 'COLETA', mime: foto.mime, bytes: foto.bytes } });
-      await tx.entregador.update({ where: { id: entregadorId }, data: { lat: dto.lat, lon: dto.lon, precisaoMetros: dto.precisao ?? null, posicaoEm: agora, avisoEm: agora } });
-      await tx.rastroChamada.create({ data: { chamadaId: c.id, lat: dto.lat, lon: dto.lon, em: agora } });
+      // Etapa guardada sem internet: a posição dela é antiga, não vira a posição atual do entregador.
+      if (!atrasada) await tx.entregador.update({ where: { id: entregadorId }, data: { lat: dto.lat, lon: dto.lon, precisaoMetros: dto.precisao ?? null, posicaoEm: agora, avisoEm: agora } });
+      await tx.rastroChamada.create({ data: { chamadaId: c.id, lat: dto.lat, lon: dto.lon, em: quando } });
       if (dto.para !== 'CONCLUIDA') await this.registrar(c.id, evento(texto, 'entregador'), tx);
     });
     // O pedido (do destino principal) só conclui quando a chamada inteira termina.

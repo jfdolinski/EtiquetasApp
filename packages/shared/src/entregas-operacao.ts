@@ -129,3 +129,22 @@ export function ordemMaisCurta(origem: Ponto, pontos: Ponto[], fixarPrimeiro = f
 // Senha esquecida do entregador --------------------------------------------------------------
 
 export const caminhoRedefinirSenhaEntregador = (token: string) => `/entregador/redefinir-senha#token=${token}`;
+
+// Etapa feita sem internet ---------------------------------------------------------------------
+
+/** Até quanto tempo depois o app ainda pode mandar uma etapa guardada sem internet. */
+export const HORAS_ETAPA_GUARDADA = 24;
+
+/**
+ * Hora em que a etapa aconteceu: a que o app guardou, se for plausível (até 24 h atrás e no máximo
+ * 2 min no futuro, pelo relógio do celular); senão, agora.
+ */
+export function momentoDaEtapa(em: string | null | undefined, agora: Date): Date {
+  if (!em) return agora;
+  const t = Date.parse(em);
+  if (!Number.isFinite(t) || t > agora.getTime() + 120_000 || t < agora.getTime() - HORAS_ETAPA_GUARDADA * 3_600_000) return agora;
+  return new Date(Math.min(t, agora.getTime()));
+}
+
+/** Chegou bem depois de feita (sem internet): o histórico diz a hora real. */
+export const etapaAtrasada = (quando: Date, agora: Date) => agora.getTime() - quando.getTime() > 60_000;

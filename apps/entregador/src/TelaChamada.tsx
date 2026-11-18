@@ -7,6 +7,8 @@ import { LeitorCodigo } from './LeitorCodigo';
 import { posicaoAtual } from './localizacao';
 import { formatarCelular, formatarCentavos, formatarKm, linkNavegacao, MOTIVOS_OCORRENCIA, normalizarSerie, PROXIMA_ETAPA, ROTULO_MOTIVO_OCORRENCIA, ROTULO_SITUACAO_CHAMADA, ROTULO_TIPO_CHAMADA } from './regras';
 import { Emergencia } from './Emergencia';
+import { aplicarLocal, etapasGuardadas, guardarEtapa, semInternet } from './fila';
+import { ErroApi } from './api';
 import { Alerta, Botao, Campo, Cartao, cores, Texto, Titulo } from './ui';
 
 /** Oferta recebida: valor, caminho resumido e prazo para responder. */
@@ -96,6 +98,17 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
   const [motivo, setMotivo] = useState<MotivoOcorrencia>('CLIENTE_AUSENTE');
   const [texto, setTexto] = useState('');
   const [desistindo, setDesistindo] = useState(false);
+  const [guardadas, setGuardadas] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    const contar = () => void etapasGuardadas().then((l) => vivo && setGuardadas(l.filter((e) => e.chamadaId === chamada.id).length));
+    contar();
+    const t = setInterval(contar, 3000);
+    return () => {
+      vivo = false;
+      clearInterval(t);
+    };
+  }, [chamada.id]);
   const [motivoDesistencia, setMotivoDesistencia] = useState('');
   const etapa = PROXIMA_ETAPA[chamada.situacao];
   const pedeFoto = (etapa?.para === 'COLETADA' && chamada.pedeFotoColeta) || (etapa?.para === 'CONCLUIDA' && chamada.pedeFotoEntrega);
@@ -112,10 +125,18 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
       const foto = pedeFoto ? await escolherImagem(Platform.OS === 'web' ? 'galeria' : 'camera') : null;
       if (pedeFoto && !foto) return setErro(etapa.para === 'COLETADA' ? 'Tire a foto da coleta para continuar.' : 'Tire a foto da entrega para continuar.');
       const p = await posicaoAtual();
-      const c = await api<ChamadaEntregador>(`/entregador/chamadas/${chamada.id}/avancar`, {
-        metodo: 'POST',
-        corpo: { para: etapa.para, lat: p.coords.latitude, lon: p.coords.longitude, precisao: p.coords.accuracy ?? null, simulada: p.mocked === true, serie: serie || undefined, codigo: codigo || undefined, foto: foto ?? undefined },
-      });
+      const corpo = { para: etapa.para, lat: p.coords.latitude, lon: p.coords.longitude, precisao: p.coords.accuracy ?? null, simulada: p.mocked === true, serie: serie || undefined, codigo: codigo || undefined, foto: foto ?? undefined, em: new Date().toISOString() };
+      let c: ChamadaEntregador;
+      try {
+        // Com outra etapa ainda esperando a internet, esta vai para a fila também, na ordem.
+        if ((await etapasGuardadas()).length) throw new ErroApi(0, 'fila');
+        c = await api<ChamadaEntregador>(`/entregador/chamadas/${chamada.id}/avancar`, { metodo: 'POST', corpo });
+      } catch (e) {
+        if (!semInternet(e)) throw e;
+        await guardarEtapa({ chamadaId: chamada.id, corpo });
+        setGuardadas((n) => n + 1);
+        c = aplicarLocal(chamada, etapa.para);
+      }
       setCodigo('');
       aoMudar(c);
     } catch (e) {
@@ -164,6 +185,12 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
       <View style={estilos.situacao}>
         <Text style={estilos.situacaoTexto}>{ROTULO_SITUACAO_CHAMADA[chamada.situacao]}</Text>
       </View>
+      {guardadas > 0 && (
+        <Alerta tipo="aviso">
+          Sem internet: {guardadas === 1 ? 'uma etapa guardada' : `${guardadas} etapas guardadas`} no celular. Vão sozinhas para a empresa quando a internet voltar.
+        </Alerta>
+      )}
+      {chamada.situacao === 'CONCLUIDA' && <Alerta tipo="ok">Entrega guardada. Assim que a internet voltar, ela é enviada e a chamada termina.</Alerta>}
       {chamada.observacao ? <Alerta tipo="aviso">{chamada.observacao}</Alerta> : null}
 
       {chamada.situacao === 'OCORRENCIA' && (

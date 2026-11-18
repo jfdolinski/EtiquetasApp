@@ -60,11 +60,11 @@ import { config } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import { EntregadorAtual, EntregadorGuard } from './guarda';
 import { dataUrl, imagemDoDataUrl } from './imagens';
-import { extratoPdf } from './extrato-pdf';
+import { extratoPdf, pagamentoPdf } from './extrato-pdf';
 import { MapasService } from './mapas';
 
 /** Link de uso único do PDF (o navegador do celular baixa sem o token): 2 minutos, só em memória (uma réplica). */
-const LINKS_PDF = new Map<string, { entregadorId: string; periodo: PeriodoExtrato; expira: number }>();
+const LINKS_PDF = new Map<string, { entregadorId: string; periodo: PeriodoExtrato; fechamentoId?: string; expira: number }>();
 const VALIDADE_LINK_PDF_MS = 120_000;
 
 const DIA_MS = 86_400_000;
@@ -376,6 +376,7 @@ export class FechamentoService {
         situacao: c.fechamento ? 'PAGO' : 'A_RECEBER',
         cancelada: c.situacao === 'CANCELADA',
         pagoEm: c.fechamento?.pagoEm.toISOString().slice(0, 10) ?? null,
+        fechamentoId: c.fechamentoId,
         contestacao: ct ? { id: ct.id, mensagem: ct.mensagem, criadoEm: ct.criadoEm.toISOString(), resposta: ct.resposta, respondidaEm: ct.respondidaEm?.toISOString() ?? null } : null,
         podeContestar: podeContestar(c.concluidaEm, agora) && !(ct && !ct.respondidaEm),
       };
@@ -390,6 +391,35 @@ export class FechamentoService {
     };
   }
 
+  /** PDF de um pagamento; o entregador só pede os dele, a empresa só os dela. */
+  async pdfDoPagamento(filtro: { empresaId?: string; entregadorId?: string }, id: string): Promise<{ bytes: Uint8Array; nome: string }> {
+    const f = await this.prisma.fechamentoEntrega.findFirst({
+      where: { id, ...filtro },
+      include: {
+        empresa: { select: { nomeFantasia: true, razaoSocial: true } },
+        entregador: { select: { nome: true, chavePix: true } },
+        criadoPor: { select: { nome: true } },
+        chamadas: { orderBy: { concluidaEm: 'asc' }, select: { numero: true, tipo: true, concluidaEm: true, destino: true, valorCentavos: true, extraCentavos: true, situacao: true } },
+      },
+    });
+    if (!f) throw new NotFoundException('Pagamento não encontrado.');
+    const bytes = await pagamentoPdf(
+      { pagoEm: f.pagoEm.toISOString().slice(0, 10), totalCentavos: f.totalCentavos, observacao: f.observacao, criadoEm: f.criadoEm.toISOString(), criadoPorNome: f.criadoPor?.nome ?? null },
+      f.empresa.nomeFantasia || f.empresa.razaoSocial,
+      f.entregador,
+      f.chamadas.map((c) => ({ numero: c.numero, tipo: c.tipo as TipoChamada, concluidaEm: (c.concluidaEm ?? f.criadoEm).toISOString(), destino: destinoCurto(c.destino), valorCentavos: c.valorCentavos, extraCentavos: c.extraCentavos, cancelada: c.situacao === 'CANCELADA' })),
+      config().fusoHorario,
+    );
+    return { bytes, nome: `pagamento-flow-${f.pagoEm.toISOString().slice(0, 10)}.pdf` };
+  }
+
+  linkDoPagamento(entregadorId: string, fechamentoId: string, agora = Date.now()): { caminho: string } {
+    for (const [k, v] of LINKS_PDF) if (v.expira < agora) LINKS_PDF.delete(k);
+    const codigo = randomBytes(18).toString('base64url');
+    LINKS_PDF.set(codigo, { entregadorId, periodo: 'TUDO', fechamentoId, expira: agora + VALIDADE_LINK_PDF_MS });
+    return { caminho: `/entregador/extrato.pdf?codigo=${codigo}` };
+  }
+
   linkDoPdf(entregadorId: string, periodo: PeriodoExtrato, agora = Date.now()): { caminho: string } {
     for (const [k, v] of LINKS_PDF) if (v.expira < agora) LINKS_PDF.delete(k);
     const codigo = randomBytes(18).toString('base64url');
@@ -401,12 +431,17 @@ export class FechamentoService {
     const l = LINKS_PDF.get(codigo);
     LINKS_PDF.delete(codigo);
     if (!l || l.expira < Date.now()) throw new NotFoundException('Link vencido. Gere o comprovante de novo no aplicativo.');
+    if (l.fechamentoId) return this.pdfDoPagamento({ entregadorId: l.entregadorId }, l.fechamentoId);
     const e = await this.prisma.entregador.findUnique({ where: { id: l.entregadorId }, select: { nome: true, chavePix: true } });
     if (!e) throw new NotFoundException('Cadastro não encontrado.');
     const agora = new Date();
     const extrato = await this.extrato(l.entregadorId, l.periodo, agora);
     const bytes = await extratoPdf(extrato, e, agora, config().fusoHorario);
     return { bytes, nome: `extrato-flow-${diaNoFuso(agora, config().fusoHorario)}.pdf` };
+  }
+
+  async pagamentoDoEntregador(entregadorId: string, id: string): Promise<boolean> {
+    return (await this.prisma.fechamentoEntrega.count({ where: { id, entregadorId } })) > 0;
   }
 
   async contestar(entregadorId: string, chamadaId: string, mensagem: string): Promise<void> {
@@ -472,6 +507,15 @@ export class FechamentoController {
   @RequerPermissao('entrega.financeiro')
   obter(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string): Promise<FechamentoResumo> {
     return this.fechamento.obterFechamento(empresaId, id);
+  }
+
+  @Get('financeiro/fechamentos/:id/pdf')
+  @RequerPermissao('entrega.financeiro')
+  async pdf(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
+    const { bytes, nome } = await this.fechamento.pdfDoPagamento({ empresaId }, id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${nome}"`);
+    res.end(Buffer.from(bytes));
   }
 
   @Get('financeiro/fechamentos/:id/comprovante')
@@ -540,6 +584,16 @@ export class FechamentoEntregadorController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   linkPdf(@EntregadorAtual() e: { id: string }, @Query() dto: ExtratoDto): { caminho: string } {
     return this.fechamento.linkDoPdf(e.id, dto.periodo ?? 'SEMANA');
+  }
+
+  @Post('pagamentos/:id/link')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async linkPagamento(@EntregadorAtual() e: { id: string }, @Param('id', ParseUUIDPipe) id: string): Promise<{ caminho: string }> {
+    // Confere antes de dar o link: só pagamento dele.
+    const existe = await this.fechamento.pagamentoDoEntregador(e.id, id);
+    if (!existe) throw new NotFoundException('Pagamento não encontrado.');
+    return this.fechamento.linkDoPagamento(e.id, id);
   }
 
   @Post('chamadas/:id/contestar')
