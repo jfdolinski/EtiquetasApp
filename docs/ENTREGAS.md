@@ -24,7 +24,7 @@ Serviços: **coleta**, **entrega** e **devolução de máquina de recebimento** 
 
 - Público no app: nome, CPF, celular, e-mail, senha, tipo de veículo (moto, carro, bicicleta, a pé), placa quando houver, chave Pix para receber das empresas.
 - Documentos: selfie, CNH (quando motorizado), CRLV; aceite dos termos (uso de localização, LGPD, custódia de maquininhas).
-- Nasce **pendente** e só recebe chamadas depois de aprovado pelo super-admin (mesmo modelo do "cadastro pendente" de usuários). Recusar guarda o motivo; documentos de recusados são apagados na faxina.
+- Nasce **pendente** e só recebe chamadas depois de aprovado pelo super-admin (mesmo modelo do "cadastro pendente" de usuários). Recusar guarda o motivo; o entregador corrige e reenvia para análise. (Apagar os documentos de recusados na faxina ainda não foi feito.)
 - Login próprio (não é `Usuario`): token `ent_...` só em hash, como os celulares e as telas. Rota do entregador precisa de marca própria (`@PermitidoAoEntregador()`), nenhuma rota de empresa aceita esse token.
 - Super-admin pode suspender (com motivo); a empresa pode **bloquear para si** um entregador, sem afetar as outras.
 - CPF do entregador nunca é mostrado às empresas; elas veem primeiro nome, foto, veículo, placa e avaliação.
@@ -34,7 +34,7 @@ Serviços: **coleta**, **entrega** e **devolução de máquina de recebimento** 
 - O crédito é uma **diária**. Pacotes definidos pelo super-admin (ex.: 1, 7, 30 diárias), cada um com preço e validade em dias.
 - **Consumo:** a diária é descontada na **primeira vez que o entregador fica online no dia** (dia do calendário no fuso do sistema). Ficar online e offline várias vezes no mesmo dia não gasta outra. Quem não liga o app não gasta.
 - Sem diária disponível, o botão "Ficar online" mostra "Compre créditos para ficar online".
-- **Saldo = extrato** (`lancamentos_credito`: compra, consumo, estorno, bônus, vencimento), nunca um número editado à mão. Consome primeiro o pacote que vence antes.
+- **Saldo = lotes, nunca um número editado à mão:** cada compra confirmada ou bônus vira um lote (`lotes_credito`: quantidade, restante, validade) e cada dia online é uma linha em `diarias_entregador` ligada ao lote de onde saiu. O extrato junta os dois. Consome primeiro o lote que vence antes; lote vencido só deixa de contar (sem lançamento de vencimento).
 - **Compra com confirmação manual:** o entregador escolhe o pacote, o app mostra o Pix da plataforma (copia e cola e QR, configurados pelo super-admin) e ele envia o comprovante (imagem, tipo conferido pelos bytes). O pedido fica **aguardando**; o super-admin confere e **confirma** (gera o lançamento) ou **recusa** com motivo. Confirmação é auditada e só vale uma vez (reivindicação por `updateMany`).
 - Opcional: diárias grátis no primeiro cadastro aprovado e bônus manual (com motivo).
 - Chamada em andamento à meia-noite não é interrompida: a nova diária só é cobrada ao ficar online de novo.
@@ -172,7 +172,7 @@ Interface única na API com três funções: `geocodificar(endereco)`, `rota(pon
 
 ## Dados (rascunho)
 
-Plataforma (sem `empresa_id`): `entregadores`, `documentos_entregador`, `sessoes_entregador`, `pacotes_credito`, `pedidos_credito`, `lancamentos_credito`, `diarias_entregador` (uma por entregador e dia, chave única), `cache_geocodificacao`.
+Plataforma (sem `empresa_id`): `entregadores`, `documentos_entregador`, `sessoes_entregador`, `pacotes_credito`, `pedidos_credito`, `lotes_credito`, `diarias_entregador` (uma por entregador e dia, chave única), `parametros_entregas` (Pix da plataforma e diárias grátis), `cache_geocodificacao`.
 
 Por empresa: `configuracoes_entregas` (tabela de preços, regras de direcionamento, raio de atendimento, endereços da empresa), `chamadas_entrega` (com `pedido_id` opcional), `paradas_chamada`, `ofertas_chamada` (entregador, ordem, notas, motivo, resultado, prazo), `eventos_chamada` (histórico, fotos, código, série), `rastros_chamada`, `entregadores_empresa` (preferido/bloqueado), `avaliacoes_entregador`, `fechamentos_entregas` e `contestacoes`.
 
@@ -193,7 +193,7 @@ Relógio em processo a cada 5 s (como os agendamentos): ofertas vencidas, próxi
 
 ## Etapas
 
-1. **Base do entregador:** cadastro, documentos, aprovação, login `ent_`, pacotes e compra de créditos com confirmação manual, consumo da diária, online/offline com localização, mapa no painel da empresa, `ProvedorMapas` com OpenStreetMap.
+1. **Base do entregador (feita):** cadastro, documentos, aprovação, login `ent_`, pacotes e compra de créditos com confirmação manual, consumo da diária, online/offline com localização, mapa no painel da empresa, `ProvedorMapas` com OpenStreetMap. Ficou para depois: senha esquecida no app, faxina dos documentos de recusados, Firebase no app do entregador. Nunca testado em celular físico nem com o Nominatim público de verdade (os testes trocam os blocos do mapa e não buscam endereço).
 2. **Chamadas:** configuração da empresa (endereços, tabela de preços), abertura de chamada, rota e valor, oferta **manual** com aceite, etapas, comprovação (código, foto, número de série), ocorrências, custódia, link de acompanhamento.
 3. **Direcionamento automático:** filtros, pontuação, sequência ou grupo, novas tentativas, motivo gravado, simulador.
 4. **Fechamento e integração:** histórico e extrato do entregador, fechamento e contestação, avaliações, chamada a partir do Pedido, notificações.

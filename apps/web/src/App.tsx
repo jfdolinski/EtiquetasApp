@@ -41,6 +41,8 @@ import { VincularTela } from './pages/telas/VincularTela';
 const EditorModelo = lazy(() => import('./pages/modelos/EditorModelo').then((m) => ({ default: m.EditorModelo })));
 const EditorPost = lazy(() => import('./pages/posts/EditorPost').then((m) => ({ default: m.EditorPost })));
 const PlayerTv = lazy(() => import('./pages/telas/PlayerTv').then((m) => ({ default: m.PlayerTv })));
+const Entregas = lazy(() => import('./pages/entregas/Entregas').then((m) => ({ default: m.Entregas })));
+const Entregadores = lazy(() => import('./pages/entregas/Entregadores').then((m) => ({ default: m.Entregadores })));
 const Loja = lazy(() => import('./pages/loja/Loja').then((m) => ({ default: m.Loja })));
 
 function Protegida({ children, permissao, superAdmin }: { children: ReactNode; permissao?: CodigoPermissao; superAdmin?: boolean }) {
@@ -95,6 +97,7 @@ export function App() {
         <Route path="erps/:id" element={<Protegida superAdmin><EditorErp /></Protegida>} />
         <Route path="cobranca" element={<Protegida superAdmin><Cobranca /></Protegida>} />
         <Route path="banners" element={<Protegida superAdmin><Banners /></Protegida>} />
+        <Route path="entregadores" element={<Protegida superAdmin><Suspense fallback={null}><Entregadores /></Suspense></Protegida>} />
         <Route path="saude" element={<Protegida superAdmin><Saude /></Protegida>} />
         <Route path="assinatura" element={<Protegida permissao="empresa.ver"><Assinatura /></Protegida>} />
         <Route path="usuarios" element={<Protegida permissao="usuario.ver"><Usuarios /></Protegida>} />
@@ -110,6 +113,7 @@ export function App() {
         <Route path="posts/novo" element={<Protegida permissao="post.editar"><Suspense fallback={<div className="text-sm text-slate-500">Carregando editor…</div>}><EditorPost /></Suspense></Protegida>} />
         <Route path="posts/:id" element={<Protegida permissao="post.ver"><Suspense fallback={<div className="text-sm text-slate-500">Carregando editor…</div>}><EditorPost /></Suspense></Protegida>} />
         <Route path="pedidos" element={<Protegida permissao="pedido.ver"><Pedidos /></Protegida>} />
+        <Route path="entregas" element={<Protegida permissao="entrega.ver"><Suspense fallback={null}><Entregas /></Suspense></Protegida>} />
         <Route path="telas" element={<Protegida permissao="tela.ver"><Telas /></Protegida>} />
         <Route path="telas/vincular" element={<Protegida permissao="tela.editar"><VincularTela /></Protegida>} />
         <Route path="impressoras" element={<Protegida permissao="impressora.ver"><Impressoras /></Protegida>} />

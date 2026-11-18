@@ -1,5 +1,6 @@
 packages:
   - "apps/*"
   - "packages/*"
-  # O app de celular tem npm próprio: React Native não combina com o hoisting do pnpm.
+  # Os apps de celular têm npm próprio: React Native não combina com o hoisting do pnpm.
   - "!apps/mobile"
+  - "!apps/entregador"

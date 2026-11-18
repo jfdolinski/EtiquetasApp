@@ -22,3 +22,4 @@ export * from './pedidos-painel';
 export * from './posts';
 export * from './telas';
 export * from './telas-conteudo';
+export * from './entregas';

@@ -1,0 +1,103 @@
+# Gera o APK do Flow Entregas (app do entregador). Só compila: quem o coloca no ar é apps/entregador/release-publicada.txt.
+# - Usa a mesma chave do outro aplicativo (APP_KEYSTORE_BASE64); sem ela, o APK é de TESTE.
+# - ENTREGADOR_SERVIDOR (segredo) é o endereço do Flow gravado no APK; sem ele, a tela de entrada pede o endereço.
+# Também instala o APK num emulador Android e confere que ele abre sem travar.
+name: Aplicativo do entregador
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    # Mudar só a versão publicada não gera APK novo.
+    paths: ['apps/entregador/**', '!apps/entregador/release-publicada.txt', '.github/workflows/entregador.yml']
+
+permissions:
+  contents: write
+
+env:
+  # Sem a Release, ninguém baixa: comitar a versão em release-publicada.txt é o que publica.
+  VERSION_CODE: ${{ github.run_number }}
+
+jobs:
+  apk:
+    # Versão fixa: o emulador e o Android SDK dependem da imagem.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/entregador
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/entregador/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+
+      - name: Gera o projeto Android
+        env:
+          APP_VERSION_CODE: ${{ env.VERSION_CODE }}
+          APP_SERVIDOR: ${{ secrets.ENTREGADOR_SERVIDOR }}
+        run: npx expo prebuild -p android --no-install
+
+      - name: Compila
+        working-directory: apps/entregador/android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64
+
+      - name: Assina
+        env:
+          KEYSTORE: ${{ secrets.APP_KEYSTORE_BASE64 }}
+          SENHA: ${{ secrets.APP_KEYSTORE_SENHA }}
+        run: |
+          set -e
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          mkdir -p saida
+          if [ -n "$KEYSTORE" ]; then
+            echo "$KEYSTORE" | base64 -d > /tmp/chave.p12
+            bt="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+            "$bt/apksigner" sign --ks /tmp/chave.p12 --ks-type PKCS12 --ks-pass env:SENHA --out saida/flow-entregas.apk "$apk"
+            rm -f /tmp/chave.p12
+            "$bt/apksigner" verify --print-certs saida/flow-entregas.apk | head -3
+            echo "PRERELEASE=" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Sem APP_KEYSTORE_BASE64: APK de TESTE, assinado com a chave de depuração."
+            cp "$apk" saida/flow-entregas.apk
+            echo "PRERELEASE=--prerelease" >> "$GITHUB_ENV"
+          fi
+          node -p "require('./package.json').version" > saida/entregador-versao.txt
+          echo "VERSAO=$(cat saida/entregador-versao.txt)" >> "$GITHUB_ENV"
+          echo "TAMANHO=$(du -m saida/flow-entregas.apk | cut -f1)" >> "$GITHUB_ENV"
+          (cd saida && sha256sum flow-entregas.apk > flow-entregas.apk.sha256)
+
+      - name: Habilita o emulador
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Abre no emulador
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          working-directory: apps/entregador
+          script: bash scripts/conferir-no-emulador.sh saida/flow-entregas.apk
+
+      - name: Publica como Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="entregador-$VERSAO-$VERSION_CODE"
+          gh release create "$tag" saida/* --target "$GITHUB_SHA" $PRERELEASE --title "Flow Entregas $VERSAO ($VERSION_CODE)" \
+            --notes "APK de $TAMANHO MB. Para colocar no ar, grave \"$VERSAO-$VERSION_CODE\" em apps/entregador/release-publicada.txt."
+          echo "::notice title=Release::$tag"

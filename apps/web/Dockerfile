@@ -54,6 +54,19 @@ RUN set -e; \
         || echo "AVISO: não foi possível baixar o aplicativo $v"; \
     fi
 
+# App do entregador (Flow Entregas): mesmo esquema, Release do workflow "Aplicativo do entregador".
+FROM alpine:3.20 AS entregador
+ARG AGENTE_REPOSITORIO="jfdolinski/EtiquetasApp"
+COPY apps/entregador/release-publicada.txt /tmp/release.txt
+RUN set -e; \
+    mkdir -p /downloads; \
+    v="$(tr -d ' \r\n' < /tmp/release.txt)"; \
+    if [ -n "$v" ]; then \
+      base="https://github.com/$AGENTE_REPOSITORIO/releases/download/entregador-$v"; \
+      wget -q -O /tmp/flow-entregas.apk "$base/flow-entregas.apk" && wget -q -O /tmp/entregador-versao.txt "$base/entregador-versao.txt" && mv /tmp/flow-entregas.apk /tmp/entregador-versao.txt /downloads/ \
+        || echo "AVISO: não foi possível baixar o app do entregador $v"; \
+    fi
+
 FROM nginx:1.27-alpine
 # O nginx substitui ${API_UPSTREAM} ao iniciar (apenas variáveis definidas no ambiente).
 ENV API_UPSTREAM=http://api:3000
@@ -61,5 +74,6 @@ COPY apps/web/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=web /repo/apps/web/dist /usr/share/nginx/html
 COPY --from=agente /downloads /usr/share/nginx/html/downloads
 COPY --from=app /downloads /usr/share/nginx/html/downloads
+COPY --from=entregador /downloads /usr/share/nginx/html/downloads
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD wget -qO- http://127.0.0.1/ >/dev/null || exit 1

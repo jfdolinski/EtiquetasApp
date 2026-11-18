@@ -17,7 +17,7 @@ const ambienteApi = {
   PROXIES_CONFIAVEIS: '1',
   PORTA: '3000',
   // Build web do aplicativo, servido em outra porta nos testes de tela do celular.
-  CORS_ORIGEM: 'http://localhost:8099',
+  CORS_ORIGEM: 'http://localhost:8099,http://localhost:8098',
   // Catálogo de mentira, que o próprio posts.spec.ts sobe.
   CATALOGO_URL: 'http://localhost:8097',
 };
@@ -46,5 +46,7 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
     },
     ...(process.env.E2E_APP_URL ? [{ command: 'node servir-app.mjs', url: 'http://localhost:8099', reuseExistingServer: !process.env.CI }] : []),
+    // App do entregador (apps/entregador, depois de npx expo export -p web).
+    ...(process.env.E2E_ENTREGADOR_URL ? [{ command: 'node servir-app.mjs entregador 8098', url: 'http://localhost:8098', reuseExistingServer: !process.env.CI }] : []),
   ],
 });

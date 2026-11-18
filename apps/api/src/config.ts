@@ -24,6 +24,8 @@ export interface Config {
   fcm: { projeto: string; email: string; chavePrivada: string } | null;
   /** Dias até apagar os bytes dos trabalhos de impressão terminados. */
   retencaoConteudoDias: number;
+  /** Mapas das entregas (OpenStreetMap): busca de endereço e blocos do mapa no navegador. */
+  mapas: { nominatimUrl: string; agenteUsuario: string; blocos: string; atribuicao: string };
   retencaoAuditoriaDias: number;
 }
 
@@ -98,6 +100,13 @@ export function config(): Config {
     urlPublica: process.env.URL_PUBLICA?.replace(/\/+$/, '') || null,
     catalogoUrl: process.env.CATALOGO_URL?.replace(/\/+$/, '') || null,
     fcm,
+    mapas: {
+      nominatimUrl: (process.env.NOMINATIM_URL || 'https://nominatim.openstreetmap.org').replace(/\/+$/, ''),
+      agenteUsuario: process.env.MAPAS_AGENTE_USUARIO || 'Flow-Entregas/1.0',
+      // Trocar o domínio dos blocos exige liberar o novo na CSP (nginx.conf.template).
+      blocos: process.env.MAPA_BLOCOS_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      atribuicao: process.env.MAPA_ATRIBUICAO || '© OpenStreetMap',
+    },
     retencaoConteudoDias: diasDe(process.env.RETENCAO_CONTEUDO_DIAS, 90),
     retencaoAuditoriaDias: diasDe(process.env.RETENCAO_AUDITORIA_DIAS, 730),
   };

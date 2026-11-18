@@ -38,38 +38,39 @@ model Empresa {
   criadoEm             DateTime         @default(now()) @map("criado_em")
   atualizadoEm         DateTime         @updatedAt @map("atualizado_em")
 
-  usuarios            Usuario[]
-  perfis              Perfil[]
-  logs                LogAuditoria[]
-  agentes             Agente[]
-  conexoes            ConexaoBanco[]
-  consultas           ConsultaSql[]
-  perfisTela          PerfilTela[]
-  telas               Tela[]
-  conteudosTela       ConteudoTela[]
-  imagensTela         ImagemTela[]
-  fotosProdutoTela    FotoProdutoTela[]
-  produtosBanidos     ProdutoBanido[]
-  modelos             ModeloEtiqueta[]
-  impressoras         Impressora[]
-  listas              ListaDiaria[]
-  trabalhos           TrabalhoImpressao[]
-  sistemaErp          SistemaErp?           @relation(fields: [sistemaErpId], references: [id], onDelete: Restrict)
-  assinatura          Assinatura?
-  parametrosCobranca  ParametroCobranca?
-  pagamentos          PagamentoAssinatura[]
-  avisosCobranca      AvisoCobranca[]
-  agendamentos        AgendamentoModelo[]
-  execucoesConsulta   ExecucaoConsulta[]
-  regrasNotificacao   RegraNotificacao[]
-  janelaNotificacao   JanelaNotificacao?
-  notificacoes        Notificacao[]
-  dispositivos        DispositivoMovel[]
-  posts               PostSocial[]
-  imagensPost         ImagemPost[]
-  marcaPost           MarcaPost?
-  configuracaoPedidos ConfiguracaoPedidos?
-  pedidos             Pedido[]
+  usuarios             Usuario[]
+  perfis               Perfil[]
+  logs                 LogAuditoria[]
+  agentes              Agente[]
+  conexoes             ConexaoBanco[]
+  consultas            ConsultaSql[]
+  perfisTela           PerfilTela[]
+  telas                Tela[]
+  conteudosTela        ConteudoTela[]
+  imagensTela          ImagemTela[]
+  fotosProdutoTela     FotoProdutoTela[]
+  produtosBanidos      ProdutoBanido[]
+  modelos              ModeloEtiqueta[]
+  impressoras          Impressora[]
+  listas               ListaDiaria[]
+  trabalhos            TrabalhoImpressao[]
+  sistemaErp           SistemaErp?           @relation(fields: [sistemaErpId], references: [id], onDelete: Restrict)
+  assinatura           Assinatura?
+  parametrosCobranca   ParametroCobranca?
+  pagamentos           PagamentoAssinatura[]
+  avisosCobranca       AvisoCobranca[]
+  agendamentos         AgendamentoModelo[]
+  execucoesConsulta    ExecucaoConsulta[]
+  regrasNotificacao    RegraNotificacao[]
+  janelaNotificacao    JanelaNotificacao?
+  notificacoes         Notificacao[]
+  dispositivos         DispositivoMovel[]
+  posts                PostSocial[]
+  imagensPost          ImagemPost[]
+  marcaPost            MarcaPost?
+  configuracaoPedidos  ConfiguracaoPedidos?
+  configuracaoEntregas ConfiguracaoEntregas?
+  pedidos              Pedido[]
 
   @@map("empresas")
 }
@@ -114,8 +115,8 @@ model Usuario {
   redefinicoes         RedefinicaoSenha[]
   conteudosTela        ConteudoTela[]
   configuracoesPedidos ConfiguracaoPedidos[]
-  pedidosAceitos       Pedido[] @relation("PedidosAceitos")
-  pedidosVendidos      Pedido[] @relation("PedidosVendidos")
+  pedidosAceitos       Pedido[]              @relation("PedidosAceitos")
+  pedidosVendidos      Pedido[]              @relation("PedidosVendidos")
 
   @@index([empresaId])
   @@map("usuarios")
@@ -1247,4 +1248,192 @@ model Pedido {
   @@index([empresaId, origemHash, criadoEm])
   @@index([vendedorId, criadoEm])
   @@map("pedidos")
+}
+
+// Entregas (docs/ENTREGAS.md) -------------------------------------------------------------
+
+/// Entregador: cadastro da plataforma (sem empresa_id), atende várias empresas.
+model Entregador {
+  id              String    @id @default(uuid()) @db.Uuid
+  nome            String
+  cpf             String    @unique
+  email           String    @unique
+  celular         String
+  senhaHash       String    @map("senha_hash")
+  veiculo         String
+  placa           String?
+  chavePix        String    @map("chave_pix")
+  /// PENDENTE, APROVADO, RECUSADO ou SUSPENSO.
+  situacao        String    @default("PENDENTE")
+  motivo          String?
+  decididoEm      DateTime? @map("decidido_em")
+  termosVersao    Int       @map("termos_versao")
+  termosAceitosEm DateTime  @map("termos_aceitos_em")
+  online          Boolean   @default(false)
+  onlineDesde     DateTime? @map("online_desde")
+  lat             Float?
+  lon             Float?
+  precisaoMetros  Float?    @map("precisao_metros")
+  posicaoEm       DateTime? @map("posicao_em")
+  /// Último aviso do app (posição ou recusa): sem ele por 10 min, fica offline.
+  avisoEm         DateTime? @map("aviso_em")
+  versaoApp       String?   @map("versao_app")
+  criadoEm        DateTime  @default(now()) @map("criado_em")
+  atualizadoEm    DateTime  @updatedAt @map("atualizado_em")
+
+  sessoes    SessaoEntregador[]
+  documentos DocumentoEntregador[]
+  pedidos    PedidoCredito[]
+  lotes      LoteCredito[]
+  diarias    DiariaEntregador[]
+
+  @@index([online, posicaoEm])
+  @@index([situacao, criadoEm])
+  @@map("entregadores")
+}
+
+/// Token `ent_...` do app do entregador (só o hash).
+model SessaoEntregador {
+  id           String    @id @default(uuid()) @db.Uuid
+  entregadorId String    @map("entregador_id") @db.Uuid
+  tokenHash    String    @unique @map("token_hash")
+  dispositivo  String    @default("")
+  criadoEm     DateTime  @default(now()) @map("criado_em")
+  ultimoUsoEm  DateTime  @default(now()) @map("ultimo_uso_em")
+  encerradaEm  DateTime? @map("encerrada_em")
+
+  entregador Entregador @relation(fields: [entregadorId], references: [id], onDelete: Cascade)
+
+  @@index([entregadorId, encerradaEm])
+  @@map("sessoes_entregador")
+}
+
+/// SELFIE, CNH ou CRLV; reenviar substitui.
+model DocumentoEntregador {
+  id           String   @id @default(uuid()) @db.Uuid
+  entregadorId String   @map("entregador_id") @db.Uuid
+  tipo         String
+  mime         String
+  bytes        Bytes
+  criadoEm     DateTime @default(now()) @map("criado_em")
+
+  entregador Entregador @relation(fields: [entregadorId], references: [id], onDelete: Cascade)
+
+  @@unique([entregadorId, tipo])
+  @@map("documentos_entregador")
+}
+
+model PacoteCredito {
+  id            String   @id @default(uuid()) @db.Uuid
+  nome          String
+  diarias       Int
+  precoCentavos Int      @map("preco_centavos")
+  validadeDias  Int      @map("validade_dias")
+  ativo         Boolean  @default(true)
+  criadoEm      DateTime @default(now()) @map("criado_em")
+  atualizadoEm  DateTime @updatedAt @map("atualizado_em")
+
+  @@map("pacotes_credito")
+}
+
+/// Compra de diárias: o entregador paga o Pix e o super-admin confirma à mão. Guarda a cópia do pacote.
+model PedidoCredito {
+  id                   String    @id @default(uuid()) @db.Uuid
+  entregadorId         String    @map("entregador_id") @db.Uuid
+  pacoteNome           String    @map("pacote_nome")
+  diarias              Int
+  precoCentavos        Int       @map("preco_centavos")
+  validadeDias         Int       @map("validade_dias")
+  /// Aparece no extrato de quem recebe o Pix.
+  txid                 String    @unique
+  /// AGUARDANDO, CONFIRMADO, RECUSADO ou CANCELADO.
+  situacao             String    @default("AGUARDANDO")
+  pagamentoInformadoEm DateTime? @map("pagamento_informado_em")
+  comprovante          Bytes?
+  comprovanteMime      String?   @map("comprovante_mime")
+  motivo               String?
+  decididoEm           DateTime? @map("decidido_em")
+  decididoPorId        String?   @map("decidido_por_id") @db.Uuid
+  criadoEm             DateTime  @default(now()) @map("criado_em")
+
+  entregador Entregador   @relation(fields: [entregadorId], references: [id], onDelete: Cascade)
+  lote       LoteCredito?
+
+  @@index([situacao, criadoEm])
+  @@index([entregadorId, criadoEm])
+  @@map("pedidos_credito")
+}
+
+/// Entrada de diárias (compra confirmada ou bônus), gasta primeiro a que vence antes.
+model LoteCredito {
+  id           String   @id @default(uuid()) @db.Uuid
+  entregadorId String   @map("entregador_id") @db.Uuid
+  /// COMPRA ou BONUS.
+  origem       String
+  quantidade   Int
+  restante     Int
+  venceEm      DateTime @map("vence_em")
+  pedidoId     String?  @unique @map("pedido_id") @db.Uuid
+  motivo       String?
+  criadoPorId  String?  @map("criado_por_id") @db.Uuid
+  criadoEm     DateTime @default(now()) @map("criado_em")
+
+  entregador Entregador         @relation(fields: [entregadorId], references: [id], onDelete: Cascade)
+  pedido     PedidoCredito?     @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
+  diarias    DiariaEntregador[]
+
+  @@index([entregadorId, venceEm])
+  @@map("lotes_credito")
+}
+
+/// Uma por entregador e dia: descontada na primeira vez que ele fica online no dia.
+model DiariaEntregador {
+  id           String   @id @default(uuid()) @db.Uuid
+  entregadorId String   @map("entregador_id") @db.Uuid
+  dia          DateTime @db.Date
+  loteId       String   @map("lote_id") @db.Uuid
+  criadoEm     DateTime @default(now()) @map("criado_em")
+
+  entregador Entregador  @relation(fields: [entregadorId], references: [id], onDelete: Cascade)
+  lote       LoteCredito @relation(fields: [loteId], references: [id], onDelete: Cascade)
+
+  @@unique([entregadorId, dia])
+  @@map("diarias_entregador")
+}
+
+/// Uma linha só (id 1): Pix da plataforma e diárias grátis.
+model ParametrosEntregas {
+  id                   Int      @id @default(1)
+  pixChave             String   @default("") @map("pix_chave")
+  pixNome              String   @default("") @map("pix_nome")
+  pixCidade            String   @default("") @map("pix_cidade")
+  diariasBonusCadastro Int      @default(0) @map("diarias_bonus_cadastro")
+  validadeBonusDias    Int      @default(30) @map("validade_bonus_dias")
+  atualizadoEm         DateTime @updatedAt @map("atualizado_em")
+
+  @@map("parametros_entregas")
+}
+
+/// Por empresa: ponto de partida e raio em que ela enxerga os entregadores.
+model ConfiguracaoEntregas {
+  id                String   @id @default(uuid()) @db.Uuid
+  empresaId         String   @unique @map("empresa_id") @db.Uuid
+  baseLat           Float?   @map("base_lat")
+  baseLon           Float?   @map("base_lon")
+  baseEndereco      String   @default("") @map("base_endereco")
+  raioAtendimentoKm Int      @default(15) @map("raio_atendimento_km")
+  atualizadoEm      DateTime @updatedAt @map("atualizado_em")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@map("configuracoes_entregas")
+}
+
+/// Endereço → ponto (Nominatim tem limite de uso): guardado para não perguntar de novo.
+model CacheGeocodificacao {
+  chave      String   @id
+  resultados Json
+  criadoEm   DateTime @default(now()) @map("criado_em")
+
+  @@map("cache_geocodificacao")
 }

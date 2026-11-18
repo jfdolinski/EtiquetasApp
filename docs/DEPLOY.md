@@ -152,6 +152,8 @@ Cada conexão usa uma conta de serviço do Google, com acesso somente de leitura
 | `CATALOGO_URL` | Endereço do sistema de catálogo, fonte das imagens dos posts e das fotos dos produtos nas telas. Sem ele, os posts usam só imagem própria e as telas mostram os produtos sem foto |
 | `FCM_CONTA_SERVICO` | Avisos no celular com o app fechado: JSON da conta de serviço do Firebase, em base64 |
 | `RETENCAO_CONTEUDO_DIAS`, `RETENCAO_AUDITORIA_DIAS` | Faxina diária; padrão 90 e 730 dias |
+| `NOMINATIM_URL`, `MAPAS_AGENTE_USUARIO` | Busca de endereço das Entregas (OpenStreetMap). Padrão: o Nominatim público, que aceita uso leve (uma busca por segundo, guardadas em cache); com volume, aponte para um Nominatim próprio |
+| `MAPA_BLOCOS_URL`, `MAPA_ATRIBUICAO` | Blocos do mapa no navegador. Trocar o domínio exige liberá-lo no `img-src` da CSP (`apps/web/nginx.conf.template`) |
 
 A tela **Saúde do sistema** (super-admin) mostra o que está configurado.
 
@@ -187,3 +189,7 @@ Depois disso, cada versão nova do agente repete os passos 3 e 4. **Sem `AGENTE_
 ## Aplicativo de celular
 
 Ver [apps/mobile/README.md](../apps/mobile/README.md). O instalador é baixado no build do serviço web, a partir da versão em `apps/mobile/release-publicada.txt`.
+
+## App do entregador
+
+Ver [apps/entregador/README.md](../apps/entregador/README.md). Mesmo esquema: o instalador é baixado no build do serviço web, a partir da versão em `apps/entregador/release-publicada.txt`, e servido em `/downloads/flow-entregas.apk`. Antes da primeira versão, crie o segredo `ENTREGADOR_SERVIDOR` no GitHub com o endereço do site (https://…): é o servidor gravado no APK.
