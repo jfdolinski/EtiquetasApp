@@ -299,7 +299,7 @@ export interface DistribuicaoResumo {
 
 export interface OfertaDaChamada {
   entregadorNome: string;
-  resultado: 'PENDENTE' | 'ACEITA' | 'RECUSADA' | 'EXPIRADA' | 'CANCELADA';
+  resultado: 'PENDENTE' | 'ACEITA' | 'RECUSADA' | 'EXPIRADA' | 'CANCELADA' | 'DESISTIU';
   expiraEm: string;
   criadoEm: string;
   /** Texto do porquê, quando a distribuição escolheu. */

@@ -5,6 +5,7 @@ import { normalizarCelular } from './pedidos';
 import type { OfertaResumo, TabelaPrecos } from './entregas-chamadas';
 import type { RegrasDirecionamento } from './entregas-direcionamento';
 import type { Adicionais } from './entregas-paradas';
+import type { FotosObrigatorias } from './entregas-operacao';
 
 // Entregador ------------------------------------------------------------------------------
 
@@ -296,6 +297,8 @@ export interface ConfigEntregasEmpresa {
   chamarAoAceitarPedido: boolean;
   /** Somam ao valor da tabela por horário e por região. */
   adicionais: Adicionais;
+  /** O entregador tira foto na coleta e/ou em cada entrega. */
+  fotos: FotosObrigatorias;
 }
 
 export interface ResultadoEndereco extends Ponto {

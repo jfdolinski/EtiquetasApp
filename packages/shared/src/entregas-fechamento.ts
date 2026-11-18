@@ -73,6 +73,8 @@ export interface LinhaExtrato {
   extraMotivo: string;
   situacao: SituacaoFinanceira;
   pagoEm: string | null;
+  /** Cancelada depois do aceite: o valor é a taxa de deslocamento. */
+  cancelada: boolean;
   contestacao: ContestacaoResumo | null;
   podeContestar: boolean;
 }
@@ -113,6 +115,7 @@ export interface LinhaFechamento {
   extraCentavos: number;
   extraMotivo: string;
   contestacaoAberta: boolean;
+  cancelada: boolean;
 }
 
 export interface APagarEntregador {

@@ -95,7 +95,10 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
   const [ocorrendo, setOcorrendo] = useState(false);
   const [motivo, setMotivo] = useState<MotivoOcorrencia>('CLIENTE_AUSENTE');
   const [texto, setTexto] = useState('');
+  const [desistindo, setDesistindo] = useState(false);
+  const [motivoDesistencia, setMotivoDesistencia] = useState('');
   const etapa = PROXIMA_ETAPA[chamada.situacao];
+  const pedeFoto = (etapa?.para === 'COLETADA' && chamada.pedeFotoColeta) || (etapa?.para === 'CONCLUIDA' && chamada.pedeFotoEntrega);
   const indoColetar = chamada.situacao === 'ACEITA' || chamada.situacao === 'NA_COLETA';
 
   if (lendo) return <LeitorCodigo aoLer={(c) => { setSerie(normalizarSerie(c)); setLendo(false); }} aoCancelar={() => setLendo(false)} />;
@@ -105,13 +108,29 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
     setErro(null);
     setOcupado(true);
     try {
+      // A empresa pode exigir a foto da coleta ou da entrega.
+      const foto = pedeFoto ? await escolherImagem(Platform.OS === 'web' ? 'galeria' : 'camera') : null;
+      if (pedeFoto && !foto) return setErro(etapa.para === 'COLETADA' ? 'Tire a foto da coleta para continuar.' : 'Tire a foto da entrega para continuar.');
       const p = await posicaoAtual();
       const c = await api<ChamadaEntregador>(`/entregador/chamadas/${chamada.id}/avancar`, {
         metodo: 'POST',
-        corpo: { para: etapa.para, lat: p.coords.latitude, lon: p.coords.longitude, precisao: p.coords.accuracy ?? null, simulada: p.mocked === true, serie: serie || undefined, codigo: codigo || undefined },
+        corpo: { para: etapa.para, lat: p.coords.latitude, lon: p.coords.longitude, precisao: p.coords.accuracy ?? null, simulada: p.mocked === true, serie: serie || undefined, codigo: codigo || undefined, foto: foto ?? undefined },
       });
       setCodigo('');
       aoMudar(c);
+    } catch (e) {
+      setErro((e as Error).message);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  async function desistir() {
+    setErro(null);
+    setOcupado(true);
+    try {
+      await api(`/entregador/chamadas/${chamada.id}/desistir`, { metodo: 'POST', corpo: { motivo: motivoDesistencia } });
+      aoMudar(null);
     } catch (e) {
       setErro((e as Error).message);
     } finally {
@@ -179,7 +198,23 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
       )}
 
       {erro && <Alerta>{erro}</Alerta>}
-      {etapa && <Botao titulo={etapa.rotulo} onPress={() => void avancar()} ocupado={ocupado} />}
+      {etapa && <Botao titulo={pedeFoto ? `Tirar foto e ${etapa.rotulo.toLowerCase()}` : etapa.rotulo} onPress={() => void avancar()} ocupado={ocupado} />}
+      {(chamada.situacao === 'ACEITA' || chamada.situacao === 'NA_COLETA') && (
+        <View style={{ marginTop: 12 }}>
+          {desistindo ? (
+            <Cartao>
+              <Campo rotulo="Por que vai desistir? (opcional)" value={motivoDesistencia} onChangeText={setMotivoDesistencia} />
+              <Texto suave>A chamada volta para outro entregador. Desistir só conta na sua taxa de aceite.</Texto>
+              <View style={{ gap: 8 }}>
+                <Botao titulo="Confirmar desistência" variante="perigo" onPress={() => void desistir()} ocupado={ocupado} />
+                <Botao titulo="Voltar" variante="secundario" onPress={() => setDesistindo(false)} />
+              </View>
+            </Cartao>
+          ) : (
+            <Botao titulo="Desistir da chamada" variante="secundario" onPress={() => setDesistindo(true)} />
+          )}
+        </View>
+      )}
 
       {chamada.situacao !== 'OCORRENCIA' && (
         <View style={{ marginTop: 16 }}>

@@ -16,6 +16,7 @@ function montar(chamada: Record<string, unknown>) {
     chamadaEntrega: { updateMany: jest.fn(async () => ({ count: 1 })) },
     fotoChamada: { create: jest.fn(async () => ({})) },
     paradaExtraChamada: { updateMany: jest.fn(async () => ({ count: 1 })) },
+    rastroChamada: { create: jest.fn(async () => ({})) },
     entregador: { update: jest.fn(async () => ({})) },
     $executeRaw: jest.fn(async () => 1),
   };
@@ -46,7 +47,7 @@ describe('etapas da chamada', () => {
     await expect(montar({ ...na, serieEsperada: 'ABC123' }).s.avancar('e1', 'c1', { para: 'COLETADA', ...SE, serie: 'abc-124' })).rejects.toThrow(/não confere/);
     const { s, tx } = montar({ ...na, serieEsperada: 'ABC123' });
     await s.avancar('e1', 'c1', { para: 'COLETADA', ...SE, serie: 'abc-123' });
-    expect(tx.chamadaEntrega.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { situacao: 'COLETADA', serieColetada: 'ABC123' } }));
+    expect(tx.chamadaEntrega.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { situacao: 'COLETADA', coletadaEm: expect.any(Date), serieColetada: 'ABC123' } }));
   });
 
   it('entrega exige o código e conta as tentativas', async () => {
@@ -71,6 +72,16 @@ describe('etapas da chamada', () => {
     expect(segunda.tx.chamadaEntrega.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { situacao: 'CONCLUIDA', concluidaEm: expect.any(Date) } }));
     expect(segunda.tx.paradaExtraChamada.updateMany).toHaveBeenCalledWith({ where: { chamadaId: 'c1', ordem: 1 }, data: { entregueEm: expect.any(Date) } });
     await expect(montar({ situacao: 'COLETADA', paradaAtual: 1, paradas: [extra] }).s.avancar('e1', 'c1', { para: 'NO_DESTINO', ...PAULISTA })).rejects.toThrow(/não está no destino/);
+  });
+
+  it('foto obrigatória na coleta e na entrega, e a da parada leva o número dela', async () => {
+    await expect(montar({ situacao: 'NA_COLETA', fotoColeta: true }).s.avancar('e1', 'c1', { para: 'COLETADA', ...SE })).rejects.toThrow(/foto da coleta/);
+    await expect(montar({ situacao: 'NO_DESTINO', fotoEntrega: true }).s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...PAULISTA, codigo: '1234' })).rejects.toThrow(/foto da entrega/);
+    const extra = { ordem: 1, parada: parada(SE), codigoConfirmacao: '9999', entregueEm: null };
+    const { s, tx } = montar({ situacao: 'NO_DESTINO', fotoEntrega: true, paradaAtual: 1, paradas: [extra] });
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    await s.avancar('e1', 'c1', { para: 'CONCLUIDA', ...SE, codigo: '9999', foto: png });
+    expect(tx.fotoChamada.create).toHaveBeenCalledWith({ data: expect.objectContaining({ etapa: 'ENTREGA_1' }) });
   });
 
   it('mudou no meio do caminho: recusa', async () => {

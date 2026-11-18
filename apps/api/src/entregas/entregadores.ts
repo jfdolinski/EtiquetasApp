@@ -33,6 +33,9 @@ import {
   documentosExigidos,
   formatarCpf,
   MINUTOS_OFFLINE_AUTOMATICO,
+  caminhoRedefinirSenhaEntregador,
+  primeiroNome,
+  SENHA_ENTREGADOR_MINIMO,
   normalizarCelular,
   normalizarCpf,
   normalizarPlaca,
@@ -53,6 +56,8 @@ import {
 import { hashDoToken } from '../auth/conta.service';
 import { Publico } from '../auth/decorators';
 import { compararComHashFicticio, conferirSenha, gerarHashSenha } from '../auth/senha';
+import { sha256 } from '../cripto';
+import { EmailService } from '../email/email.service';
 import { config } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChamadasService } from './chamadas';
@@ -76,6 +81,15 @@ class CadastroEntregadorDto {
   @IsBoolean() aceitaTermos: boolean;
   @IsOptional() @IsString() @MaxLength(80) dispositivo?: string;
   @IsOptional() @IsString() @MaxLength(40) versao?: string;
+}
+
+class EsqueciSenhaEntregadorDto {
+  @IsString() @MinLength(3) @MaxLength(160) email: string;
+}
+
+class RedefinirSenhaEntregadorDto {
+  @IsString() @MinLength(20) @MaxLength(200) token: string;
+  @IsString() @MaxLength(200) senha: string;
 }
 
 class LoginEntregadorDto {
@@ -133,6 +147,7 @@ export class EntregadoresService implements OnApplicationBootstrap, OnModuleDest
     private readonly prisma: PrismaService,
     private readonly creditos: CreditosService,
     private readonly chamadas: ChamadasService,
+    private readonly email: EmailService,
   ) {}
 
   onApplicationBootstrap() {
@@ -347,13 +362,57 @@ export class EntregadoresService implements OnApplicationBootstrap, OnModuleDest
         ...(dto.versao ? { versaoApp: dto.versao } : {}),
       },
     });
-    return { online: true, aviso: null, saldoDiarias: await saldo(), ...(await this.deTrabalho(id, true)) };
+    const trabalho = await this.deTrabalho(id, true);
+    if (trabalho.chamadaId) await this.chamadas.gravarRastro(trabalho.chamadaId, dto, agora).catch(() => undefined);
+    return { online: true, aviso: null, saldoDiarias: await saldo(), ...trabalho };
   }
 
   /** O aviso de posição leva a oferta pendente: sem Firebase, é assim que o app fica sabendo. */
   private async deTrabalho(id: string, online: boolean) {
     const [oferta, chamadaId] = await Promise.all([online ? this.chamadas.ofertaPendente(id) : null, this.chamadas.chamadaAtivaId(id)]);
     return { oferta, chamadaId };
+  }
+
+  // Senha esquecida ------------------------------------------------------------------------
+
+  /** Sem e-mail configurado, o app nem mostra "Esqueci a senha". */
+  recursos(): { esqueciSenha: boolean } {
+    return { esqueciSenha: this.email.disponivel && Boolean(config().urlPublica) };
+  }
+
+  /** Responde igual exista ou não o e-mail; o token vai depois do # (fora de logs). */
+  async pedirRedefinicao(email: string): Promise<void> {
+    const url = config().urlPublica;
+    if (!this.email.disponivel || !url) return;
+    const e = await this.prisma.entregador.findUnique({ where: { email: email.trim().toLowerCase() }, select: { id: true, nome: true, email: true, situacao: true } });
+    if (!e || e.situacao === 'SUSPENSO') return;
+    const recentes = await this.prisma.redefinicaoSenhaEntregador.count({ where: { entregadorId: e.id, criadoEm: { gt: new Date(Date.now() - 3_600_000) } } });
+    if (recentes >= 3) return;
+    const token = randomBytes(32).toString('base64url');
+    await this.prisma.$transaction([
+      this.prisma.redefinicaoSenhaEntregador.updateMany({ where: { entregadorId: e.id, usadoEm: null }, data: { usadoEm: new Date() } }),
+      this.prisma.redefinicaoSenhaEntregador.create({ data: { entregadorId: e.id, tokenHash: sha256(token), expiraEm: new Date(Date.now() + 3_600_000) } }),
+    ]);
+    void this.email.enviar(
+      e.email,
+      'Nova senha - Flow Entregas',
+      `Olá, ${primeiroNome(e.nome)}.\n\nPara criar uma nova senha do Flow Entregas, abra este link em até 1 hora:\n${url}${caminhoRedefinirSenhaEntregador(token)}\n\nSe não foi você quem pediu, ignore este e-mail: sua senha continua a mesma.`,
+    );
+  }
+
+  /** Nova senha: o link vale uma vez e encerra todas as sessões (o app pede para entrar de novo). */
+  async redefinirSenha(token: string, senha: string): Promise<void> {
+    if (senha.length < SENHA_ENTREGADOR_MINIMO) throw new BadRequestException(`A senha precisa ter ao menos ${SENHA_ENTREGADOR_MINIMO} caracteres.`);
+    const pedido = await this.prisma.redefinicaoSenhaEntregador.findUnique({ where: { tokenHash: sha256(token) } });
+    if (!pedido || pedido.usadoEm || pedido.expiraEm < new Date()) throw new BadRequestException('Este link já foi usado ou expirou. Peça um novo no aplicativo.');
+    const agora = new Date();
+    const senhaHash = await gerarHashSenha(senha);
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.redefinicaoSenhaEntregador.updateMany({ where: { id: pedido.id, usadoEm: null }, data: { usadoEm: agora } });
+      if (!count) throw new BadRequestException('Este link já foi usado ou expirou. Peça um novo no aplicativo.');
+      await tx.entregador.update({ where: { id: pedido.entregadorId }, data: { senhaHash } });
+      await tx.sessaoEntregador.updateMany({ where: { entregadorId: pedido.entregadorId, encerradaEm: null }, data: { encerradaEm: agora } });
+    });
   }
 
   async ficarOffline(id: string): Promise<void> {
@@ -378,6 +437,25 @@ export class EntregadorPublicoController {
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   cadastrar(@Body() dto: CadastroEntregadorDto): Promise<SessaoEntregadorResposta> {
     return this.entregadores.cadastrar(dto);
+  }
+
+  @Get('recursos')
+  recursos(): { esqueciSenha: boolean } {
+    return this.entregadores.recursos();
+  }
+
+  @Post('senha/esqueci')
+  @HttpCode(204)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  esqueci(@Body() dto: EsqueciSenhaEntregadorDto): Promise<void> {
+    return this.entregadores.pedirRedefinicao(dto.email);
+  }
+
+  @Post('senha/redefinir')
+  @HttpCode(204)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  redefinir(@Body() dto: RedefinirSenhaEntregadorDto): Promise<void> {
+    return this.entregadores.redefinirSenha(dto.token, dto.senha);
   }
 
   @Post('login')

@@ -45,6 +45,7 @@ const Entregas = lazy(() => import('./pages/entregas/Entregas').then((m) => ({ d
 const Entregadores = lazy(() => import('./pages/entregas/Entregadores').then((m) => ({ default: m.Entregadores })));
 const Loja = lazy(() => import('./pages/loja/Loja').then((m) => ({ default: m.Loja })));
 const Rastreio = lazy(() => import('./pages/rastreio/Rastreio').then((m) => ({ default: m.Rastreio })));
+const RedefinirSenhaEntregador = lazy(() => import('./pages/rastreio/RedefinirSenhaEntregador').then((m) => ({ default: m.RedefinirSenhaEntregador })));
 
 function Protegida({ children, permissao, superAdmin }: { children: ReactNode; permissao?: CodigoPermissao; superAdmin?: boolean }) {
   const { usuario, pode } = useAuth();
@@ -71,6 +72,15 @@ export function App() {
     return (
       <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
         <Loja />
+      </Suspense>
+    );
+  }
+
+  // O entregador não tem login no site: só troca a senha pelo link do e-mail.
+  if (pathname === '/entregador/redefinir-senha') {
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
+        <RedefinirSenhaEntregador />
       </Suspense>
     );
   }

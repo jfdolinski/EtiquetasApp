@@ -70,6 +70,8 @@ export interface PrecoTipo {
   kmIncluso: number;
   /** Cada parada além do destino principal (tabela antiga sem o campo = 0). */
   porParadaCentavos?: number;
+  /** Taxa de deslocamento se a empresa cancela depois que alguém aceitou (sem o campo = 0). */
+  taxaCancelamentoCentavos?: number;
 }
 
 export type TabelaPrecos = Record<TipoChamada, PrecoTipo>;
@@ -87,6 +89,7 @@ export function problemaNaTabelaPrecos(t: TabelaPrecos): string | null {
     if (!p) return `Informe os preços de ${nome}.`;
     if (!Number.isInteger(p.baseCentavos) || p.baseCentavos < 0 || p.baseCentavos > 100_000_00) return `Valor base inválido em ${nome}.`;
     if (!Number.isInteger(p.porKmCentavos) || p.porKmCentavos < 0 || p.porKmCentavos > 10_000_00) return `Valor por km inválido em ${nome}.`;
+    if (p.taxaCancelamentoCentavos !== undefined && (!Number.isInteger(p.taxaCancelamentoCentavos) || p.taxaCancelamentoCentavos < 0 || p.taxaCancelamentoCentavos > 100_000)) return `Taxa de cancelamento inválida em ${nome}.`;
     if (p.porParadaCentavos !== undefined && (!Number.isInteger(p.porParadaCentavos) || p.porParadaCentavos < 0 || p.porParadaCentavos > 100_000)) return `Valor por parada inválido em ${nome}.`;
     if (typeof p.kmIncluso !== 'number' || !Number.isFinite(p.kmIncluso) || p.kmIncluso < 0 || p.kmIncluso > 500) return `Km incluso inválido em ${nome}.`;
   }
@@ -237,6 +240,10 @@ export interface ChamadaResumo {
   /** 0 = destino principal; 1… = paradas extras. */
   paradaAtual: number;
   adicionais: AdicionalAplicado[];
+  /** Etapas com foto guardada (COLETA, ENTREGA, ENTREGA_1…, OCORRENCIA). */
+  fotos: string[];
+  /** Cancelada depois do aceite: o entregador recebe a taxa de deslocamento (o valor vira a taxa). */
+  cancelamentoPago: boolean;
 }
 
 /** O que o app do entregador recebe da chamada dele. */
@@ -260,6 +267,8 @@ export interface ChamadaEntregador {
   /** Todas as entregas, na ordem; `destino` é sempre a atual. */
   destinos?: DestinoDoEntregador[];
   paradaAtual?: number;
+  pedeFotoColeta?: boolean;
+  pedeFotoEntrega?: boolean;
   aceitaEm: string | null;
   concluidaEm: string | null;
 }

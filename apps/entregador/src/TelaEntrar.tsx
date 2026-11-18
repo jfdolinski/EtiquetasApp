@@ -4,6 +4,7 @@ import * as Device from 'expo-device';
 import type { SessaoEntregadorResposta, TipoVeiculo } from '../../../packages/shared/src/entregas';
 import { aceitaHttp, pedir, servidorDoApp, versaoDoApp, type Sessao } from './api';
 import { problemaNoCadastroEntregador, ROTULO_VEICULO, servidorValido, TIPOS_VEICULO, veiculoMotorizado } from './regras';
+import { EsqueciSenha } from './EsqueciSenha';
 import { Alerta, Botao, Campo, cores, Texto, Titulo } from './ui';
 
 type Modo = 'entrar' | 'cadastro';
@@ -63,6 +64,7 @@ export function TelaEntrar({ motivo, aoEntrar }: { motivo: string | null; aoEntr
         <>
           <Campo rotulo="E-mail ou CPF" value={login} onChangeText={setLogin} autoCapitalize="none" autoCorrect={false} />
           <Campo rotulo="Senha" value={senha} onChangeText={setSenha} secureTextEntry />
+          <EsqueciSenha endereco={endereco} emailInicial={login.includes('@') ? login : ''} />
         </>
       ) : (
         <>

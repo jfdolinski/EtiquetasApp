@@ -10,6 +10,10 @@ import {
   ROTULO_TIPO_CHAMADA,
   ROTULO_VEICULO,
   MAX_PARADAS_EXTRAS,
+  ordemMaisCurta,
+  rotuloDaFoto,
+  taxaDoCancelamento,
+  type PontoRastro,
   TIPOS_CHAMADA,
   type ChamadaResumo,
   type ConfigEntregasEmpresa,
@@ -43,7 +47,7 @@ const COR_SITUACAO: Record<SituacaoChamada, 'verde' | 'amarelo' | 'vermelho' | '
   CANCELADA: 'cinza',
 };
 
-const ROTULO_RESULTADO: Record<OfertaDaChamada['resultado'], string> = { PENDENTE: 'esperando resposta', ACEITA: 'aceitou', RECUSADA: 'recusou', EXPIRADA: 'não respondeu', CANCELADA: 'cancelada' };
+const ROTULO_RESULTADO: Record<OfertaDaChamada['resultado'], string> = { PENDENTE: 'esperando resposta', ACEITA: 'aceitou', RECUSADA: 'recusou', EXPIRADA: 'não respondeu', CANCELADA: 'cancelada', DESISTIU: 'aceitou e desistiu' };
 
 const COR_COLETA = '#ea580c';
 const COR_DESTINO = '#7c3aed';
@@ -182,6 +186,20 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho }: 
               </button>
             </div>
           ))}
+          {extras.length > 0 && temPonto(origem) && temPonto(destino) && extras.every(temPonto) && (
+            <Botao
+              variante="secundario"
+              onClick={() => {
+                // Com pedido, o destino principal fica em primeiro; senão, todas entram na conta.
+                const todos = [destino, ...extras];
+                const ordem = ordemMaisCurta(origem, todos, !!rascunho);
+                setDestino(todos[ordem[0]]);
+                setExtras(ordem.slice(1).map((i) => todos[i]));
+              }}
+            >
+              Ordenar pelo menor caminho
+            </Botao>
+          )}
           {tipo === 'ENTREGA' && extras.length < MAX_PARADAS_EXTRAS && (
             <Botao variante="secundario" onClick={() => { setExtras([...extras, paradaVazia()]); setMarcando(extras.length); }}>
               + Adicionar parada
@@ -280,6 +298,8 @@ function EditorParada({ titulo, artigo, cor, parada, mudar, ativa, marcar }: { t
 function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: ConfigMapa; gerencia: boolean; aoFechar: () => void }) {
   const cliente = useQueryClient();
   const { data: c, error } = useQuery({ queryKey: ['chamada', id], queryFn: () => api<ChamadaResumo>(`/entregas/chamadas/${id}`), refetchInterval: 5_000 });
+  const rastro = useQuery({ queryKey: ['chamada-rastro', id], queryFn: () => api<PontoRastro[]>(`/entregas/chamadas/${id}/rastro`), refetchInterval: 15_000 });
+  const configuracao = useQuery({ queryKey: ['entregas-config'], queryFn: () => api<{ config: ConfigEntregasEmpresa }>('/entregas/config') });
   const elegiveis = useQuery({ queryKey: ['chamada-elegiveis', id], queryFn: () => api<ElegivelOferta[]>(`/entregas/chamadas/${id}/elegiveis`), enabled: gerencia && c?.situacao === 'ABERTA' && !c.ofertaPendente, refetchInterval: 10_000 });
   const [motivo, setMotivo] = useState('');
   const [foto, setFoto] = useState<string | null>(null);
@@ -467,6 +487,10 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
                 <div className="min-w-56 flex-1">
                   <Campo rotulo="Motivo do cancelamento" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
                 </div>
+                {(() => {
+                  const taxa = taxaDoCancelamento(c.situacao, !!c.entregador, configuracao.data?.config.precos[c.tipo]?.taxaCancelamentoCentavos);
+                  return taxa ? <p className="w-full text-xs text-amber-800">Cancelando agora, {c.entregador?.nome} recebe a taxa de deslocamento de {formatarCentavos(taxa)}.</p> : null;
+                })()}
                 <Botao variante="perigo" disabled={motivo.trim().length < 3 || acao.isPending} onClick={() => acao.mutate({ caminho: 'cancelar', corpo: { motivo } })}>
                   Cancelar chamada
                 </Botao>
@@ -474,7 +498,18 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
             )}
           </div>
           <div className="space-y-3">
-            <MapaEntregadores config={mapa} base={null} raioKm={1} marcas={marcas} altura={320} />
+            <MapaEntregadores config={mapa} base={null} raioKm={1} marcas={marcas} linha={rastro.data ?? []} altura={320} />
+            {c.fotos.filter((f) => f !== 'OCORRENCIA').length > 0 && (
+              <div className="flex flex-wrap gap-2 text-sm" data-testid="fotos-chamada">
+                {c.fotos
+                  .filter((f) => f !== 'OCORRENCIA')
+                  .map((f) => (
+                    <button key={f} type="button" className="text-blue-700 underline" onClick={() => verFoto.mutate(f)}>
+                      {rotuloDaFoto(f)}
+                    </button>
+                  ))}
+              </div>
+            )}
             <div>
               <div className="mb-1 text-sm font-medium">Histórico</div>
               <ol className="space-y-1 text-sm">
@@ -490,7 +525,7 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
         </div>
       )}
       <Modal titulo="Foto" aberto={!!foto} aoFechar={() => setFoto(null)} largo>
-        {foto && <img src={foto} alt="Foto da ocorrência" className="mx-auto max-h-[75vh] object-contain" />}
+        {foto && <img src={foto} alt="Foto da chamada" className="mx-auto max-h-[75vh] object-contain" />}
       </Modal>
     </Modal>
   );

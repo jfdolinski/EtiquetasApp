@@ -16,6 +16,7 @@ export function MapaEntregadores({
   entregadores = [],
   marcas = [],
   areas = [],
+  linha = [],
   aoClicar,
   altura = 480,
 }: {
@@ -26,6 +27,8 @@ export function MapaEntregadores({
   /** Pontos soltos (coleta, destino, entregador em chamada). */
   marcas?: { lat: number; lon: number; cor: string; rotulo: string }[];
   /** Círculos em metros (regiões dos adicionais, células da demanda), com a opacidade do preenchimento. */
+  /** Caminho percorrido (rastro da chamada). */
+  linha?: Ponto[];
   areas?: { lat: number; lon: number; raioMetros: number; cor: string; opacidade: number; rotulo: string }[];
   aoClicar?: (p: Ponto) => void;
   altura?: number;
@@ -69,6 +72,7 @@ export function MapaEntregadores({
         enquadrado.current = chave;
       }
     }
+    if (linha.length > 1) L.polyline(linha.map((p) => [p.lat, p.lon] as [number, number]), { color: '#2563eb', weight: 3, opacity: 0.7 }).bindTooltip('Caminho do entregador').addTo(g);
     for (const a of areas) {
       L.circle([a.lat, a.lon], { radius: a.raioMetros, color: a.cor, weight: 1, fillColor: a.cor, fillOpacity: a.opacidade }).bindTooltip(a.rotulo).addTo(g);
     }
@@ -96,7 +100,7 @@ export function MapaEntregadores({
         .bindTooltip(`${e.nome} · ${ROTULO_VEICULO[e.veiculo]} · ${ROTULO_SITUACAO_MAPA[e.situacao]} · ${e.distanciaKm.toLocaleString('pt-BR')} km`)
         .addTo(g);
     }
-  }, [base?.lat, base?.lon, raioKm, entregadores, marcas, areas]);
+  }, [base?.lat, base?.lon, raioKm, entregadores, marcas, areas, linha]);
 
   return <div ref={elemento} style={{ height: altura }} className={`z-0 w-full rounded-lg border border-slate-200 ${aoClicar ? 'cursor-crosshair' : ''}`} data-testid="mapa-entregas" />;
 }

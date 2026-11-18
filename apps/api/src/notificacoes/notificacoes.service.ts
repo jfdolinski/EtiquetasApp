@@ -319,6 +319,19 @@ export class NotificacoesService implements OnApplicationBootstrap, OnModuleDest
             };
           });
       }
+      case 'entrega_custodia': {
+        // Máquina coletada (série lida) e ainda não entregue, com o entregador sem mandar posição.
+        const chamadas = await this.prisma.chamadaEntrega.findMany({
+          where: { empresaId, serieColetada: { not: null }, situacao: { in: ['COLETADA', 'NO_DESTINO', 'OCORRENCIA'] }, entregador: { posicaoEm: { lte: atras(regra.limite * 60_000) } } },
+          take: 50,
+          select: { id: true, numero: true, serieColetada: true, entregador: { select: { nome: true, posicaoEm: true } } },
+        });
+        return chamadas.map((c) => ({
+          chave: `custodia:${c.id}`,
+          titulo: 'Máquina com entregador sem sinal',
+          mensagem: `${c.entregador?.nome.split(' ')[0] ?? 'O entregador'} está com a máquina ${c.serieColetada} (chamada nº ${c.numero}) e não manda posição há ${textoDuracao(agora.getTime() - (c.entregador?.posicaoEm?.getTime() ?? agora.getTime()))}.`,
+        }));
+      }
       case 'entrega_ocorrencia': {
         const chamadas = await this.prisma.chamadaEntrega.findMany({ where: { empresaId, situacao: 'OCORRENCIA', atualizadoEm: { lte: atras(regra.limite * 60_000) } }, take: 50, select: { id: true, numero: true, ocorrencia: true, atualizadoEm: true } });
         return chamadas.map((c) => {

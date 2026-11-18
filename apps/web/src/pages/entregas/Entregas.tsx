@@ -26,9 +26,10 @@ import { Demanda } from './Demanda';
 import { Direcionamento } from './Direcionamento';
 import { EntregadoresDaEmpresa } from './EntregadoresDaEmpresa';
 import { Financeiro } from './Financeiro';
+import { Maquinas } from './Maquinas';
 import { MapaEntregadores } from './MapaEntregadores';
 
-type Aba = 'chamadas' | 'mapa' | 'demanda' | 'entregadores' | 'financeiro' | 'direcionamento' | 'configuracao';
+type Aba = 'chamadas' | 'mapa' | 'demanda' | 'maquinas' | 'entregadores' | 'financeiro' | 'direcionamento' | 'configuracao';
 type RespostaConfig = { config: ConfigEntregasEmpresa; mapa: ConfigMapa };
 
 const ATUALIZAR_MS = 20_000;
@@ -42,6 +43,7 @@ export function Entregas() {
     { id: 'chamadas', rotulo: 'Chamadas' },
     { id: 'mapa', rotulo: 'Mapa' },
     { id: 'demanda', rotulo: 'Demanda' },
+    { id: 'maquinas', rotulo: 'Máquinas' },
     { id: 'entregadores', rotulo: 'Entregadores' },
     ...(pode('entrega.financeiro') ? [{ id: 'financeiro' as const, rotulo: 'Financeiro' }] : []),
     ...(pode('entrega.configurar') ? [{ id: 'direcionamento' as const, rotulo: 'Direcionamento' }, { id: 'configuracao' as const, rotulo: 'Configuração' }] : []),
@@ -65,6 +67,7 @@ export function Entregas() {
       {config.data && aba === 'chamadas' && <Chamadas config={config.data.config} mapa={config.data.mapa} />}
       {config.data && aba === 'mapa' && <PainelMapa mapa={config.data.mapa} configurar={pode('entrega.configurar') ? () => setAba('configuracao') : null} />}
       {config.data && aba === 'demanda' && <Demanda mapa={config.data.mapa} />}
+      {aba === 'maquinas' && <Maquinas />}
       {aba === 'entregadores' && <EntregadoresDaEmpresa />}
       {aba === 'financeiro' && <Financeiro />}
       {config.data && aba === 'direcionamento' && <Direcionamento inicial={config.data.config} mapa={config.data.mapa} />}
@@ -122,11 +125,12 @@ function Configuracao({ inicial, mapa, aoSalvar }: { inicial: ConfigEntregasEmpr
   const cliente = useQueryClient();
   const [base, setBase] = useState<(Ponto & { endereco: string }) | null>(inicial.base);
   const [raio, setRaio] = useState(String(inicial.raioAtendimentoKm));
-  const [precos, setPrecos] = useState(() => Object.fromEntries(TIPOS_CHAMADA.map((t) => [t, { base: reais(inicial.precos[t].baseCentavos), porKm: reais(inicial.precos[t].porKmCentavos), km: String(inicial.precos[t].kmIncluso), porParada: reais(inicial.precos[t].porParadaCentavos ?? 0) }])) as Record<TipoChamada, { base: string; porKm: string; km: string; porParada: string }>);
+  const [precos, setPrecos] = useState(() => Object.fromEntries(TIPOS_CHAMADA.map((t) => [t, { base: reais(inicial.precos[t].baseCentavos), porKm: reais(inicial.precos[t].porKmCentavos), km: String(inicial.precos[t].kmIncluso), porParada: reais(inicial.precos[t].porParadaCentavos ?? 0), taxa: reais(inicial.precos[t].taxaCancelamentoCentavos ?? 0) }])) as Record<TipoChamada, { base: string; porKm: string; km: string; porParada: string; taxa: string }>);
+  const [fotos, setFotos] = useState(inicial.fotos);
   const [adicionais, setAdicionais] = useState(inicial.adicionais);
   const [segundos, setSegundos] = useState(String(inicial.segundosParaAceitar));
   const [chamar, setChamar] = useState(inicial.chamarAoAceitarPedido);
-  const tabela = Object.fromEntries(TIPOS_CHAMADA.map((t) => [t, { baseCentavos: centavos(precos[t].base), porKmCentavos: centavos(precos[t].porKm), kmIncluso: Number(precos[t].km.replace(',', '.')), porParadaCentavos: centavos(precos[t].porParada || '0') }])) as TabelaPrecos;
+  const tabela = Object.fromEntries(TIPOS_CHAMADA.map((t) => [t, { baseCentavos: centavos(precos[t].base), porKmCentavos: centavos(precos[t].porKm), kmIncluso: Number(precos[t].km.replace(',', '.')), porParadaCentavos: centavos(precos[t].porParada || '0'), taxaCancelamentoCentavos: centavos(precos[t].taxa || '0') }])) as TabelaPrecos;
   const problemaPrecos = problemaNaTabelaPrecos(tabela);
   const [busca, setBusca] = useState('');
   const [resultados, setResultados] = useState<ResultadoEndereco[] | null>(null);
@@ -137,7 +141,7 @@ function Configuracao({ inicial, mapa, aoSalvar }: { inicial: ConfigEntregasEmpr
     onSuccess: setResultados,
   });
   const salvar = useMutation({
-    mutationFn: () => api<ConfigEntregasEmpresa>('/entregas/config', { metodo: 'PUT', corpo: { base, raioAtendimentoKm: Number(raio), precos: tabela, segundosParaAceitar: Number(segundos), chamarAoAceitarPedido: chamar, adicionais } }),
+    mutationFn: () => api<ConfigEntregasEmpresa>('/entregas/config', { metodo: 'PUT', corpo: { base, raioAtendimentoKm: Number(raio), precos: tabela, segundosParaAceitar: Number(segundos), chamarAoAceitarPedido: chamar, adicionais, fotos } }),
     onSuccess: () => {
       void cliente.invalidateQueries({ queryKey: ['entregas-config'] });
       void cliente.invalidateQueries({ queryKey: ['entregas-mapa'] });
@@ -190,10 +194,11 @@ function Configuracao({ inicial, mapa, aoSalvar }: { inicial: ConfigEntregasEmpr
           <div className="text-sm font-medium">Valor para o entregador</div>
           <p className="text-xs text-slate-500">Base (cobre os km inclusos) + cada km a mais. O entregador vê o valor antes de aceitar.</p>
           {TIPOS_CHAMADA.map((t) => (
-            <div key={t} className={`grid gap-2 ${t === 'ENTREGA' ? 'grid-cols-4' : 'grid-cols-3'}`}>
+            <div key={t} className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               <Campo rotulo={`${ROTULO_TIPO_CHAMADA[t]}: base (R$)`} inputMode="decimal" value={precos[t].base} onChange={(e) => setPrecos({ ...precos, [t]: { ...precos[t], base: e.target.value } })} />
               <Campo rotulo="Por km (R$)" inputMode="decimal" value={precos[t].porKm} onChange={(e) => setPrecos({ ...precos, [t]: { ...precos[t], porKm: e.target.value } })} />
               <Campo rotulo="Km inclusos" inputMode="decimal" value={precos[t].km} onChange={(e) => setPrecos({ ...precos, [t]: { ...precos[t], km: e.target.value } })} />
+              <Campo rotulo="Taxa se cancelar após o aceite (R$)" inputMode="decimal" value={precos[t].taxa} onChange={(e) => setPrecos({ ...precos, [t]: { ...precos[t], taxa: e.target.value } })} />
               {t === 'ENTREGA' && <Campo rotulo="Por parada extra (R$)" inputMode="decimal" value={precos[t].porParada} onChange={(e) => setPrecos({ ...precos, [t]: { ...precos[t], porParada: e.target.value } })} />}
             </div>
           ))}
@@ -201,6 +206,16 @@ function Configuracao({ inicial, mapa, aoSalvar }: { inicial: ConfigEntregasEmpr
         </div>
         <Campo rotulo="Segundos para o entregador aceitar" type="number" min={LIMITES_SEGUNDOS_PARA_ACEITAR.minimo} max={LIMITES_SEGUNDOS_PARA_ACEITAR.maximo} value={segundos} onChange={(e) => setSegundos(e.target.value)} ajuda="Sem resposta nesse tempo, a oferta expira e você escolhe outro." />
         <AdicionaisEditor valor={adicionais} mudar={setAdicionais} mapa={mapa} />
+        <fieldset className="space-y-1 text-sm">
+          <legend className="font-medium">Fotos obrigatórias</legend>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={fotos.coleta} onChange={(e) => setFotos({ ...fotos, coleta: e.target.checked })} /> Na coleta
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={fotos.entrega} onChange={(e) => setFotos({ ...fotos, entrega: e.target.checked })} /> Em cada entrega
+          </label>
+          <p className="text-xs text-slate-500">Vale para as chamadas abertas daqui em diante. A empresa vê as fotos na chamada.</p>
+        </fieldset>
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" className="mt-0.5" checked={chamar} onChange={(e) => setChamar(e.target.checked)} />
           <span>

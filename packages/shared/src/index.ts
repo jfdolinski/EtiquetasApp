@@ -28,3 +28,4 @@ export * from './entregas-direcionamento';
 export * from './entregas-fechamento';
 export * from './entregas-rastreio';
 export * from './entregas-paradas';
+export * from './entregas-operacao';

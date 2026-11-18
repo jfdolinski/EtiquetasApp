@@ -1297,6 +1297,7 @@ model Entregador {
   empresas     EntregadorEmpresa[]
   fechamentos  FechamentoEntrega[]
   contestacoes ContestacaoEntrega[]
+  redefinicoes RedefinicaoSenhaEntregador[]
 
   @@index([online, posicaoEm])
   @@index([situacao, criadoEm])
@@ -1442,6 +1443,9 @@ model ConfiguracaoEntregas {
   chamarAoAceitarPedido Boolean  @default(false) @map("chamar_ao_aceitar_pedido")
   /// Adicionais (shared): por horário e por região.
   adicionais            Json?
+  /// Fotos obrigatórias: na coleta e em cada entrega.
+  fotoColeta            Boolean  @default(false) @map("foto_coleta")
+  fotoEntrega           Boolean  @default(false) @map("foto_entrega")
   /// Número da próxima chamada da empresa.
   proximoNumero         Int      @default(1) @map("proximo_numero")
   atualizadoEm          DateTime @updatedAt @map("atualizado_em")
@@ -1511,6 +1515,11 @@ model ChamadaEntrega {
   emergencia          Json?
   /// Várias paradas: 0 = destino principal; 1… = paradas_chamada.ordem.
   paradaAtual         Int       @default(0) @map("parada_atual")
+  /// Etapa 8: fotos obrigatórias copiadas da configuração ao abrir; quando coletou; cancelada com taxa paga.
+  fotoColeta          Boolean   @default(false) @map("foto_coleta")
+  fotoEntrega         Boolean   @default(false) @map("foto_entrega")
+  coletadaEm          DateTime? @map("coletada_em")
+  cancelamentoPago    Boolean   @default(false) @map("cancelamento_pago")
   /// AdicionalAplicado[] (shared) que entraram no valor.
   adicionais          Json      @default("[]")
   criadoPorId         String?   @map("criado_por_id") @db.Uuid
@@ -1525,6 +1534,7 @@ model ChamadaEntrega {
   fechamento   FechamentoEntrega?   @relation(fields: [fechamentoId], references: [id], onDelete: SetNull)
   contestacoes ContestacaoEntrega[]
   paradas      ParadaExtraChamada[]
+  rastro       RastroChamada[]
 
   @@unique([empresaId, numero])
   @@index([empresaId, criadoEm])
@@ -1652,4 +1662,34 @@ model ParadaExtraChamada {
 
   @@unique([chamadaId, ordem])
   @@map("paradas_chamada")
+}
+
+/// Caminho do entregador durante a chamada (só em andamento), apagado depois de 30 dias.
+model RastroChamada {
+  id        String   @id @default(uuid()) @db.Uuid
+  chamadaId String   @map("chamada_id") @db.Uuid
+  lat       Float
+  lon       Float
+  em        DateTime @default(now())
+
+  chamada ChamadaEntrega @relation(fields: [chamadaId], references: [id], onDelete: Cascade)
+
+  @@index([chamadaId, em])
+  @@index([em])
+  @@map("rastros_chamada")
+}
+
+/// Pedido de nova senha do entregador: o token só em hash, vale 1 hora e uma vez.
+model RedefinicaoSenhaEntregador {
+  id           String    @id @default(uuid()) @db.Uuid
+  entregadorId String    @map("entregador_id") @db.Uuid
+  tokenHash    String    @unique @map("token_hash")
+  expiraEm     DateTime  @map("expira_em")
+  usadoEm      DateTime? @map("usado_em")
+  criadoEm     DateTime  @default(now()) @map("criado_em")
+
+  entregador Entregador @relation(fields: [entregadorId], references: [id], onDelete: Cascade)
+
+  @@index([entregadorId, criadoEm])
+  @@map("redefinicoes_senha_entregador")
 }

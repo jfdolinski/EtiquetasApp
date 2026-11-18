@@ -14,6 +14,9 @@ import {
   SEGUNDOS_PARA_ACEITAR_PADRAO,
   SITUACOES_EM_ANDAMENTO,
   TABELA_PRECOS_PADRAO,
+  SITUACOES_EM_CUSTODIA,
+  type MaquinaEmCustodia,
+  type SituacaoChamada,
   ADICIONAIS_VAZIOS,
   adicionaisVigentes,
   gradeDeDemanda,
@@ -52,6 +55,7 @@ class PrecoTipoDto {
   @IsInt() @Min(0) porKmCentavos: number;
   @IsNumber() @Min(0) kmIncluso: number;
   @IsOptional() @IsInt() @Min(0) porParadaCentavos?: number;
+  @IsOptional() @IsInt() @Min(0) taxaCancelamentoCentavos?: number;
 }
 
 class TabelaPrecosDto {
@@ -60,12 +64,18 @@ class TabelaPrecosDto {
   @ValidateNested() @Type(() => PrecoTipoDto) DEVOLUCAO_MAQUINA: PrecoTipoDto;
 }
 
+class FotosDto {
+  @IsBoolean() coleta: boolean;
+  @IsBoolean() entrega: boolean;
+}
+
 class ConfigEntregasDto {
   @IsOptional() @ValidateNested() @Type(() => TabelaPrecosDto) precos?: TabelaPrecos;
   @IsOptional() @IsInt() @Min(LIMITES_SEGUNDOS_PARA_ACEITAR.minimo) @Max(LIMITES_SEGUNDOS_PARA_ACEITAR.maximo) segundosParaAceitar?: number;
   @IsOptional() @ValidateNested() @Type(() => BaseDto) base: BaseDto | null;
   @IsOptional() @IsBoolean() chamarAoAceitarPedido?: boolean;
   @IsOptional() @IsObject() adicionais?: Adicionais;
+  @IsOptional() @ValidateNested() @Type(() => FotosDto) fotos?: FotosDto;
   @IsInt() @Min(1, { message: 'O raio vai de 1 a 100 km.' }) @Max(RAIO_ATENDIMENTO_MAXIMO_KM, { message: 'O raio vai de 1 a 100 km.' }) raioAtendimentoKm: number;
 }
 
@@ -100,11 +110,11 @@ export class EntregasEmpresaService {
 
   async config(empresaId: string): Promise<ConfigEntregasEmpresa> {
     const c = await this.prisma.configuracaoEntregas.findUnique({ where: { empresaId } });
-    if (!c) return { base: null, raioAtendimentoKm: RAIO_ATENDIMENTO_PADRAO_KM, precos: TABELA_PRECOS_PADRAO, segundosParaAceitar: SEGUNDOS_PARA_ACEITAR_PADRAO, direcionamento: REGRAS_DIRECIONAMENTO_PADRAO, chamarAoAceitarPedido: false, adicionais: ADICIONAIS_VAZIOS };
+    if (!c) return { base: null, raioAtendimentoKm: RAIO_ATENDIMENTO_PADRAO_KM, precos: TABELA_PRECOS_PADRAO, segundosParaAceitar: SEGUNDOS_PARA_ACEITAR_PADRAO, direcionamento: REGRAS_DIRECIONAMENTO_PADRAO, chamarAoAceitarPedido: false, adicionais: ADICIONAIS_VAZIOS, fotos: { coleta: false, entrega: false } };
     const base = c.baseLat !== null && c.baseLon !== null ? { lat: c.baseLat, lon: c.baseLon, endereco: c.baseEndereco } : null;
     // Tipo novo sem preço na tabela gravada fica com o padrão.
     const precos = { ...TABELA_PRECOS_PADRAO, ...((c.precos as Partial<TabelaPrecos> | null) ?? {}) };
-    return { base, raioAtendimentoKm: c.raioAtendimentoKm, precos, segundosParaAceitar: c.segundosParaAceitar, direcionamento: regrasVigentes(c.direcionamento), chamarAoAceitarPedido: c.chamarAoAceitarPedido, adicionais: adicionaisVigentes(c.adicionais) };
+    return { base, raioAtendimentoKm: c.raioAtendimentoKm, precos, segundosParaAceitar: c.segundosParaAceitar, direcionamento: regrasVigentes(c.direcionamento), chamarAoAceitarPedido: c.chamarAoAceitarPedido, adicionais: adicionaisVigentes(c.adicionais), fotos: { coleta: c.fotoColeta, entrega: c.fotoEntrega } };
   }
 
   async salvar(empresaId: string, dto: ConfigEntregasDto, autorId: string): Promise<ConfigEntregasEmpresa> {
@@ -127,10 +137,31 @@ export class EntregasEmpresaService {
       ...(dto.segundosParaAceitar ? { segundosParaAceitar: dto.segundosParaAceitar } : {}),
       ...(dto.chamarAoAceitarPedido !== undefined ? { chamarAoAceitarPedido: dto.chamarAoAceitarPedido } : {}),
       ...(adicionais ? { adicionais: adicionais as never } : {}),
+      ...(dto.fotos ? { fotoColeta: dto.fotos.coleta, fotoEntrega: dto.fotos.entrega } : {}),
     };
     await this.prisma.configuracaoEntregas.upsert({ where: { empresaId }, create: { empresaId, ...data }, update: data });
     await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entregas.configurar', entidade: 'ConfiguracaoEntregas', entidadeId: empresaId, detalhes: { base: !!dto.base, raioAtendimentoKm: dto.raioAtendimentoKm } });
     return this.config(empresaId);
+  }
+
+  /** Máquinas (série lida na coleta) com o entregador agora: coletadas e ainda não entregues. */
+  async maquinas(empresaId: string, agora = new Date()): Promise<MaquinaEmCustodia[]> {
+    const lista = await this.prisma.chamadaEntrega.findMany({
+      where: { empresaId, serieColetada: { not: null }, situacao: { in: [...SITUACOES_EM_CUSTODIA] }, entregadorId: { not: null } },
+      orderBy: { coletadaEm: 'asc' },
+      take: 500,
+      select: { id: true, numero: true, tipo: true, situacao: true, serieColetada: true, coletadaEm: true, entregador: { select: { id: true, nome: true, veiculo: true, celular: true, posicaoEm: true } } },
+    });
+    return lista.map((c) => ({
+      chamadaId: c.id,
+      numero: c.numero,
+      tipo: c.tipo as TipoChamada,
+      situacao: c.situacao as SituacaoChamada,
+      serie: c.serieColetada!,
+      coletadaEm: c.coletadaEm?.toISOString() ?? null,
+      entregador: { id: c.entregador!.id, nome: primeiroNome(c.entregador!.nome), veiculo: c.entregador!.veiculo as TipoVeiculo, celular: c.entregador!.celular },
+      semSinalMinutos: c.entregador!.posicaoEm ? Math.floor((agora.getTime() - c.entregador!.posicaoEm.getTime()) / 60_000) : null,
+    }));
   }
 
   /** Onde e quando a empresa mais chama: pontos dos clientes em células (~550 m) e contagem por hora e dia. */
@@ -218,6 +249,12 @@ export class EntregasEmpresaController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   enderecos(@Query() dto: BuscaEnderecoDto): Promise<ResultadoEndereco[]> {
     return this.entregas.geocodificar(dto.q);
+  }
+
+  @Get('maquinas')
+  @RequerPermissao('entrega.ver')
+  maquinas(@EmpresaAtual() empresaId: string): Promise<MaquinaEmCustodia[]> {
+    return this.entregas.maquinas(empresaId);
   }
 
   @Get('demanda')

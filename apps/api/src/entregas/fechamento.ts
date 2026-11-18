@@ -69,6 +69,9 @@ const VALIDADE_LINK_PDF_MS = 120_000;
 
 const DIA_MS = 86_400_000;
 
+/** O que entra no que a empresa deve: concluída, ou cancelada depois do aceite com a taxa de deslocamento. */
+const PAGAVEIS = { OR: [{ situacao: 'CONCLUIDA' }, { situacao: 'CANCELADA', cancelamentoPago: true }] } satisfies Prisma.ChamadaEntregaWhereInput;
+
 class NovoFechamentoDto {
   @IsUUID('all', { message: 'Entregador inválido.' }) entregadorId: string;
   @IsArray() @ArrayMinSize(1, { message: 'Escolha ao menos uma chamada.' }) @ArrayMaxSize(1000) @IsUUID('all', { each: true }) chamadaIds: string[];
@@ -122,7 +125,7 @@ export class FechamentoService {
   async aPagar(empresaId: string): Promise<APagarEntregador[]> {
     const grupos = await this.prisma.chamadaEntrega.groupBy({
       by: ['entregadorId'],
-      where: { empresaId, situacao: 'CONCLUIDA', fechamentoId: null, entregadorId: { not: null } },
+      where: { empresaId, ...PAGAVEIS, fechamentoId: null, entregadorId: { not: null } },
       _sum: { valorCentavos: true, extraCentavos: true },
       _count: { _all: true },
       _min: { concluidaEm: true },
@@ -152,7 +155,7 @@ export class FechamentoService {
 
   async pendentes(empresaId: string, entregadorId: string): Promise<LinhaFechamento[]> {
     const lista = await this.prisma.chamadaEntrega.findMany({
-      where: { empresaId, entregadorId, situacao: 'CONCLUIDA', fechamentoId: null },
+      where: { empresaId, entregadorId, ...PAGAVEIS, fechamentoId: null },
       orderBy: { concluidaEm: 'asc' },
       take: 1000,
       include: { contestacoes: { where: { respondidaEm: null }, select: { id: true } } },
@@ -171,6 +174,7 @@ export class FechamentoService {
       extraCentavos: c.extraCentavos,
       extraMotivo: c.extraMotivo,
       contestacaoAberta: c.contestacoes.length > 0,
+      cancelada: c.situacao === 'CANCELADA',
     };
   }
 
@@ -183,7 +187,7 @@ export class FechamentoService {
     const comprovante = dto.comprovante ? imagemDoDataUrl(dto.comprovante, 'O comprovante') : null;
     const ids = [...new Set(dto.chamadaIds)];
     const id = await this.prisma.$transaction(async (tx) => {
-      const chamadas = await tx.chamadaEntrega.findMany({ where: { id: { in: ids }, empresaId, entregadorId: dto.entregadorId, situacao: 'CONCLUIDA', fechamentoId: null }, select: { id: true, valorCentavos: true, extraCentavos: true } });
+      const chamadas = await tx.chamadaEntrega.findMany({ where: { id: { in: ids }, empresaId, entregadorId: dto.entregadorId, ...PAGAVEIS, fechamentoId: null }, select: { id: true, valorCentavos: true, extraCentavos: true } });
       if (chamadas.length !== ids.length) throw new ConflictException('Alguma chamada já foi paga ou não é deste entregador. Recarregue a lista.');
       const total = chamadas.reduce((s, c) => s + totalDaChamada(c), 0);
       const f = await tx.fechamentoEntrega.create({
@@ -266,7 +270,7 @@ export class FechamentoService {
   async extra(empresaId: string, chamadaId: string, dto: ExtraDto, autorId: string): Promise<void> {
     const problema = problemaNoExtra(dto.extraCentavos, dto.motivo);
     if (problema) throw new BadRequestException(problema);
-    const { count } = await this.prisma.chamadaEntrega.updateMany({ where: { id: chamadaId, empresaId, situacao: 'CONCLUIDA', fechamentoId: null }, data: { extraCentavos: dto.extraCentavos, extraMotivo: dto.extraCentavos ? dto.motivo.trim() : '' } });
+    const { count } = await this.prisma.chamadaEntrega.updateMany({ where: { id: chamadaId, empresaId, ...PAGAVEIS, fechamentoId: null }, data: { extraCentavos: dto.extraCentavos, extraMotivo: dto.extraCentavos ? dto.motivo.trim() : '' } });
     if (!count) throw new ConflictException('Só dá para lançar extra em chamada concluída e ainda não paga.');
     await this.registrar(chamadaId, dto.extraCentavos ? `Extra de R$ ${(dto.extraCentavos / 100).toFixed(2).replace('.', ',')}: ${dto.motivo.trim()}.` : 'Extra retirado.');
     await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.extra', entidade: 'ChamadaEntrega', entidadeId: chamadaId, detalhes: { extraCentavos: dto.extraCentavos, motivo: dto.motivo.trim() } });
@@ -345,7 +349,7 @@ export class FechamentoService {
     const desde = inicioDoPeriodo(periodo, agora, diaNoFuso(agora, fuso), minutosDoFuso(agora, fuso));
     const [lista, aReceber, pagos] = await Promise.all([
       this.prisma.chamadaEntrega.findMany({
-        where: { entregadorId, situacao: 'CONCLUIDA', ...(desde ? { concluidaEm: { gte: desde } } : {}) },
+        where: { entregadorId, ...PAGAVEIS, ...(desde ? { concluidaEm: { gte: desde } } : {}) },
         orderBy: { concluidaEm: 'desc' },
         take: 300,
         include: {
@@ -354,7 +358,7 @@ export class FechamentoService {
           contestacoes: { orderBy: { criadoEm: 'desc' }, take: 1 },
         },
       }),
-      this.prisma.chamadaEntrega.aggregate({ where: { entregadorId, situacao: 'CONCLUIDA', fechamentoId: null }, _sum: { valorCentavos: true, extraCentavos: true } }),
+      this.prisma.chamadaEntrega.aggregate({ where: { entregadorId, ...PAGAVEIS, fechamentoId: null }, _sum: { valorCentavos: true, extraCentavos: true } }),
       this.prisma.fechamentoEntrega.aggregate({ where: { entregadorId, ...(desde ? { pagoEm: { gte: new Date(diaNoFuso(desde, fuso) + 'T00:00:00Z') } } : {}) }, _sum: { totalCentavos: true } }),
     ]);
     const linhas: LinhaExtrato[] = lista.map((c) => {
@@ -370,6 +374,7 @@ export class FechamentoService {
         extraCentavos: c.extraCentavos,
         extraMotivo: c.extraMotivo,
         situacao: c.fechamento ? 'PAGO' : 'A_RECEBER',
+        cancelada: c.situacao === 'CANCELADA',
         pagoEm: c.fechamento?.pagoEm.toISOString().slice(0, 10) ?? null,
         contestacao: ct ? { id: ct.id, mensagem: ct.mensagem, criadoEm: ct.criadoEm.toISOString(), resposta: ct.resposta, respondidaEm: ct.respondidaEm?.toISOString() ?? null } : null,
         podeContestar: podeContestar(c.concluidaEm, agora) && !(ct && !ct.respondidaEm),
@@ -405,7 +410,7 @@ export class FechamentoService {
   }
 
   async contestar(entregadorId: string, chamadaId: string, mensagem: string): Promise<void> {
-    const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, entregadorId, situacao: 'CONCLUIDA' }, select: { id: true, empresaId: true, concluidaEm: true } });
+    const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, entregadorId, ...PAGAVEIS }, select: { id: true, empresaId: true, concluidaEm: true } });
     if (!c) throw new NotFoundException('Chamada não encontrada.');
     if (!podeContestar(c.concluidaEm, new Date())) throw new ConflictException('O prazo para contestar esta chamada acabou.');
     await this.prisma.$transaction(async (tx) => {
@@ -420,7 +425,7 @@ export class FechamentoService {
   async reputacao(entregadorId: string, agora = new Date()): Promise<ReputacaoEntregador> {
     const [media, respostas] = await Promise.all([
       this.prisma.chamadaEntrega.aggregate({ where: { entregadorId, avaliadaEm: { gte: new Date(agora.getTime() - DIAS_MEDIA_AVALIACAO * DIA_MS) } }, _avg: { avaliacaoNota: true }, _count: { avaliacaoNota: true } }),
-      this.prisma.ofertaChamada.groupBy({ by: ['resultado'], where: { entregadorId, criadoEm: { gte: new Date(agora.getTime() - 30 * DIA_MS) }, resultado: { in: ['ACEITA', 'RECUSADA', 'EXPIRADA'] } }, _count: { _all: true } }),
+      this.prisma.ofertaChamada.groupBy({ by: ['resultado'], where: { entregadorId, criadoEm: { gte: new Date(agora.getTime() - 30 * DIA_MS) }, resultado: { in: ['ACEITA', 'RECUSADA', 'EXPIRADA', 'DESISTIU'] } }, _count: { _all: true } }),
     ]);
     const ofertas = respostas.reduce((s, r) => s + r._count._all, 0);
     const aceitas = respostas.find((r) => r.resultado === 'ACEITA')?._count._all ?? 0;

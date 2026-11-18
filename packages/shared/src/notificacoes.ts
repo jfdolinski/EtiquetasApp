@@ -79,6 +79,15 @@ export const EVENTOS_NOTIFICACAO = [
     repetirPadrao: 5,
   },
   {
+    codigo: 'entrega_custodia',
+    titulo: 'Máquina com entregador sem sinal',
+    descricao: 'Um entregador está com uma máquina coletada (ainda não entregue) e sem mandar posição há mais tempo que o limite.',
+    unidade: 'minutos',
+    limitePadrao: 15,
+    nivel: 'erro',
+    repetirPadrao: 30,
+  },
+  {
     codigo: 'entrega_ocorrencia',
     titulo: 'Ocorrência na entrega',
     descricao: 'Um entregador registrou ocorrência (cliente ausente, endereço não encontrado…) e a empresa não decidiu há mais tempo que o limite (0 avisa na hora).',

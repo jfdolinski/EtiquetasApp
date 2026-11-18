@@ -146,7 +146,7 @@ export class DirecionamentoService implements OnApplicationBootstrap, OnModuleDe
         onlineDesde: true,
         empresas: { where: { empresaId }, select: { preferido: true, bloqueado: true } },
         chamadas: { where: { situacao: { in: [...SITUACOES_FINAIS] } }, orderBy: { atualizadoEm: 'desc' }, take: 1, select: { atualizadoEm: true } },
-        ...(chamadaId ? { ofertas: { where: { chamadaId, resultado: { in: ['RECUSADA', 'EXPIRADA', 'ACEITA'] } }, select: { id: true }, take: 1 } } : {}),
+        ...(chamadaId ? { ofertas: { where: { chamadaId, resultado: { in: ['RECUSADA', 'EXPIRADA', 'ACEITA', 'DESISTIU'] } }, select: { id: true }, take: 1 } } : {}),
       },
       take: 500,
     });
@@ -154,7 +154,7 @@ export class DirecionamentoService implements OnApplicationBootstrap, OnModuleDe
     // Aceite dos últimos 30 dias: canceladas (a empresa desistiu, outro do grupo aceitou) não contam.
     const respostas = await tx.ofertaChamada.groupBy({
       by: ['entregadorId', 'resultado'],
-      where: { entregadorId: { in: lista.map((e) => e.id) }, criadoEm: { gte: new Date(agora.getTime() - 30 * DIA_MS) }, resultado: { in: ['ACEITA', 'RECUSADA', 'EXPIRADA'] } },
+      where: { entregadorId: { in: lista.map((e) => e.id) }, criadoEm: { gte: new Date(agora.getTime() - 30 * DIA_MS) }, resultado: { in: ['ACEITA', 'RECUSADA', 'EXPIRADA', 'DESISTIU'] } },
       _count: { _all: true },
     });
     // Avaliação: média dos últimos 90 dias, de todas as empresas.

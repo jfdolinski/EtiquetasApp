@@ -124,6 +124,7 @@ function RegistrarPagamento({ a, aoFechar }: { a: APagarEntregador; aoFechar: ()
               <input type="checkbox" className="mt-1" checked={marcadas.has(l.chamadaId)} onChange={() => alternar(l.chamadaId)} aria-label={`Chamada ${l.numero}`} />
               <span className="flex-1">
                 Nº {l.numero} · {ROTULO_TIPO_CHAMADA[l.tipo]} · {dataBr(l.concluidaEm)} · {l.destino}
+                {l.cancelada && <span className="block text-xs text-amber-800">Cancelada depois do aceite: taxa de deslocamento</span>}
                 {l.extraCentavos > 0 && <span className="block text-xs text-slate-500">Extra {formatarCentavos(l.extraCentavos)}: {l.extraMotivo}</span>}
                 {l.contestacaoAberta && <span className="block text-xs text-red-700">Contestação esperando resposta</span>}
               </span>

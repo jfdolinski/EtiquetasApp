@@ -96,6 +96,10 @@ export class ManutencaoService implements OnApplicationBootstrap, OnModuleDestro
       await this.prisma.erroSistema.deleteMany({ where: { criadoEm: { lt: antes(RETENCAO_ERROS_DIAS) } } });
       await this.prisma.sessaoUsuario.deleteMany({ where: { expiraEm: { lt: antes(RETENCAO_VENCIDOS_DIAS) } } });
       await this.prisma.redefinicaoSenha.deleteMany({ where: { expiraEm: { lt: antes(RETENCAO_VENCIDOS_DIAS) } } });
+      await this.prisma.redefinicaoSenhaEntregador.deleteMany({ where: { expiraEm: { lt: antes(RETENCAO_VENCIDOS_DIAS) } } });
+      // Entregas: o caminho de cada chamada fica 30 dias; documento de quem foi recusado há 60 dias sai (LGPD).
+      await this.prisma.rastroChamada.deleteMany({ where: { em: { lt: antes(30) } } });
+      await this.prisma.documentoEntregador.deleteMany({ where: { entregador: { situacao: 'RECUSADO', decididoEm: { lt: antes(60) } } } });
       await this.prisma.codigoVinculoApp.deleteMany({ where: { expiraEm: { lt: antes(RETENCAO_VENCIDOS_DIAS) } } });
       await this.prisma.pedidoVinculoTela.deleteMany({ where: { expiraEm: { lt: antes(RETENCAO_VENCIDOS_DIAS) } } });
       await this.prisma.quedaTela.deleteMany({ where: { fim: { lt: antes(RETENCAO_LISTAS_DIAS) } } });
