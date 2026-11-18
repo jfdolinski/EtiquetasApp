@@ -1,0 +1,415 @@
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  formatarCelular,
+  formatarCentavos,
+  formatarKm,
+  linkWhatsApp,
+  ROTULO_MOTIVO_OCORRENCIA,
+  ROTULO_SITUACAO_CHAMADA,
+  ROTULO_TIPO_CHAMADA,
+  ROTULO_VEICULO,
+  TIPOS_CHAMADA,
+  type ChamadaResumo,
+  type ConfigEntregasEmpresa,
+  type ConfigMapa,
+  type ElegivelOferta,
+  type NovaChamada,
+  type ParadaChamada,
+  type Ponto,
+  type PreviaChamada,
+  type ResultadoEndereco,
+  type SituacaoChamada,
+  type TipoChamada,
+} from '@etiquetas/shared';
+import { api } from '../../api';
+import { useAuth } from '../../auth';
+import { Alerta, Botao, Campo, formatarData, Modal, Selecao, Selo, Tabela } from '../../components/ui';
+import { MapaEntregadores } from './MapaEntregadores';
+
+const COR_SITUACAO: Record<SituacaoChamada, 'verde' | 'amarelo' | 'vermelho' | 'cinza'> = {
+  ABERTA: 'amarelo',
+  ACEITA: 'verde',
+  NA_COLETA: 'verde',
+  COLETADA: 'verde',
+  NO_DESTINO: 'verde',
+  CONCLUIDA: 'cinza',
+  OCORRENCIA: 'vermelho',
+  CANCELADA: 'cinza',
+};
+
+const COR_COLETA = '#ea580c';
+const COR_DESTINO = '#7c3aed';
+const COR_ENTREGADOR = '#2563eb';
+
+const paradaVazia = (): ParadaChamada => ({ lat: 0, lon: 0, endereco: '', contato: '', telefone: '', instrucoes: '' });
+const temPonto = (p: Ponto) => !(p.lat === 0 && p.lon === 0);
+
+export function Chamadas({ config, mapa }: { config: ConfigEntregasEmpresa; mapa: ConfigMapa }) {
+  const { pode } = useAuth();
+  const [filtro, setFiltro] = useState<'ATIVAS' | 'TODAS'>('ATIVAS');
+  const [nova, setNova] = useState(false);
+  const [aberta, setAberta] = useState<string | null>(null);
+  const { data = [], error, isLoading } = useQuery({ queryKey: ['chamadas', filtro], queryFn: () => api<ChamadaResumo[]>(`/entregas/chamadas?filtro=${filtro}`), refetchInterval: 10_000 });
+  const gerencia = pode('entrega.gerenciar');
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="w-56">
+          <Selecao rotulo="Mostrar" value={filtro} onChange={(e) => setFiltro(e.target.value as 'ATIVAS' | 'TODAS')}>
+            <option value="ATIVAS">Em andamento e de hoje</option>
+            <option value="TODAS">Todas</option>
+          </Selecao>
+        </div>
+        {gerencia && <Botao onClick={() => setNova(true)}>Nova chamada</Botao>}
+      </div>
+      {error && <Alerta>{error.message}</Alerta>}
+      {!isLoading && (
+        <Tabela colunas={['Nº', 'Serviço', 'Destino', 'Entregador', 'Valor', 'Situação']} vazio={data.length === 0}>
+          {data.map((c) => (
+            <tr key={c.id} className="cursor-pointer hover:bg-slate-50" onClick={() => setAberta(c.id)} data-testid="linha-chamada">
+              <td className="px-4 py-2.5 font-medium">{c.numero}</td>
+              <td className="px-4 py-2.5">
+                {ROTULO_TIPO_CHAMADA[c.tipo]}
+                <div className="text-xs text-slate-500">{formatarData(c.criadoEm)}</div>
+              </td>
+              <td className="max-w-xs truncate px-4 py-2.5 text-slate-600">{c.destino.endereco}</td>
+              <td className="px-4 py-2.5">{c.entregador?.nome ?? (c.ofertaPendente ? <span className="text-slate-500">Oferecida a {c.ofertaPendente.entregadorNome}</span> : <span className="text-slate-400">—</span>)}</td>
+              <td className="whitespace-nowrap px-4 py-2.5">{formatarCentavos(c.valorCentavos)}</td>
+              <td className="px-4 py-2.5">
+                <Selo cor={COR_SITUACAO[c.situacao]}>{ROTULO_SITUACAO_CHAMADA[c.situacao]}</Selo>
+              </td>
+            </tr>
+          ))}
+        </Tabela>
+      )}
+      {nova && <NovaChamadaModal config={config} mapa={mapa} aoFechar={() => setNova(false)} aoCriar={(id) => { setNova(false); setAberta(id); }} />}
+      {aberta && <DetalheChamada id={aberta} mapa={mapa} gerencia={gerencia} aoFechar={() => setAberta(null)} />}
+    </div>
+  );
+}
+
+// Nova chamada --------------------------------------------------------------------------------
+
+function NovaChamadaModal({ config, mapa, aoFechar, aoCriar }: { config: ConfigEntregasEmpresa; mapa: ConfigMapa; aoFechar: () => void; aoCriar: (id: string) => void }) {
+  const cliente = useQueryClient();
+  const [tipo, setTipo] = useState<TipoChamada>('ENTREGA');
+  const baseComoParada = (): ParadaChamada => (config.base ? { ...paradaVazia(), lat: config.base.lat, lon: config.base.lon, endereco: config.base.endereco } : paradaVazia());
+  const [origem, setOrigem] = useState<ParadaChamada>(baseComoParada);
+  const [destino, setDestino] = useState<ParadaChamada>(paradaVazia);
+  const [marcando, setMarcando] = useState<'origem' | 'destino'>('destino');
+  const [serie, setSerie] = useState('');
+  const [observacao, setObservacao] = useState('');
+
+  // Coleta e devolução: buscar no cliente e trazer para a empresa.
+  useEffect(() => {
+    if (tipo === 'ENTREGA') {
+      setOrigem(baseComoParada());
+      setDestino(paradaVazia());
+      setMarcando('destino');
+    } else {
+      setOrigem(paradaVazia());
+      setDestino(baseComoParada());
+      setMarcando('origem');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipo]);
+
+  const corpo: NovaChamada = { tipo, origem, destino, serieEsperada: serie.trim() || null, observacao };
+  const prontos = temPonto(origem) && temPonto(destino);
+  const previa = useQuery({
+    queryKey: ['chamada-previa', tipo, origem.lat, origem.lon, destino.lat, destino.lon],
+    queryFn: () => api<PreviaChamada>('/entregas/chamadas/previa', { metodo: 'POST', corpo: { ...corpo, origem: { ...origem, endereco: origem.endereco || 'ponto marcado' }, destino: { ...destino, endereco: destino.endereco || 'ponto marcado' } } }),
+    enabled: prontos,
+    retry: false,
+  });
+  const criar = useMutation({
+    mutationFn: () => api<ChamadaResumo>('/entregas/chamadas', { metodo: 'POST', corpo }),
+    onSuccess: (c) => {
+      void cliente.invalidateQueries({ queryKey: ['chamadas'] });
+      aoCriar(c.id);
+    },
+  });
+  const marcas = [
+    ...(temPonto(origem) ? [{ ...origem, cor: COR_COLETA, rotulo: 'Coleta' }] : []),
+    ...(temPonto(destino) ? [{ ...destino, cor: COR_DESTINO, rotulo: 'Destino' }] : []),
+  ];
+
+  return (
+    <Modal titulo="Nova chamada" aberto aoFechar={aoFechar} largo>
+      <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
+        <div className="space-y-4">
+          <Selecao rotulo="Serviço" value={tipo} onChange={(e) => setTipo(e.target.value as TipoChamada)}>
+            {TIPOS_CHAMADA.map((t) => (
+              <option key={t} value={t}>
+                {ROTULO_TIPO_CHAMADA[t]}
+              </option>
+            ))}
+          </Selecao>
+          <EditorParada titulo="Coleta" artigo="na" cor={COR_COLETA} parada={origem} mudar={setOrigem} ativa={marcando === 'origem'} marcar={() => setMarcando('origem')} />
+          <EditorParada titulo="Destino" artigo="no" cor={COR_DESTINO} parada={destino} mudar={setDestino} ativa={marcando === 'destino'} marcar={() => setMarcando('destino')} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Campo rotulo={tipo === 'DEVOLUCAO_MAQUINA' ? 'Número de série da máquina (opcional)' : 'Número de série (opcional)'} value={serie} onChange={(e) => setSerie(e.target.value)} ajuda={tipo === 'DEVOLUCAO_MAQUINA' ? 'O entregador sempre lê a série na coleta; se informada aqui, precisa conferir.' : undefined} />
+            <Campo rotulo="Observação para o entregador" value={observacao} onChange={(e) => setObservacao(e.target.value)} />
+          </div>
+        </div>
+        <div className="space-y-3">
+          <p className="text-sm text-slate-600">
+            Clique no mapa para marcar <strong style={{ color: marcando === 'origem' ? COR_COLETA : COR_DESTINO }}>{marcando === 'origem' ? 'a coleta' : 'o destino'}</strong>.
+          </p>
+          <MapaEntregadores config={mapa} base={null} raioKm={1} marcas={marcas} altura={360} aoClicar={(p) => (marcando === 'origem' ? setOrigem({ ...origem, ...p }) : setDestino({ ...destino, ...p }))} />
+          {previa.data && (
+            <div className="rounded-md bg-slate-50 px-3 py-2 text-sm">
+              <div>
+                Distância: <strong>{formatarKm(previa.data.metros)}</strong>
+                {previa.data.estimada && <span className="text-slate-500"> (estimada)</span>} · cerca de {Math.max(1, Math.round(previa.data.segundos / 60))} min
+              </div>
+              <div className="text-lg font-semibold">Valor para o entregador: {formatarCentavos(previa.data.valorCentavos)}</div>
+            </div>
+          )}
+          {previa.error && <Alerta tipo="aviso">{previa.error.message}</Alerta>}
+          {criar.error && <Alerta>{criar.error.message}</Alerta>}
+          <Botao onClick={() => criar.mutate()} disabled={!prontos || !origem.endereco || !destino.endereco || criar.isPending}>
+            {criar.isPending ? 'Abrindo…' : 'Abrir chamada'}
+          </Botao>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function EditorParada({ titulo, artigo, cor, parada, mudar, ativa, marcar }: { titulo: string; artigo: 'na' | 'no'; cor: string; parada: ParadaChamada; mudar: (p: ParadaChamada) => void; ativa: boolean; marcar: () => void }) {
+  const [resultados, setResultados] = useState<ResultadoEndereco[] | null>(null);
+  const buscar = useMutation({ mutationFn: (q: string) => api<ResultadoEndereco[]>(`/entregas/enderecos?${new URLSearchParams({ q })}`), onSuccess: setResultados });
+  const aoBuscar = (e: FormEvent) => {
+    e.preventDefault();
+    if (parada.endereco.trim().length >= 4) buscar.mutate(parada.endereco.trim());
+  };
+  return (
+    <fieldset className={`space-y-2 rounded-md border p-3 ${ativa ? 'border-slate-400' : 'border-slate-200'}`} onFocus={marcar}>
+      <legend className="px-1 text-sm font-semibold" style={{ color: cor }}>
+        {titulo} {temPonto(parada) ? '· marcado' : '· sem ponto'}
+      </legend>
+      <form onSubmit={aoBuscar} className="flex items-end gap-2">
+        <div className="flex-1">
+          <Campo rotulo={`Endereço ${artigo === 'na' ? 'da' : 'do'} ${titulo.toLowerCase()}`} value={parada.endereco} onChange={(e) => mudar({ ...parada, endereco: e.target.value })} placeholder="Rua, número, cidade" />
+        </div>
+        <Botao type="submit" variante="secundario" disabled={buscar.isPending || parada.endereco.trim().length < 4}>
+          Buscar
+        </Botao>
+      </form>
+      {buscar.error && <Alerta tipo="aviso">{buscar.error.message}</Alerta>}
+      {resultados && (
+        <div className="space-y-1">
+          {resultados.length === 0 && <p className="text-xs text-slate-500">Nada encontrado: clique no mapa para marcar.</p>}
+          {resultados.map((r) => (
+            <button key={`${r.lat},${r.lon}`} type="button" className="block w-full rounded border border-slate-200 px-2 py-1 text-left text-xs hover:bg-slate-50" onClick={() => { mudar({ ...parada, lat: r.lat, lon: r.lon, endereco: r.endereco }); setResultados(null); }}>
+              {r.endereco}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Campo rotulo={`Contato ${artigo} ${titulo.toLowerCase()}`} value={parada.contato} onChange={(e) => mudar({ ...parada, contato: e.target.value })} />
+        <Campo rotulo={`Telefone ${artigo} ${titulo.toLowerCase()}`} value={parada.telefone} onChange={(e) => mudar({ ...parada, telefone: e.target.value })} inputMode="tel" />
+      </div>
+      <Campo rotulo={`Instruções ${artigo} ${titulo.toLowerCase()}`} value={parada.instrucoes} onChange={(e) => mudar({ ...parada, instrucoes: e.target.value })} placeholder="Portaria, apartamento, ponto de referência" />
+      {!ativa && (
+        <button type="button" className="text-xs text-blue-700 underline" onClick={marcar}>
+          Marcar {artigo === 'na' ? 'a' : 'o'} {titulo.toLowerCase()} no mapa
+        </button>
+      )}
+    </fieldset>
+  );
+}
+
+// Detalhe --------------------------------------------------------------------------------------
+
+function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: ConfigMapa; gerencia: boolean; aoFechar: () => void }) {
+  const cliente = useQueryClient();
+  const { data: c, error } = useQuery({ queryKey: ['chamada', id], queryFn: () => api<ChamadaResumo>(`/entregas/chamadas/${id}`), refetchInterval: 5_000 });
+  const elegiveis = useQuery({ queryKey: ['chamada-elegiveis', id], queryFn: () => api<ElegivelOferta[]>(`/entregas/chamadas/${id}/elegiveis`), enabled: gerencia && c?.situacao === 'ABERTA' && !c.ofertaPendente, refetchInterval: 10_000 });
+  const [motivo, setMotivo] = useState('');
+  const [foto, setFoto] = useState<string | null>(null);
+  const atualizar = (r: ChamadaResumo) => {
+    cliente.setQueryData(['chamada', id], r);
+    void cliente.invalidateQueries({ queryKey: ['chamadas'] });
+    void cliente.invalidateQueries({ queryKey: ['chamada-elegiveis', id] });
+  };
+  const acao = useMutation({ mutationFn: ({ caminho, corpo }: { caminho: string; corpo?: unknown }) => api<ChamadaResumo>(`/entregas/chamadas/${id}/${caminho}`, { metodo: 'POST', corpo }), onSuccess: (r) => { setMotivo(''); atualizar(r); } });
+  const verFoto = useMutation({ mutationFn: (etapa: string) => api<{ dados: string }>(`/entregas/chamadas/${id}/fotos/${etapa}`), onSuccess: (r) => setFoto(r.dados) });
+  const marcas = useMemo(
+    () =>
+      c
+        ? [
+            { ...c.origem, cor: COR_COLETA, rotulo: `Coleta: ${c.origem.endereco}` },
+            { ...c.destino, cor: COR_DESTINO, rotulo: `Destino: ${c.destino.endereco}` },
+            ...(c.posicaoEntregador ? [{ ...c.posicaoEntregador, cor: COR_ENTREGADOR, rotulo: `${c.entregador?.nome ?? 'Entregador'} (${new Date(c.posicaoEntregador.em).toLocaleTimeString('pt-BR')})` }] : []),
+          ]
+        : [],
+    [c],
+  );
+  const restam = c?.ofertaPendente ? Math.max(0, Math.round((new Date(c.ofertaPendente.expiraEm).getTime() - Date.now()) / 1000)) : 0;
+  const finalizada = c?.situacao === 'CONCLUIDA' || c?.situacao === 'CANCELADA';
+
+  return (
+    <Modal titulo={c ? `Chamada ${c.numero} · ${ROTULO_TIPO_CHAMADA[c.tipo]}` : 'Chamada'} aberto aoFechar={aoFechar} largo>
+      {error && <Alerta>{error.message}</Alerta>}
+      {c && (
+        <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
+          <div className="space-y-4 text-sm">
+            <div className="flex flex-wrap items-center gap-3">
+              <Selo cor={COR_SITUACAO[c.situacao]}>{ROTULO_SITUACAO_CHAMADA[c.situacao]}</Selo>
+              <span className="font-semibold">{formatarCentavos(c.valorCentavos)}</span>
+              <span className="text-slate-500">
+                {formatarKm(c.metros)}
+                {c.estimada ? ' (estimada)' : ''}
+              </span>
+            </div>
+            {c.codigoConfirmacao && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                <div className="text-xs text-amber-800">Código de confirmação: passe ao destinatário. O entregador só conclui com ele.</div>
+                <div className="font-mono text-2xl font-bold tracking-widest" data-testid="codigo-confirmacao">
+                  {c.codigoConfirmacao}
+                </div>
+                {c.destino.telefone && (
+                  <a className="text-xs text-blue-700 underline" href={linkWhatsApp(c.destino.telefone, `Seu código para receber o pedido é ${c.codigoConfirmacao}. Informe ao entregador na entrega.`)} target="_blank" rel="noreferrer">
+                    Enviar pelo WhatsApp
+                  </a>
+                )}
+              </div>
+            )}
+            <Parada titulo="Coleta" p={c.origem} />
+            <Parada titulo="Destino" p={c.destino} />
+            {(c.serieEsperada || c.serieColetada) && (
+              <div>
+                Série: {c.serieEsperada ? `esperada ${c.serieEsperada}` : ''}
+                {c.serieColetada ? ` · lida ${c.serieColetada}` : ''}
+              </div>
+            )}
+            {c.observacao && <div className="text-slate-600">Obs.: {c.observacao}</div>}
+            {c.entregador && (
+              <div className="rounded-md bg-slate-50 px-3 py-2">
+                <div className="font-medium">
+                  {c.entregador.nome} · {ROTULO_VEICULO[c.entregador.veiculo]}
+                  {c.entregador.placa ? ` · ${c.entregador.placa}` : ''}
+                </div>
+                {c.entregador.celular && (
+                  <a className="text-blue-700 underline" href={linkWhatsApp(c.entregador.celular, `Chamada ${c.numero}`)} target="_blank" rel="noreferrer">
+                    {formatarCelular(c.entregador.celular)}
+                  </a>
+                )}
+              </div>
+            )}
+
+            {c.ocorrencia && c.situacao === 'OCORRENCIA' && (
+              <Alerta tipo="aviso">
+                <div className="font-medium">
+                  Ocorrência: {ROTULO_MOTIVO_OCORRENCIA[c.ocorrencia.motivo]}
+                  {c.ocorrencia.texto ? `: ${c.ocorrencia.texto}` : ''}
+                </div>
+                {c.ocorrencia.temFoto && (
+                  <button type="button" className="underline" onClick={() => verFoto.mutate('OCORRENCIA')}>
+                    Ver foto
+                  </button>
+                )}
+                {gerencia && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Botao variante="secundario" onClick={() => acao.mutate({ caminho: 'ocorrencia', corpo: { acao: 'CONTINUAR' } })}>
+                      Seguir com ele
+                    </Botao>
+                    <Botao variante="secundario" onClick={() => acao.mutate({ caminho: 'ocorrencia', corpo: { acao: 'REABRIR' } })}>
+                      Liberar e chamar outro
+                    </Botao>
+                  </div>
+                )}
+              </Alerta>
+            )}
+
+            {gerencia && c.situacao === 'ABERTA' && (
+              <div className="space-y-2">
+                {c.ofertaPendente ? (
+                  <div className="flex flex-wrap items-center gap-3 rounded-md bg-blue-50 px-3 py-2">
+                    <span>
+                      Oferecida a <strong>{c.ofertaPendente.entregadorNome}</strong>, esperando resposta ({restam} s).
+                    </span>
+                    <Botao variante="secundario" onClick={() => acao.mutate({ caminho: 'cancelar-oferta' })}>
+                      Cancelar oferta
+                    </Botao>
+                  </div>
+                ) : (
+                  <>
+                    <div className="font-medium">Oferecer a um entregador</div>
+                    {elegiveis.error && <Alerta>{elegiveis.error.message}</Alerta>}
+                    {elegiveis.data?.length === 0 && <p className="text-slate-500">Nenhum entregador livre perto da coleta agora.</p>}
+                    {elegiveis.data?.map((e) => (
+                      <div key={e.id} className="flex items-center justify-between rounded border border-slate-200 px-3 py-2">
+                        <span>
+                          {e.nome} · {ROTULO_VEICULO[e.veiculo]} · {formatarKm(e.metrosAteColeta)} da coleta
+                        </span>
+                        <Botao onClick={() => acao.mutate({ caminho: 'oferecer', corpo: { entregadorId: e.id } })} disabled={acao.isPending}>
+                          Oferecer
+                        </Botao>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+
+            {gerencia && c.situacao === 'NO_DESTINO' && (
+              <Botao variante="secundario" onClick={() => confirm('Confirmar a entrega sem o código do destinatário?') && acao.mutate({ caminho: 'concluir' })}>
+                Confirmar entrega sem o código
+              </Botao>
+            )}
+            {acao.error && <Alerta>{acao.error.message}</Alerta>}
+            {gerencia && !finalizada && (
+              <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 pt-3">
+                <div className="min-w-56 flex-1">
+                  <Campo rotulo="Motivo do cancelamento" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+                </div>
+                <Botao variante="perigo" disabled={motivo.trim().length < 3 || acao.isPending} onClick={() => acao.mutate({ caminho: 'cancelar', corpo: { motivo } })}>
+                  Cancelar chamada
+                </Botao>
+              </div>
+            )}
+          </div>
+          <div className="space-y-3">
+            <MapaEntregadores config={mapa} base={null} raioKm={1} marcas={marcas} altura={320} />
+            <div>
+              <div className="mb-1 text-sm font-medium">Histórico</div>
+              <ol className="space-y-1 text-sm">
+                {[...c.historico].reverse().map((h, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="whitespace-nowrap text-xs text-slate-400">{new Date(h.em).toLocaleTimeString('pt-BR')}</span>
+                    <span>{h.texto}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        </div>
+      )}
+      <Modal titulo="Foto" aberto={!!foto} aoFechar={() => setFoto(null)} largo>
+        {foto && <img src={foto} alt="Foto da ocorrência" className="mx-auto max-h-[75vh] object-contain" />}
+      </Modal>
+    </Modal>
+  );
+}
+
+function Parada({ titulo, p }: { titulo: string; p: ParadaChamada }) {
+  return (
+    <div>
+      <div className="text-xs text-slate-500">{titulo}</div>
+      <div>{p.endereco}</div>
+      {(p.contato || p.telefone) && (
+        <div className="text-slate-600">
+          {p.contato}
+          {p.telefone ? ` · ${formatarCelular(p.telefone)}` : ''}
+        </div>
+      )}
+      {p.instrucoes && <div className="text-slate-500">{p.instrucoes}</div>}
+    </div>
+  );
+}

@@ -23,3 +23,4 @@ export * from './posts';
 export * from './telas';
 export * from './telas-conteudo';
 export * from './entregas';
+export * from './entregas-chamadas';

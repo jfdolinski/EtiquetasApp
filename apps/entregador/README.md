@@ -27,15 +27,19 @@ Colocar no ar: grave a versão da Release (ex.: `1.0.0-3`) em `release-publicada
 | `ENTREGADOR_SERVIDOR` | Endereço do site (https://…), gravado no APK | A tela de entrada pede o endereço ao entregador |
 | `APP_KEYSTORE_BASE64`, `APP_KEYSTORE_SENHA` | A mesma chave do outro aplicativo | APK de teste, assinado com a chave de depuração |
 
-Ainda sem Firebase: as chamadas (etapa 2) vão precisar dele para tocar com o celular bloqueado, e o `google-services.json` terá que incluir o pacote `br.com.etiquetas.entregador`.
+Ainda sem Firebase (ver "Ofertas sem Firebase"). Para ligar, o `google-services.json` terá que incluir o pacote `br.com.etiquetas.entregador`.
 
 ## Localização
 
 Online = `expo-location` com serviço em primeiro plano (notificação fixa "Você está online"), uma posição a cada 20 s, inclusive parado (`distanceInterval: 0`). A tarefa é registrada em `src/localizacao.ts`, importado primeiro no `index.ts`, porque o Android a acorda com o app fechado. O servidor recusa posição de GPS falso (`mocked`), desconta a diária do dia e desliga quem fica 10 min sem aviso. Offline, nada é enviado.
+
+## Ofertas sem Firebase
+
+A resposta de cada posição enviada traz a oferta pendente, e `src/avisos.ts` toca uma notificação local (canal "Ofertas de chamada", importância máxima) uma vez por oferta. Com o app aberto, ele também consulta a oferta e a chamada a cada 5 s. O atraso máximo é o intervalo da posição (20 s), por isso o prazo padrão para aceitar é de 45 s. Com o Firebase, o aviso passa a ser imediato.
 
 ## Estrutura
 
 - `src/regras.ts`: cópias de regras do shared; `packages/shared/src/entregas-app.test.ts` confere que continuam iguais.
 - `src/api.ts`: sessão no cofre do aparelho e chamadas à API.
 - `src/localizacao.ts`: permissões, tarefa em segundo plano e envio da posição.
-- `src/TelaEntrar.tsx` (entrar e cadastro), `TelaDocumentos.tsx` (análise), `TelaInicio.tsx` (online), `TelaCreditos.tsx` (diárias e Pix), `TelaPerfil.tsx`, `App.tsx`.
+- `src/TelaEntrar.tsx` (entrar e cadastro), `TelaDocumentos.tsx` (análise), `TelaInicio.tsx` (online), `TelaChamada.tsx` (oferta e chamada em andamento, com `LeitorCodigo` para a série), `TelaGanhos.tsx`, `TelaCreditos.tsx` (diárias e Pix), `TelaPerfil.tsx`, `App.tsx`.

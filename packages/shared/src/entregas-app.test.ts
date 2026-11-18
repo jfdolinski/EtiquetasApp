@@ -13,6 +13,7 @@ import {
   TIPOS_VEICULO,
 } from './entregas';
 import { formatarCelular, formatarCentavos, normalizarCelular } from './pedidos';
+import { formatarKm, linkNavegacao, MOTIVOS_OCORRENCIA, normalizarSerie, PROXIMA_ETAPA, ROTULO_MOTIVO_OCORRENCIA, ROTULO_SITUACAO_CHAMADA, ROTULO_TIPO_CHAMADA } from './entregas-chamadas';
 
 /** O app do entregador só importa tipos daqui: as regras são copiadas em apps/entregador/src/regras.ts. */
 describe('cópias do app do entregador', () => {
@@ -33,5 +34,14 @@ describe('cópias do app do entregador', () => {
     const base = { nome: 'Ana Souza', cpf: '52998224725', celular: '11987654321', email: 'ana@x.com', senha: '12345678', veiculo: 'MOTO' as const, placa: 'ABC1D23', chavePix: 'ana@x.com', aceitaTermos: true };
     const casos = [base, { ...base, nome: 'Ana' }, { ...base, placa: '' }, { ...base, veiculo: 'A_PE' as const, placa: '' }, { ...base, senha: '123' }, { ...base, email: 'x' }, { ...base, chavePix: '' }, { ...base, aceitaTermos: false }];
     for (const c of casos) expect(app.problemaNoCadastroEntregador(c)).toBe(problemaNoCadastroEntregador(c));
+
+    expect(app.ROTULO_TIPO_CHAMADA).toEqual(ROTULO_TIPO_CHAMADA);
+    expect(app.ROTULO_SITUACAO_CHAMADA).toEqual(ROTULO_SITUACAO_CHAMADA);
+    expect(app.PROXIMA_ETAPA).toEqual(PROXIMA_ETAPA);
+    expect(app.MOTIVOS_OCORRENCIA).toEqual([...MOTIVOS_OCORRENCIA]);
+    expect(app.ROTULO_MOTIVO_OCORRENCIA).toEqual(ROTULO_MOTIVO_OCORRENCIA);
+    for (const v of [' ab-12.34 ', '', 'x']) expect(app.normalizarSerie(v)).toBe(normalizarSerie(v));
+    for (const m of [0, 950, 3500, 12_345, 250_000]) expect(app.formatarKm(m)).toBe(formatarKm(m));
+    expect(app.linkNavegacao({ lat: -23.5, lon: -46.6 })).toBe(linkNavegacao({ lat: -23.5, lon: -46.6 }));
   });
 });

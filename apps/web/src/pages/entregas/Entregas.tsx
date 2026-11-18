@@ -1,7 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  LIMITES_SEGUNDOS_PARA_ACEITAR,
+  problemaNaTabelaPrecos,
   RAIO_ATENDIMENTO_MAXIMO_KM,
+  ROTULO_TIPO_CHAMADA,
+  TIPOS_CHAMADA,
+  type TabelaPrecos,
+  type TipoChamada,
   ROTULO_SITUACAO_MAPA,
   ROTULO_VEICULO,
   type ConfigEntregasEmpresa,
@@ -13,26 +19,30 @@ import {
 import { api } from '../../api';
 import { useAuth } from '../../auth';
 import { Alerta, Botao, Cabecalho, Campo, Selo, Tabela } from '../../components/ui';
+import { Chamadas } from './Chamadas';
 import { MapaEntregadores } from './MapaEntregadores';
 
-type Aba = 'mapa' | 'configuracao';
+type Aba = 'chamadas' | 'mapa' | 'configuracao';
 type RespostaConfig = { config: ConfigEntregasEmpresa; mapa: ConfigMapa };
 
 const ATUALIZAR_MS = 20_000;
+const reais = (c: number) => (c / 100).toFixed(2).replace('.', ',');
+const centavos = (t: string) => Math.round(Number(t.trim().replace(/\./g, '').replace(',', '.')) * 100);
 
-/** Entregadores online perto da empresa. Chamadas e direcionamento vêm nas próximas etapas (docs/ENTREGAS.md). */
+/** Chamadas de coleta e entrega e os entregadores online perto da empresa (docs/ENTREGAS.md). */
 export function Entregas() {
   const { pode } = useAuth();
   const abas: { id: Aba; rotulo: string }[] = [
+    { id: 'chamadas', rotulo: 'Chamadas' },
     { id: 'mapa', rotulo: 'Mapa' },
     ...(pode('entrega.configurar') ? [{ id: 'configuracao' as const, rotulo: 'Configuração' }] : []),
   ];
-  const [aba, setAba] = useState<Aba>('mapa');
+  const [aba, setAba] = useState<Aba>('chamadas');
   const config = useQuery({ queryKey: ['entregas-config'], queryFn: () => api<RespostaConfig>('/entregas/config') });
 
   return (
     <div>
-      <Cabecalho titulo="Entregas" descricao="Entregadores online perto da empresa. A posição de quem está livre aparece aproximada." />
+      <Cabecalho titulo="Entregas" descricao="Abra chamadas de coleta e entrega e ofereça a um entregador online por perto. A posição de quem está livre aparece aproximada." />
       {abas.length > 1 && (
         <div role="tablist" className="mb-4 flex gap-1 border-b border-slate-200">
           {abas.map(({ id, rotulo }) => (
@@ -43,6 +53,7 @@ export function Entregas() {
         </div>
       )}
       {config.error && <Alerta>{config.error.message}</Alerta>}
+      {config.data && aba === 'chamadas' && <Chamadas config={config.data.config} mapa={config.data.mapa} />}
       {config.data && aba === 'mapa' && <PainelMapa mapa={config.data.mapa} configurar={pode('entrega.configurar') ? () => setAba('configuracao') : null} />}
       {config.data && aba === 'configuracao' && <Configuracao inicial={config.data.config} mapa={config.data.mapa} aoSalvar={() => setAba('mapa')} />}
     </div>
@@ -98,6 +109,10 @@ function Configuracao({ inicial, mapa, aoSalvar }: { inicial: ConfigEntregasEmpr
   const cliente = useQueryClient();
   const [base, setBase] = useState<(Ponto & { endereco: string }) | null>(inicial.base);
   const [raio, setRaio] = useState(String(inicial.raioAtendimentoKm));
+  const [precos, setPrecos] = useState(() => Object.fromEntries(TIPOS_CHAMADA.map((t) => [t, { base: reais(inicial.precos[t].baseCentavos), porKm: reais(inicial.precos[t].porKmCentavos), km: String(inicial.precos[t].kmIncluso) }])) as Record<TipoChamada, { base: string; porKm: string; km: string }>);
+  const [segundos, setSegundos] = useState(String(inicial.segundosParaAceitar));
+  const tabela = Object.fromEntries(TIPOS_CHAMADA.map((t) => [t, { baseCentavos: centavos(precos[t].base), porKmCentavos: centavos(precos[t].porKm), kmIncluso: Number(precos[t].km.replace(',', '.')) }])) as TabelaPrecos;
+  const problemaPrecos = problemaNaTabelaPrecos(tabela);
   const [busca, setBusca] = useState('');
   const [resultados, setResultados] = useState<ResultadoEndereco[] | null>(null);
   useEffect(() => setBase(inicial.base), [inicial.base]);
@@ -107,7 +122,7 @@ function Configuracao({ inicial, mapa, aoSalvar }: { inicial: ConfigEntregasEmpr
     onSuccess: setResultados,
   });
   const salvar = useMutation({
-    mutationFn: () => api<ConfigEntregasEmpresa>('/entregas/config', { metodo: 'PUT', corpo: { base, raioAtendimentoKm: Number(raio) } }),
+    mutationFn: () => api<ConfigEntregasEmpresa>('/entregas/config', { metodo: 'PUT', corpo: { base, raioAtendimentoKm: Number(raio), precos: tabela, segundosParaAceitar: Number(segundos) } }),
     onSuccess: () => {
       void cliente.invalidateQueries({ queryKey: ['entregas-config'] });
       void cliente.invalidateQueries({ queryKey: ['entregas-mapa'] });
@@ -156,8 +171,21 @@ function Configuracao({ inicial, mapa, aoSalvar }: { inicial: ConfigEntregasEmpr
           )}
         </div>
         <Campo rotulo="Raio de atendimento (km)" type="number" min={1} max={RAIO_ATENDIMENTO_MAXIMO_KM} value={raio} onChange={(e) => setRaio(e.target.value)} ajuda="Entregadores fora desse raio não aparecem para a empresa." />
+        <div className="space-y-2">
+          <div className="text-sm font-medium">Valor para o entregador</div>
+          <p className="text-xs text-slate-500">Base (cobre os km inclusos) + cada km a mais. O entregador vê o valor antes de aceitar.</p>
+          {TIPOS_CHAMADA.map((t) => (
+            <div key={t} className="grid grid-cols-3 gap-2">
+              <Campo rotulo={`${ROTULO_TIPO_CHAMADA[t]}: base (R$)`} inputMode="decimal" value={precos[t].base} onChange={(e) => setPrecos({ ...precos, [t]: { ...precos[t], base: e.target.value } })} />
+              <Campo rotulo="Por km (R$)" inputMode="decimal" value={precos[t].porKm} onChange={(e) => setPrecos({ ...precos, [t]: { ...precos[t], porKm: e.target.value } })} />
+              <Campo rotulo="Km inclusos" inputMode="decimal" value={precos[t].km} onChange={(e) => setPrecos({ ...precos, [t]: { ...precos[t], km: e.target.value } })} />
+            </div>
+          ))}
+          {problemaPrecos && <Alerta tipo="aviso">{problemaPrecos}</Alerta>}
+        </div>
+        <Campo rotulo="Segundos para o entregador aceitar" type="number" min={LIMITES_SEGUNDOS_PARA_ACEITAR.minimo} max={LIMITES_SEGUNDOS_PARA_ACEITAR.maximo} value={segundos} onChange={(e) => setSegundos(e.target.value)} ajuda="Sem resposta nesse tempo, a oferta expira e você escolhe outro." />
         {salvar.error && <Alerta>{salvar.error.message}</Alerta>}
-        <Botao onClick={() => salvar.mutate()} disabled={!base || !raioValido || salvar.isPending}>
+        <Botao onClick={() => salvar.mutate()} disabled={!base || !raioValido || !!problemaPrecos || salvar.isPending}>
           {salvar.isPending ? 'Salvando…' : 'Salvar'}
         </Botao>
       </div>

@@ -9,6 +9,12 @@ import {
   primeiroNome,
   RAIO_ATENDIMENTO_MAXIMO_KM,
   RAIO_ATENDIMENTO_PADRAO_KM,
+  LIMITES_SEGUNDOS_PARA_ACEITAR,
+  problemaNaTabelaPrecos,
+  SEGUNDOS_PARA_ACEITAR_PADRAO,
+  SITUACOES_EM_ANDAMENTO,
+  TABELA_PRECOS_PADRAO,
+  type TabelaPrecos,
   situacaoNoMapa,
   type ConfigEntregasEmpresa,
   type ConfigMapa,
@@ -28,7 +34,21 @@ class BaseDto {
   @IsString() @MaxLength(300) endereco: string;
 }
 
+class PrecoTipoDto {
+  @IsInt() @Min(0) baseCentavos: number;
+  @IsInt() @Min(0) porKmCentavos: number;
+  @IsNumber() @Min(0) kmIncluso: number;
+}
+
+class TabelaPrecosDto {
+  @ValidateNested() @Type(() => PrecoTipoDto) ENTREGA: PrecoTipoDto;
+  @ValidateNested() @Type(() => PrecoTipoDto) COLETA: PrecoTipoDto;
+  @ValidateNested() @Type(() => PrecoTipoDto) DEVOLUCAO_MAQUINA: PrecoTipoDto;
+}
+
 class ConfigEntregasDto {
+  @IsOptional() @ValidateNested() @Type(() => TabelaPrecosDto) precos?: TabelaPrecos;
+  @IsOptional() @IsInt() @Min(LIMITES_SEGUNDOS_PARA_ACEITAR.minimo) @Max(LIMITES_SEGUNDOS_PARA_ACEITAR.maximo) segundosParaAceitar?: number;
   @IsOptional() @ValidateNested() @Type(() => BaseDto) base: BaseDto | null;
   @IsInt() @Min(1, { message: 'O raio vai de 1 a 100 km.' }) @Max(RAIO_ATENDIMENTO_MAXIMO_KM, { message: 'O raio vai de 1 a 100 km.' }) raioAtendimentoKm: number;
 }
@@ -50,14 +70,27 @@ export class EntregasEmpresaService {
 
   async config(empresaId: string): Promise<ConfigEntregasEmpresa> {
     const c = await this.prisma.configuracaoEntregas.findUnique({ where: { empresaId } });
-    if (!c) return { base: null, raioAtendimentoKm: RAIO_ATENDIMENTO_PADRAO_KM };
+    if (!c) return { base: null, raioAtendimentoKm: RAIO_ATENDIMENTO_PADRAO_KM, precos: TABELA_PRECOS_PADRAO, segundosParaAceitar: SEGUNDOS_PARA_ACEITAR_PADRAO };
     const base = c.baseLat !== null && c.baseLon !== null ? { lat: c.baseLat, lon: c.baseLon, endereco: c.baseEndereco } : null;
-    return { base, raioAtendimentoKm: c.raioAtendimentoKm };
+    // Tipo novo sem preço na tabela gravada fica com o padrão.
+    const precos = { ...TABELA_PRECOS_PADRAO, ...((c.precos as Partial<TabelaPrecos> | null) ?? {}) };
+    return { base, raioAtendimentoKm: c.raioAtendimentoKm, precos, segundosParaAceitar: c.segundosParaAceitar };
   }
 
   async salvar(empresaId: string, dto: ConfigEntregasDto, autorId: string): Promise<ConfigEntregasEmpresa> {
     if (dto.base && !coordenadaValida(dto.base)) throw new BadRequestException('Ponto inválido.');
-    const data = { baseLat: dto.base?.lat ?? null, baseLon: dto.base?.lon ?? null, baseEndereco: dto.base?.endereco.trim() ?? '', raioAtendimentoKm: dto.raioAtendimentoKm };
+    if (dto.precos) {
+      const problema = problemaNaTabelaPrecos(dto.precos);
+      if (problema) throw new BadRequestException(problema);
+    }
+    const data = {
+      baseLat: dto.base?.lat ?? null,
+      baseLon: dto.base?.lon ?? null,
+      baseEndereco: dto.base?.endereco.trim() ?? '',
+      raioAtendimentoKm: dto.raioAtendimentoKm,
+      ...(dto.precos ? { precos: dto.precos as never } : {}),
+      ...(dto.segundosParaAceitar ? { segundosParaAceitar: dto.segundosParaAceitar } : {}),
+    };
     await this.prisma.configuracaoEntregas.upsert({ where: { empresaId }, create: { empresaId, ...data }, update: data });
     await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entregas.configurar', entidade: 'ConfiguracaoEntregas', entidadeId: empresaId, detalhes: { base: !!dto.base, raioAtendimentoKm: dto.raioAtendimentoKm } });
     return this.config(empresaId);
@@ -81,7 +114,7 @@ export class EntregasEmpresaService {
     const dLon = raio / (KM_POR_GRAU_LAT * Math.max(0.01, Math.cos((lat * Math.PI) / 180)));
     const candidatos = await this.prisma.entregador.findMany({
       where: { situacao: 'APROVADO', online: true, posicaoEm: { not: null }, lat: { gte: lat - dLat, lte: lat + dLat }, lon: { gte: lon - dLon, lte: lon + dLon } },
-      select: { id: true, nome: true, veiculo: true, lat: true, lon: true, posicaoEm: true },
+      select: { id: true, nome: true, veiculo: true, lat: true, lon: true, posicaoEm: true, chamadas: { where: { situacao: { in: [...SITUACOES_EM_ANDAMENTO] } }, select: { id: true }, take: 1 } },
       take: 500,
     });
     const entregadores = candidatos
@@ -96,7 +129,7 @@ export class EntregasEmpresaService {
           veiculo: e.veiculo as TipoVeiculo,
           lat: p.lat,
           lon: p.lon,
-          situacao: situacaoNoMapa(e.posicaoEm, agora),
+          situacao: e.chamadas.length ? ('OCUPADO' as const) : situacaoNoMapa(e.posicaoEm, agora),
           posicaoEm: e.posicaoEm!.toISOString(),
           // Arredondada: a distância exata entregaria a posição.
           distanciaKm: Math.round(distancia / 100) / 10,

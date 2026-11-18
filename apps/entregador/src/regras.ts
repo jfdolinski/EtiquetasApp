@@ -1,6 +1,7 @@
 // Cópias de packages/shared/src/entregas.ts e pedidos.ts: o app só importa tipos de lá.
 // packages/shared/src/entregas-app.test.ts confere que dão o mesmo resultado.
 
+import type { MotivoOcorrencia, SituacaoChamada, TipoChamada } from '../../../packages/shared/src/entregas-chamadas';
 import type { DadosCadastroEntregador, SituacaoEntregador, SituacaoPedidoCredito, TipoDocumentoEntregador, TipoVeiculo } from '../../../packages/shared/src/entregas';
 
 export const TIPOS_VEICULO: TipoVeiculo[] = ['MOTO', 'CARRO', 'BICICLETA', 'A_PE'];
@@ -106,4 +107,51 @@ export function servidorValido(texto: string, aceitarHttp: boolean): string | nu
 export function dataCurta(iso: string): string {
   const d = new Date(iso);
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
+
+// Chamadas (cópias de packages/shared/src/entregas-chamadas.ts) ------------------------------
+
+export const ROTULO_TIPO_CHAMADA: Record<TipoChamada, string> = {
+  ENTREGA: 'Entrega',
+  COLETA: 'Coleta',
+  DEVOLUCAO_MAQUINA: 'Devolução de máquina',
+};
+
+export const ROTULO_SITUACAO_CHAMADA: Record<SituacaoChamada, string> = {
+  ABERTA: 'Aguardando entregador',
+  ACEITA: 'A caminho da coleta',
+  NA_COLETA: 'No local da coleta',
+  COLETADA: 'A caminho do destino',
+  NO_DESTINO: 'No destino',
+  CONCLUIDA: 'Concluída',
+  OCORRENCIA: 'Ocorrência',
+  CANCELADA: 'Cancelada',
+};
+
+export const PROXIMA_ETAPA: Partial<Record<SituacaoChamada, { para: SituacaoChamada; rotulo: string }>> = {
+  ACEITA: { para: 'NA_COLETA', rotulo: 'Cheguei na coleta' },
+  NA_COLETA: { para: 'COLETADA', rotulo: 'Coletei' },
+  COLETADA: { para: 'NO_DESTINO', rotulo: 'Cheguei no destino' },
+  NO_DESTINO: { para: 'CONCLUIDA', rotulo: 'Entreguei' },
+};
+
+export const MOTIVOS_OCORRENCIA: MotivoOcorrencia[] = ['CLIENTE_AUSENTE', 'ENDERECO_NAO_ENCONTRADO', 'RECUSA_NO_RECEBIMENTO', 'MAQUINA_COM_DEFEITO', 'SERIE_DIFERENTE', 'OUTRO'];
+
+export const ROTULO_MOTIVO_OCORRENCIA: Record<MotivoOcorrencia, string> = {
+  CLIENTE_AUSENTE: 'Cliente ausente',
+  ENDERECO_NAO_ENCONTRADO: 'Endereço não encontrado',
+  RECUSA_NO_RECEBIMENTO: 'Recusou o recebimento',
+  MAQUINA_COM_DEFEITO: 'Máquina com defeito ou faltando item',
+  SERIE_DIFERENTE: 'Número de série diferente',
+  OUTRO: 'Outro motivo',
+};
+
+export function normalizarSerie(v: string): string {
+  return (v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+export const formatarKm = (metros: number) => `${(metros / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1, minimumFractionDigits: metros < 10_000 ? 1 : 0 })} km`;
+
+export function linkNavegacao(p: { lat: number; lon: number }): string {
+  return `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}`;
 }

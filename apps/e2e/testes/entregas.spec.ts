@@ -188,6 +188,7 @@ test('Site: super-admin aprova e confirma a compra; a empresa marca o ponto e v�
   await page.evaluate(() => localStorage.clear());
   await entrar(page, emp.adminEmail, emp.adminSenha);
   await page.getByRole('link', { name: 'Entregas' }).click();
+  await page.getByRole('tab', { name: 'Mapa' }).click();
   await expect(page.getByText(/Marque o ponto de partida da empresa/)).toBeVisible();
   await page.getByRole('tab', { name: 'Configuração' }).click();
   await page.getByTestId('mapa-entregas').click();
@@ -197,6 +198,7 @@ test('Site: super-admin aprova e confirma a compra; a empresa marca o ponto e v�
   await expect(page.getByRole('tab', { name: 'Mapa' })).toHaveAttribute('aria-selected', 'true');
   await pedir('PUT', '/entregas/config', { token: emp.adminToken, corpo: { base: { ...SE, endereco: 'Praça da Sé, São Paulo' }, raioAtendimentoKm: 5 } });
   await page.reload();
+  await page.getByRole('tab', { name: 'Mapa' }).click();
   await expect(page.getByRole('row', { name: /Rafael/ }).first()).toBeVisible();
   await expect(page.locator('.leaflet-interactive').first()).toBeVisible();
   await page.screenshot({ path: 'test-results/entregas-mapa.png' });

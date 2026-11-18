@@ -55,11 +55,11 @@ import { Publico } from '../auth/decorators';
 import { compararComHashFicticio, conferirSenha, gerarHashSenha } from '../auth/senha';
 import { config } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
+import { ChamadasService } from './chamadas';
 import { CreditosService } from './creditos';
+import { EntregadorAtual, EntregadorGuard, PREFIXO_TOKEN } from './guarda';
 import { imagemDoDataUrl } from './imagens';
 
-const PREFIXO_TOKEN = 'ent_';
-const INTERVALO_ULTIMO_USO_MS = 5 * 60_000;
 const INTERVALO_RELOGIO_MS = 60_000;
 
 // DTOs -------------------------------------------------------------------------------------
@@ -113,33 +113,6 @@ export class PosicaoDto {
   @IsOptional() @IsString() @MaxLength(40) versao?: string;
 }
 
-// Guard ------------------------------------------------------------------------------------
-
-interface RequisicaoEntregador extends Request {
-  entregador?: { id: string; sessaoId: string };
-}
-
-/** Token `ent_` do app do entregador. Não é usuário de empresa: as rotas são `@Publico` para o AuthGuard. */
-@Injectable()
-export class EntregadorGuard implements CanActivate {
-  constructor(private readonly prisma: PrismaService) {}
-
-  async canActivate(ctx: ExecutionContext): Promise<boolean> {
-    const req = ctx.switchToHttp().getRequest<RequisicaoEntregador>();
-    const [tipo, token] = (req.headers.authorization ?? '').split(' ');
-    if (tipo !== 'Bearer' || !token?.startsWith(PREFIXO_TOKEN)) throw new UnauthorizedException('Entre com seu e-mail ou CPF e senha.');
-    const sessao = await this.prisma.sessaoEntregador.findUnique({ where: { tokenHash: hashDoToken(token) }, select: { id: true, entregadorId: true, encerradaEm: true, ultimoUsoEm: true } });
-    if (!sessao || sessao.encerradaEm) throw new UnauthorizedException('Sessão encerrada. Entre novamente.');
-    if (Date.now() - sessao.ultimoUsoEm.getTime() > INTERVALO_ULTIMO_USO_MS) {
-      void this.prisma.sessaoEntregador.update({ where: { id: sessao.id }, data: { ultimoUsoEm: new Date() } }).catch(() => undefined);
-    }
-    req.entregador = { id: sessao.entregadorId, sessaoId: sessao.id };
-    return true;
-  }
-}
-
-const EntregadorAtual = createParamDecorator((_: unknown, ctx: ExecutionContext) => ctx.switchToHttp().getRequest<RequisicaoEntregador>().entregador!);
-
 // Serviço ----------------------------------------------------------------------------------
 
 type EntregadorDoBanco = Prisma.EntregadorGetPayload<{ include: { documentos: { select: { tipo: true; criadoEm: true } } } }>;
@@ -159,6 +132,7 @@ export class EntregadoresService implements OnApplicationBootstrap, OnModuleDest
   constructor(
     private readonly prisma: PrismaService,
     private readonly creditos: CreditosService,
+    private readonly chamadas: ChamadasService,
   ) {}
 
   onApplicationBootstrap() {
@@ -348,17 +322,17 @@ export class EntregadoresService implements OnApplicationBootstrap, OnModuleDest
     const saldo = () => this.creditos.saldo(id, agora);
     if (e.situacao !== 'APROVADO') {
       if (e.online) await this.prisma.entregador.update({ where: { id }, data: { online: false, onlineDesde: null } });
-      return { online: false, aviso: 'NAO_APROVADO', saldoDiarias: await saldo() };
+      return { online: false, aviso: 'NAO_APROVADO', saldoDiarias: await saldo(), oferta: null, chamadaId: null };
     }
-    if (!e.online && !ficarOnline) return { online: false, aviso: null, saldoDiarias: await saldo() };
+    if (!e.online && !ficarOnline) return { online: false, aviso: null, saldoDiarias: await saldo(), oferta: null, chamadaId: null };
     if (dto.simulada || !coordenadaValida(dto)) {
       // Não grava a posição; o aviso conta como sinal de vida.
       await this.prisma.entregador.update({ where: { id }, data: { avisoEm: agora } });
-      return { online: e.online, aviso: dto.simulada ? 'GPS_FALSO' : null, saldoDiarias: await saldo() };
+      return { online: e.online, aviso: dto.simulada ? 'GPS_FALSO' : null, saldoDiarias: await saldo(), ...(await this.deTrabalho(id, e.online)) };
     }
     if (!(await this.garantirDiaria(id, agora))) {
       await this.prisma.entregador.update({ where: { id }, data: { online: false, onlineDesde: null, avisoEm: agora } });
-      return { online: false, aviso: 'SEM_CREDITO', saldoDiarias: 0 };
+      return { online: false, aviso: 'SEM_CREDITO', saldoDiarias: 0, oferta: null, chamadaId: await this.chamadas.chamadaAtivaId(id) };
     }
     await this.prisma.entregador.update({
       where: { id },
@@ -373,10 +347,19 @@ export class EntregadoresService implements OnApplicationBootstrap, OnModuleDest
         ...(dto.versao ? { versaoApp: dto.versao } : {}),
       },
     });
-    return { online: true, aviso: null, saldoDiarias: await saldo() };
+    return { online: true, aviso: null, saldoDiarias: await saldo(), ...(await this.deTrabalho(id, true)) };
+  }
+
+  /** O aviso de posição leva a oferta pendente: sem Firebase, é assim que o app fica sabendo. */
+  private async deTrabalho(id: string, online: boolean) {
+    const [oferta, chamadaId] = await Promise.all([online ? this.chamadas.ofertaPendente(id) : null, this.chamadas.chamadaAtivaId(id)]);
+    return { oferta, chamadaId };
   }
 
   async ficarOffline(id: string): Promise<void> {
+    if (await this.chamadas.chamadaAtivaId(id)) throw new ConflictException('Termine a chamada em andamento (ou registre uma ocorrência) antes de ficar offline.');
+    // Oferta esperando resposta dele volta para a empresa.
+    await this.prisma.ofertaChamada.updateMany({ where: { entregadorId: id, resultado: 'PENDENTE' }, data: { resultado: 'RECUSADA', respondidaEm: new Date() } });
     await this.prisma.entregador.update({ where: { id }, data: { online: false, onlineDesde: null } });
   }
 }

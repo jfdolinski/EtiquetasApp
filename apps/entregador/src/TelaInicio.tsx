@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { PerfilEntregador, RespostaPosicao } from '../../../packages/shared/src/entregas';
 import type { Api } from './api';
+import { prepararNotificacoes } from './avisos';
 import { aoReceberResposta, enviarPosicao, iniciarRastreio, pararRastreio, pedirPermissoes, posicaoAtual, rastreando, type ProblemaPermissao } from './localizacao';
 import { Alerta, Botao, Cartao, cores, Numero, Texto } from './ui';
 
@@ -17,7 +18,7 @@ const PERMISSAO: Record<NonNullable<ProblemaPermissao>, string> = {
   SEM_SEGUNDO_PLANO: 'Para continuar online com a tela apagada, permita a localização "o tempo todo" nas configurações do aplicativo.',
 };
 
-export function TelaInicio({ api, perfil, aoMudar, irParaCreditos }: { api: Api; perfil: PerfilEntregador; aoMudar: (p: PerfilEntregador) => void; irParaCreditos: () => void }) {
+export function TelaInicio({ api, perfil, aoMudar, irParaCreditos, oferta }: { api: Api; perfil: PerfilEntregador; aoMudar: (p: PerfilEntregador) => void; irParaCreditos: () => void; oferta?: ReactNode }) {
   const [ocupado, setOcupado] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [permissao, setPermissao] = useState<ProblemaPermissao>(null);
@@ -53,6 +54,8 @@ export function TelaInicio({ api, perfil, aoMudar, irParaCreditos }: { api: Api;
     try {
       const p = await pedirPermissoes();
       setPermissao(p);
+      // Sem a permissão de notificação, a oferta só aparece com o app aberto.
+      await prepararNotificacoes().catch(() => false);
       if (p === 'NEGADA' || p === 'GPS_DESLIGADO') return;
       const r = await enviarPosicao(await posicaoAtual(), true);
       if (r.aviso) setAviso(AVISO[r.aviso]);
@@ -93,6 +96,7 @@ export function TelaInicio({ api, perfil, aoMudar, irParaCreditos }: { api: Api;
         {perfil.online && ultimoEnvio && <Text style={estilos.envio}>Última localização enviada às {ultimoEnvio.toLocaleTimeString('pt-BR')}</Text>}
       </View>
 
+      {oferta}
       {aviso && <Alerta tipo="aviso">{aviso}</Alerta>}
       {permissao && <Alerta tipo="aviso">{PERMISSAO[permissao]}</Alerta>}
       {permissao && Platform.OS !== 'web' && (
@@ -122,7 +126,6 @@ export function TelaInicio({ api, perfil, aoMudar, irParaCreditos }: { api: Api;
         <Texto suave>Alguns celulares (Xiaomi, Samsung, Motorola) fecham aplicativos em segundo plano para economizar bateria. Nas configurações do Flow Entregas, deixe a bateria "sem restrições" e a localização "permitir o tempo todo".</Texto>
         {Platform.OS !== 'web' && <Botao titulo="Abrir configurações do aplicativo" variante="secundario" onPress={() => void Linking.openSettings()} />}
       </Cartao>
-      <Texto suave>As chamadas de coleta e entrega chegam numa próxima versão do aplicativo.</Texto>
     </ScrollView>
   );
 }

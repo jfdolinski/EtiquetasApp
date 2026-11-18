@@ -14,6 +14,7 @@ export function MapaEntregadores({
   base,
   raioKm,
   entregadores = [],
+  marcas = [],
   aoClicar,
   altura = 480,
 }: {
@@ -21,6 +22,8 @@ export function MapaEntregadores({
   base: Ponto | null;
   raioKm: number;
   entregadores?: EntregadorNoMapa[];
+  /** Pontos soltos (coleta, destino, entregador em chamada). */
+  marcas?: { lat: number; lon: number; cor: string; rotulo: string }[];
   aoClicar?: (p: Ponto) => void;
   altura?: number;
 }) {
@@ -33,13 +36,16 @@ export function MapaEntregadores({
 
   useEffect(() => {
     if (!elemento.current) return;
-    const m = L.map(elemento.current, { zoomControl: true, attributionControl: true });
+    // Sem animação de zoom: fechar a janela no meio dela quebra o Leaflet ("_leaflet_pos").
+    const m = L.map(elemento.current, { zoomControl: true, attributionControl: true, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false });
     L.tileLayer(config.blocos, { maxZoom: config.zoomMaximo, attribution: config.atribuicao }).addTo(m);
     m.setView([CENTRO_BRASIL.lat, CENTRO_BRASIL.lon], 4);
     m.on('click', (e: L.LeafletMouseEvent) => clique.current?.({ lat: Number(e.latlng.lat.toFixed(6)), lon: Number(e.latlng.lng.toFixed(6)) }));
     camada.current = L.layerGroup().addTo(m);
     mapa.current = m;
     return () => {
+      m.stop();
+      m.off();
       m.remove();
       mapa.current = null;
     };
@@ -56,17 +62,28 @@ export function MapaEntregadores({
       // Enquadra só quando o ponto ou o raio mudam: a atualização dos entregadores não tira o zoom de quem está olhando.
       const chave = `${base.lat},${base.lon},${raioKm}`;
       if (enquadrado.current !== chave) {
-        m.fitBounds(area.getBounds(), { padding: [16, 16] });
+        m.fitBounds(area.getBounds(), { padding: [16, 16], animate: false });
+        enquadrado.current = chave;
+      }
+    }
+    for (const p of marcas) {
+      L.circleMarker([p.lat, p.lon], { radius: 9, color: '#ffffff', weight: 2, fillColor: p.cor, fillOpacity: 1 }).bindTooltip(p.rotulo).addTo(g);
+    }
+    if (!base && marcas.length) {
+      const chave = marcas.map((p) => `${p.lat},${p.lon}`).join('|');
+      if (enquadrado.current !== chave) {
+        if (marcas.length === 1) m.setView([marcas[0].lat, marcas[0].lon], 15, { animate: false });
+        else m.fitBounds(L.latLngBounds(marcas.map((p) => [p.lat, p.lon] as [number, number])), { padding: [32, 32], animate: false });
         enquadrado.current = chave;
       }
     }
     for (const e of entregadores) {
       const livre = e.situacao === 'LIVRE';
-      L.circleMarker([e.lat, e.lon], { radius: 7, color: '#ffffff', weight: 2, fillColor: livre ? '#059669' : '#94a3b8', fillOpacity: 1 })
+      L.circleMarker([e.lat, e.lon], { radius: 7, color: '#ffffff', weight: 2, fillColor: livre ? '#059669' : e.situacao === 'OCUPADO' ? '#2563eb' : '#94a3b8', fillOpacity: 1 })
         .bindTooltip(`${e.nome} · ${ROTULO_VEICULO[e.veiculo]} · ${ROTULO_SITUACAO_MAPA[e.situacao]} · ${e.distanciaKm.toLocaleString('pt-BR')} km`)
         .addTo(g);
     }
-  }, [base?.lat, base?.lon, raioKm, entregadores]);
+  }, [base?.lat, base?.lon, raioKm, entregadores, marcas]);
 
   return <div ref={elemento} style={{ height: altura }} className={`z-0 w-full rounded-lg border border-slate-200 ${aoClicar ? 'cursor-crosshair' : ''}`} data-testid="mapa-entregas" />;
 }

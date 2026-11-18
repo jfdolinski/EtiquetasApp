@@ -153,6 +153,7 @@ Cada conexão usa uma conta de serviço do Google, com acesso somente de leitura
 | `FCM_CONTA_SERVICO` | Avisos no celular com o app fechado: JSON da conta de serviço do Firebase, em base64 |
 | `RETENCAO_CONTEUDO_DIAS`, `RETENCAO_AUDITORIA_DIAS` | Faxina diária; padrão 90 e 730 dias |
 | `NOMINATIM_URL`, `MAPAS_AGENTE_USUARIO` | Busca de endereço das Entregas (OpenStreetMap). Padrão: o Nominatim público, que aceita uso leve (uma busca por segundo, guardadas em cache); com volume, aponte para um Nominatim próprio |
+| `OSRM_URL` | Servidor de rotas próprio (OSRM, só o recorte da região atendida). Sem ele, a distância das chamadas é a linha reta × 1,4, marcada como estimada |
 | `MAPA_BLOCOS_URL`, `MAPA_ATRIBUICAO` | Blocos do mapa no navegador. Trocar o domínio exige liberá-lo no `img-src` da CSP (`apps/web/nginx.conf.template`) |
 
 A tela **Saúde do sistema** (super-admin) mostra o que está configurado.

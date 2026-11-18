@@ -43,7 +43,8 @@ export const PERMISSOES = [
   { codigo: 'pedido.vender', grupo: 'Pedidos', descricao: 'Lançar vendas pelo aplicativo como vendedor (o pedido sai no nome dele na folha de lançamento)' },
   { codigo: 'pedido.configurar', grupo: 'Pedidos', descricao: 'Configurar o catálogo de pedidos: link, consulta, entrega e horário de funcionamento' },
   { codigo: 'entrega.ver', grupo: 'Entregas', descricao: 'Ver o mapa dos entregadores online perto da empresa' },
-  { codigo: 'entrega.configurar', grupo: 'Entregas', descricao: 'Configurar o ponto de partida e o raio de atendimento das entregas' },
+  { codigo: 'entrega.gerenciar', grupo: 'Entregas', descricao: 'Abrir chamadas de coleta e entrega, escolher o entregador, cancelar e resolver ocorrências' },
+  { codigo: 'entrega.configurar', grupo: 'Entregas', descricao: 'Configurar o ponto de partida, o raio de atendimento e a tabela de preços das entregas' },
 ] as const;
 
 export type CodigoPermissao = (typeof PERMISSOES)[number]['codigo'];

@@ -3,8 +3,11 @@ import { ActivityIndicator, AppState, KeyboardAvoidingView, Linking, Platform, P
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import type { PerfilEntregador, SessaoEntregadorResposta } from '../../../packages/shared/src/entregas';
+import type { ChamadaEntregador, OfertaResumo } from '../../../packages/shared/src/entregas-chamadas';
 import { apagarSessao, clienteDa, ErroApi, gravarSessao, lerSessao, versaoDoApp, versaoPublicada, type Sessao } from './api';
-import { pararRastreio } from './localizacao';
+import { aoReceberResposta, pararRastreio } from './localizacao';
+import { CartaoOferta, TelaChamada } from './TelaChamada';
+import { TelaGanhos } from './TelaGanhos';
 import { versaoMaisNova } from './regras';
 import { TelaCreditos } from './TelaCreditos';
 import { TelaDocumentos } from './TelaDocumentos';
@@ -13,7 +16,8 @@ import { TelaInicio } from './TelaInicio';
 import { TelaPerfil } from './TelaPerfil';
 import { Alerta, Botao, cores } from './ui';
 
-type Aba = 'inicio' | 'creditos' | 'perfil';
+type Aba = 'inicio' | 'ganhos' | 'creditos' | 'perfil';
+const INTERVALO_TRABALHO_MS = 5_000;
 
 export function App() {
   const [carregando, setCarregando] = useState(true);
@@ -88,6 +92,27 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
     return () => s.remove();
   }, [recarregar, sessao.servidor]);
 
+  // Oferta e chamada: com o app aberto, a cada 5 s; com a tela apagada, pela tarefa de localização (aviso local).
+  const [oferta, setOferta] = useState<OfertaResumo | null>(null);
+  const [chamada, setChamada] = useState<ChamadaEntregador | null>(null);
+  const trabalhando = !!perfil && perfil.situacao === 'APROVADO' && (perfil.online || !!chamada);
+  const buscarTrabalho = useCallback(async () => {
+    try {
+      const [o, c] = await Promise.all([api<OfertaResumo | null>('/entregador/oferta'), api<ChamadaEntregador | null>('/entregador/chamada')]);
+      setOferta(o);
+      setChamada(c);
+    } catch {
+      // Sem internet agora: tenta de novo no próximo ciclo.
+    }
+  }, [api]);
+  useEffect(() => {
+    if (!trabalhando) return;
+    void buscarTrabalho();
+    const t = setInterval(() => void buscarTrabalho(), INTERVALO_TRABALHO_MS);
+    return () => clearInterval(t);
+  }, [trabalhando, buscarTrabalho]);
+  useEffect(() => aoReceberResposta((r) => { if (!('erro' in r) && r.oferta) setOferta(r.oferta); }), []);
+
   const mudarSaldo = useCallback((saldo: number) => setPerfil((p) => (p && p.saldoDiarias !== saldo ? { ...p, saldoDiarias: saldo } : p)), []);
 
   async function sair() {
@@ -130,7 +155,8 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
   }
 
   const abas: { id: Aba; rotulo: string }[] = [
-    { id: 'inicio', rotulo: 'Início' },
+    { id: 'inicio', rotulo: chamada ? 'Chamada' : 'Início' },
+    { id: 'ganhos', rotulo: 'Ganhos' },
     { id: 'creditos', rotulo: 'Créditos' },
     { id: 'perfil', rotulo: 'Perfil' },
   ];
@@ -144,7 +170,19 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
         </View>
       )}
       <View style={{ flex: 1 }}>
-        {aba === 'inicio' && <TelaInicio api={api} perfil={perfil} aoMudar={setPerfil} irParaCreditos={() => setAba('creditos')} />}
+        {aba === 'inicio' &&
+          (chamada ? (
+            <TelaChamada api={api} chamada={chamada} aoMudar={(c) => setChamada(c && c.situacao !== 'CONCLUIDA' && c.situacao !== 'CANCELADA' ? c : null)} />
+          ) : (
+            <TelaInicio
+              api={api}
+              perfil={perfil}
+              aoMudar={setPerfil}
+              irParaCreditos={() => setAba('creditos')}
+              oferta={oferta && new Date(oferta.expiraEm).getTime() > Date.now() ? <CartaoOferta key={oferta.id} api={api} oferta={oferta} aoResponder={(c) => { setOferta(null); setChamada(c); }} /> : null}
+            />
+          ))}
+        {aba === 'ganhos' && <TelaGanhos api={api} />}
         {aba === 'creditos' && <TelaCreditos api={api} aoMudarSaldo={mudarSaldo} />}
         {aba === 'perfil' && <TelaPerfil api={api} perfil={perfil} aoMudar={setPerfil} sair={() => void sair()} versao={versaoDoApp()} />}
       </View>

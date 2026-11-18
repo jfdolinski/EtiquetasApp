@@ -3,6 +3,7 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import type { RespostaPosicao } from '../../../packages/shared/src/entregas';
 import { lerSessao, pedir, versaoDoApp } from './api';
+import { avisarOferta } from './avisos';
 import { INTERVALO_POSICAO_SEGUNDOS } from './regras';
 
 /**
@@ -32,6 +33,7 @@ export async function enviarPosicao(p: Location.LocationObject, ficarOnline = fa
   }
   const r = await pedir<RespostaPosicao>(sessao.servidor, ficarOnline ? '/entregador/online' : '/entregador/posicao', { metodo: 'POST', corpo: corpoDa(p), token: sessao.token });
   if (!r.online) await pararRastreio();
+  if (r.oferta) await avisarOferta(r.oferta).catch(() => undefined);
   return r;
 }
 

@@ -1,0 +1,653 @@
+import {
+  BadRequestException,
+  Body,
+  ConflictException,
+  Controller,
+  ForbiddenException,
+  Get,
+  HttpCode,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnApplicationBootstrap,
+  OnModuleDestroy,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { Type } from 'class-transformer';
+import { randomInt } from 'node:crypto';
+import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import {
+  chegouPerto,
+  coordenadaValida,
+  diaNoFuso,
+  distanciaMetros,
+  MOTIVOS_OCORRENCIA,
+  normalizarSerie,
+  primeiroNome,
+  problemaNaChamada,
+  PROXIMA_ETAPA,
+  resumoDoEndereco,
+  ROTULO_MOTIVO_OCORRENCIA,
+  ROTULO_SITUACAO_CHAMADA,
+  SEGUNDOS_POSICAO_VALIDA,
+  SITUACOES_CHAMADA,
+  SITUACOES_EM_ANDAMENTO,
+  TENTATIVAS_CODIGO,
+  TIPOS_CHAMADA,
+  valorDaChamada,
+  type ChamadaEntregador,
+  type ChamadaResumo,
+  type ElegivelOferta,
+  type EventoChamada,
+  type GanhosEntregador,
+  type MotivoOcorrencia,
+  type NovaChamada,
+  type OfertaResumo,
+  type ParadaChamada,
+  type PreviaChamada,
+  type SituacaoChamada,
+  type TipoChamada,
+  type TipoVeiculo,
+} from '@etiquetas/shared';
+import { Prisma } from '@prisma/client';
+import { EmpresaAtual, Publico, RequerPermissao, UsuarioAtual } from '../auth/decorators';
+import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+import { config } from '../config';
+import { PrismaService } from '../prisma/prisma.service';
+import { EntregasEmpresaService } from './empresa';
+import { EntregadorAtual, EntregadorGuard } from './guarda';
+import { dataUrl, imagemDoDataUrl } from './imagens';
+import { MapasService } from './mapas';
+
+const INTERVALO_RELOGIO_MS = 5_000;
+const DIA_MS = 86_400_000;
+
+// DTOs -------------------------------------------------------------------------------------
+
+class ParadaDto {
+  @IsNumber() @Min(-90) @Max(90) lat: number;
+  @IsNumber() @Min(-180) @Max(180) lon: number;
+  @IsString() @MaxLength(300) endereco: string;
+  @IsString() @MaxLength(80) contato: string;
+  @IsString() @MaxLength(20) telefone: string;
+  @IsString() @MaxLength(300) instrucoes: string;
+}
+
+class NovaChamadaDto {
+  @IsIn(TIPOS_CHAMADA, { message: 'Escolha o tipo do serviço.' }) tipo: TipoChamada;
+  @ValidateNested() @Type(() => ParadaDto) origem: ParadaDto;
+  @ValidateNested() @Type(() => ParadaDto) destino: ParadaDto;
+  @IsOptional() @IsString() @MaxLength(60) serieEsperada: string | null;
+  @IsString() @MaxLength(500) observacao: string;
+}
+
+class OferecerDto {
+  @IsUUID('all', { message: 'Entregador inválido.' }) entregadorId: string;
+}
+
+class MotivoDto {
+  @IsString() @MinLength(3, { message: 'Informe o motivo.' }) @MaxLength(300) motivo: string;
+}
+
+class ResolverOcorrenciaDto {
+  @IsIn(['CONTINUAR', 'REABRIR', 'CANCELAR']) acao: 'CONTINUAR' | 'REABRIR' | 'CANCELAR';
+  @IsOptional() @IsString() @MaxLength(300) motivo?: string;
+}
+
+class FiltroChamadasDto {
+  @IsOptional() @IsIn(['ATIVAS', 'TODAS']) filtro?: 'ATIVAS' | 'TODAS';
+}
+
+class AvancarDto {
+  @IsIn(SITUACOES_CHAMADA) para: SituacaoChamada;
+  @IsNumber() @Min(-90) @Max(90) lat: number;
+  @IsNumber() @Min(-180) @Max(180) lon: number;
+  @IsOptional() @IsNumber() @Min(0) precisao?: number | null;
+  @IsOptional() @IsBoolean() simulada?: boolean;
+  @IsOptional() @IsString() @MaxLength(60) serie?: string;
+  @IsOptional() @IsString() @MaxLength(10) codigo?: string;
+  @IsOptional() @IsString() @MaxLength(7_200_000) foto?: string | null;
+}
+
+class OcorrenciaDto {
+  @IsIn(MOTIVOS_OCORRENCIA, { message: 'Escolha o motivo.' }) motivo: MotivoOcorrencia;
+  @IsString() @MaxLength(500) texto: string;
+  @IsString() @MaxLength(7_200_000) foto: string;
+}
+
+// Serviço ----------------------------------------------------------------------------------
+
+type ChamadaDoBanco = Prisma.ChamadaEntregaGetPayload<{
+  include: { entregador: { select: { id: true; nome: true; veiculo: true; placa: true; celular: true; lat: true; lon: true; posicaoEm: true } }; ofertas: { include: { entregador: { select: { nome: true } } } }; fotos: { select: { id: true; etapa: true } } };
+}>;
+
+const INCLUIR = {
+  entregador: { select: { id: true, nome: true, veiculo: true, placa: true, celular: true, lat: true, lon: true, posicaoEm: true } },
+  ofertas: { where: { resultado: 'PENDENTE' }, include: { entregador: { select: { nome: true } } } },
+  fotos: { select: { id: true, etapa: true } },
+} as const;
+
+type Ocorrencia = { motivo: MotivoOcorrencia; texto: string; em: string; situacaoAnterior: SituacaoChamada };
+
+const evento = (texto: string, por: EventoChamada['por']): EventoChamada => ({ em: new Date().toISOString(), texto, por });
+
+@Injectable()
+export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy {
+  private readonly log = new Logger('Chamadas');
+  private relogio?: NodeJS.Timeout;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditoria: AuditoriaService,
+    private readonly mapas: MapasService,
+    private readonly empresas: EntregasEmpresaService,
+  ) {}
+
+  onApplicationBootstrap() {
+    this.relogio = setInterval(() => void this.expirarOfertas(), INTERVALO_RELOGIO_MS);
+  }
+
+  onModuleDestroy() {
+    clearInterval(this.relogio);
+  }
+
+  /** Histórico em JSON: acrescenta no banco, sem ler e regravar (duas mudanças juntas não se apagam). */
+  private async registrar(id: string, e: EventoChamada, tx: Prisma.TransactionClient = this.prisma) {
+    await tx.$executeRaw`UPDATE chamadas_entrega SET historico = historico || ${JSON.stringify([e])}::jsonb WHERE id = ${id}::uuid`;
+  }
+
+  async expirarOfertas(agora = new Date()): Promise<number> {
+    try {
+      const vencidas = await this.prisma.ofertaChamada.findMany({ where: { resultado: 'PENDENTE', expiraEm: { lt: agora } }, include: { entregador: { select: { nome: true } } }, take: 200 });
+      for (const o of vencidas) {
+        const { count } = await this.prisma.ofertaChamada.updateMany({ where: { id: o.id, resultado: 'PENDENTE' }, data: { resultado: 'EXPIRADA', respondidaEm: agora } });
+        if (count) await this.registrar(o.chamadaId, evento(`${primeiroNome(o.entregador.nome)} não respondeu a tempo.`, 'sistema'));
+      }
+      return vencidas.length;
+    } catch (e) {
+      this.log.error(`Falha ao expirar ofertas: ${(e as Error).message}`);
+      return 0;
+    }
+  }
+
+  // Empresa --------------------------------------------------------------------------------------
+
+  async previa(empresaId: string, c: NovaChamada): Promise<PreviaChamada> {
+    const problema = problemaNaChamada(c);
+    if (problema) throw new BadRequestException(problema);
+    const cfg = await this.empresas.config(empresaId);
+    const rota = await this.mapas.rota(c.origem, c.destino);
+    return { ...rota, valorCentavos: valorDaChamada(cfg.precos[c.tipo], rota.metros) };
+  }
+
+  async criar(empresaId: string, dto: NovaChamadaDto, autorId: string): Promise<ChamadaResumo> {
+    const c: NovaChamada = { ...dto, serieEsperada: dto.serieEsperada ? normalizarSerie(dto.serieEsperada) : null, observacao: dto.observacao.trim() };
+    const previa = await this.previa(empresaId, c);
+    const limpa = (p: ParadaDto): ParadaChamada => ({ lat: p.lat, lon: p.lon, endereco: p.endereco.trim(), contato: p.contato.trim(), telefone: p.telefone.replace(/\D/g, ''), instrucoes: p.instrucoes.trim() });
+    const id = await this.prisma.$transaction(async (tx) => {
+      const cfg = await tx.configuracaoEntregas.upsert({ where: { empresaId }, create: { empresaId, proximoNumero: 2 }, update: { proximoNumero: { increment: 1 } }, select: { proximoNumero: true } });
+      const criada = await tx.chamadaEntrega.create({
+        data: {
+          empresaId,
+          numero: cfg.proximoNumero - 1,
+          tipo: c.tipo,
+          origem: limpa(dto.origem) as never,
+          destino: limpa(dto.destino) as never,
+          metros: previa.metros,
+          segundos: previa.segundos,
+          estimada: previa.estimada,
+          valorCentavos: previa.valorCentavos,
+          serieEsperada: c.serieEsperada,
+          observacao: c.observacao,
+          codigoConfirmacao: String(randomInt(0, 10_000)).padStart(4, '0'),
+          historico: [evento('Chamada aberta.', 'empresa')] as never,
+          criadoPorId: autorId,
+        },
+      });
+      await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.abrir', entidade: 'ChamadaEntrega', entidadeId: criada.id, detalhes: { tipo: c.tipo, valorCentavos: previa.valorCentavos } }, tx);
+      return criada.id;
+    });
+    return this.obter(empresaId, id);
+  }
+
+  async listar(empresaId: string, filtro: 'ATIVAS' | 'TODAS'): Promise<ChamadaResumo[]> {
+    const lista = await this.prisma.chamadaEntrega.findMany({
+      where: { empresaId, ...(filtro === 'ATIVAS' ? { OR: [{ situacao: { notIn: ['CONCLUIDA', 'CANCELADA'] } }, { atualizadoEm: { gt: new Date(Date.now() - DIA_MS) } }] } : {}) },
+      orderBy: { criadoEm: 'desc' },
+      take: 200,
+      include: INCLUIR,
+    });
+    return lista.map((c) => this.resumo(c));
+  }
+
+  async obter(empresaId: string, id: string): Promise<ChamadaResumo> {
+    const c = await this.prisma.chamadaEntrega.findFirst({ where: { id, empresaId }, include: INCLUIR });
+    if (!c) throw new NotFoundException('Chamada não encontrada.');
+    return this.resumo(c);
+  }
+
+  private resumo(c: ChamadaDoBanco): ChamadaResumo {
+    const andamento = SITUACOES_EM_ANDAMENTO.includes(c.situacao as SituacaoChamada);
+    const e = c.entregador;
+    const oferta = c.ofertas[0];
+    const oc = c.ocorrencia as Ocorrencia | null;
+    return {
+      id: c.id,
+      numero: c.numero,
+      tipo: c.tipo as TipoChamada,
+      situacao: c.situacao as SituacaoChamada,
+      origem: c.origem as unknown as ParadaChamada,
+      destino: c.destino as unknown as ParadaChamada,
+      metros: c.metros,
+      estimada: c.estimada,
+      valorCentavos: c.valorCentavos,
+      serieEsperada: c.serieEsperada,
+      serieColetada: c.serieColetada,
+      observacao: c.observacao,
+      entregador: e ? { id: e.id, nome: primeiroNome(e.nome), veiculo: e.veiculo as TipoVeiculo, placa: e.placa, celular: andamento ? e.celular : null } : null,
+      posicaoEntregador: andamento && e?.lat != null && e.lon != null && e.posicaoEm ? { lat: e.lat, lon: e.lon, em: e.posicaoEm.toISOString() } : null,
+      ofertaPendente: oferta ? { entregadorNome: primeiroNome(oferta.entregador.nome), expiraEm: oferta.expiraEm.toISOString() } : null,
+      ocorrencia: oc ? { motivo: oc.motivo, texto: oc.texto, em: oc.em, temFoto: c.fotos.some((f) => f.etapa === 'OCORRENCIA') } : null,
+      codigoConfirmacao: c.situacao === 'CONCLUIDA' || c.situacao === 'CANCELADA' ? null : c.codigoConfirmacao,
+      historico: c.historico as unknown as EventoChamada[],
+      criadoEm: c.criadoEm.toISOString(),
+      concluidaEm: c.concluidaEm?.toISOString() ?? null,
+    };
+  }
+
+  async foto(empresaId: string, chamadaId: string, etapa: string): Promise<{ dados: string }> {
+    const f = await this.prisma.fotoChamada.findFirst({ where: { chamadaId, etapa, chamada: { empresaId } }, orderBy: { criadoEm: 'desc' } });
+    if (!f) throw new NotFoundException('Sem foto.');
+    return { dados: dataUrl(f.mime, f.bytes) };
+  }
+
+  /** Quem pode receber agora: aprovado, online, com sinal, sem chamada nem oferta, dentro do raio da empresa até a coleta. */
+  async elegiveis(empresaId: string, chamadaId: string): Promise<ElegivelOferta[]> {
+    const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, empresaId } });
+    if (!c) throw new NotFoundException('Chamada não encontrada.');
+    const origem = c.origem as unknown as ParadaChamada;
+    const cfg = await this.empresas.config(empresaId);
+    const desde = new Date(Date.now() - SEGUNDOS_POSICAO_VALIDA * 1000);
+    const candidatos = await this.prisma.entregador.findMany({
+      where: {
+        situacao: 'APROVADO',
+        online: true,
+        posicaoEm: { gte: desde },
+        chamadas: { none: { situacao: { in: [...SITUACOES_EM_ANDAMENTO] } } },
+        ofertas: { none: { resultado: 'PENDENTE' } },
+        NOT: { ofertas: { some: { chamadaId, resultado: { in: ['RECUSADA', 'EXPIRADA'] } } } },
+      },
+      select: { id: true, nome: true, veiculo: true, lat: true, lon: true },
+      take: 500,
+    });
+    return candidatos
+      .map((e) => ({ id: e.id, nome: primeiroNome(e.nome), veiculo: e.veiculo as TipoVeiculo, metrosAteColeta: Math.round(distanciaMetros(origem, { lat: e.lat!, lon: e.lon! })) }))
+      .filter((e) => e.metrosAteColeta <= cfg.raioAtendimentoKm * 1000)
+      .sort((a, b) => a.metrosAteColeta - b.metrosAteColeta)
+      .slice(0, 50);
+  }
+
+  async oferecer(empresaId: string, chamadaId: string, entregadorId: string, autorId: string): Promise<ChamadaResumo> {
+    const elegiveis = await this.elegiveis(empresaId, chamadaId);
+    const escolhido = elegiveis.find((e) => e.id === entregadorId);
+    if (!escolhido) throw new ConflictException('Este entregador não está disponível agora (offline, sem sinal, longe ou ocupado).');
+    const cfg = await this.empresas.config(empresaId);
+    await this.prisma.$transaction(async (tx) => {
+      // Prende a chamada: duas ofertas ao mesmo tempo não passam.
+      const [linha] = await tx.$queryRaw<{ situacao: string }[]>`SELECT situacao FROM chamadas_entrega WHERE id = ${chamadaId}::uuid AND empresa_id = ${empresaId}::uuid FOR UPDATE`;
+      if (linha?.situacao !== 'ABERTA') throw new ConflictException('A chamada não está aguardando entregador.');
+      if (await tx.ofertaChamada.count({ where: { chamadaId, resultado: 'PENDENTE' } })) throw new ConflictException('Já há uma oferta esperando resposta. Cancele-a antes.');
+      await tx.ofertaChamada.create({ data: { chamadaId, entregadorId, metrosAteColeta: escolhido.metrosAteColeta, expiraEm: new Date(Date.now() + cfg.segundosParaAceitar * 1000) } });
+      await this.registrar(chamadaId, evento(`Oferecida a ${escolhido.nome}.`, 'empresa'), tx);
+      await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.oferecer', entidade: 'ChamadaEntrega', entidadeId: chamadaId, detalhes: { entregadorId } }, tx);
+    });
+    return this.obter(empresaId, chamadaId);
+  }
+
+  async cancelarOferta(empresaId: string, chamadaId: string): Promise<ChamadaResumo> {
+    const { count } = await this.prisma.ofertaChamada.updateMany({ where: { chamadaId, resultado: 'PENDENTE', chamada: { empresaId } }, data: { resultado: 'CANCELADA', respondidaEm: new Date() } });
+    if (count) await this.registrar(chamadaId, evento('Oferta cancelada.', 'empresa'));
+    return this.obter(empresaId, chamadaId);
+  }
+
+  async cancelar(empresaId: string, chamadaId: string, motivo: string, autorId: string): Promise<ChamadaResumo> {
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.chamadaEntrega.updateMany({ where: { id: chamadaId, empresaId, situacao: { notIn: ['CONCLUIDA', 'CANCELADA'] } }, data: { situacao: 'CANCELADA', canceladaEm: new Date() } });
+      if (!count) throw new ConflictException('A chamada já terminou.');
+      await tx.ofertaChamada.updateMany({ where: { chamadaId, resultado: 'PENDENTE' }, data: { resultado: 'CANCELADA', respondidaEm: new Date() } });
+      await this.registrar(chamadaId, evento(`Cancelada pela empresa: ${motivo.trim()}`, 'empresa'), tx);
+      await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.cancelar', entidade: 'ChamadaEntrega', entidadeId: chamadaId, detalhes: { motivo: motivo.trim() } }, tx);
+    });
+    return this.obter(empresaId, chamadaId);
+  }
+
+  /** Ocorrência: seguir de onde parou, voltar para a fila (outro entregador) ou cancelar. */
+  async resolverOcorrencia(empresaId: string, chamadaId: string, dto: ResolverOcorrenciaDto, autorId: string): Promise<ChamadaResumo> {
+    if (dto.acao === 'CANCELAR') return this.cancelar(empresaId, chamadaId, dto.motivo?.trim() || 'ocorrência', autorId);
+    const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, empresaId, situacao: 'OCORRENCIA' } });
+    if (!c) throw new ConflictException('A chamada não está em ocorrência.');
+    const oc = c.ocorrencia as Ocorrencia;
+    const data = dto.acao === 'CONTINUAR' ? { situacao: oc.situacaoAnterior } : { situacao: 'ABERTA', entregadorId: null, aceitaEm: null };
+    const { count } = await this.prisma.chamadaEntrega.updateMany({ where: { id: chamadaId, situacao: 'OCORRENCIA', atualizadoEm: c.atualizadoEm }, data });
+    if (!count) throw new ConflictException('A chamada mudou. Recarregue.');
+    await this.registrar(chamadaId, evento(dto.acao === 'CONTINUAR' ? 'Empresa pediu para seguir.' : 'Empresa liberou o entregador e reabriu a chamada.', 'empresa'));
+    await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.ocorrencia', entidade: 'ChamadaEntrega', entidadeId: chamadaId, detalhes: { acao: dto.acao } });
+    return this.obter(empresaId, chamadaId);
+  }
+
+  /** Destinatário sem o código (ou código errado demais): a empresa confirma a entrega. */
+  async concluirPelaEmpresa(empresaId: string, chamadaId: string, autorId: string): Promise<ChamadaResumo> {
+    const { count } = await this.prisma.chamadaEntrega.updateMany({ where: { id: chamadaId, empresaId, situacao: 'NO_DESTINO' }, data: { situacao: 'CONCLUIDA', concluidaEm: new Date() } });
+    if (!count) throw new ConflictException('Só dá para concluir com o entregador no destino.');
+    await this.registrar(chamadaId, evento('Entrega confirmada pela empresa, sem o código.', 'empresa'));
+    await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.concluir', entidade: 'ChamadaEntrega', entidadeId: chamadaId });
+    return this.obter(empresaId, chamadaId);
+  }
+
+  // Entregador ---------------------------------------------------------------------------------
+
+  async ofertaPendente(entregadorId: string): Promise<OfertaResumo | null> {
+    const o = await this.prisma.ofertaChamada.findFirst({
+      where: { entregadorId, resultado: 'PENDENTE', expiraEm: { gt: new Date() } },
+      include: { chamada: { include: { empresa: { select: { nomeFantasia: true, razaoSocial: true } } } } },
+    });
+    if (!o) return null;
+    const c = o.chamada;
+    const origem = c.origem as unknown as ParadaChamada;
+    const destino = c.destino as unknown as ParadaChamada;
+    return {
+      id: o.id,
+      chamadaId: c.id,
+      tipo: c.tipo as TipoChamada,
+      empresa: c.empresa.nomeFantasia || c.empresa.razaoSocial,
+      origemResumo: resumoDoEndereco(origem.endereco),
+      destinoResumo: resumoDoEndereco(destino.endereco),
+      origem: { lat: origem.lat, lon: origem.lon },
+      destino: { lat: destino.lat, lon: destino.lon },
+      metrosAteColeta: o.metrosAteColeta,
+      metros: c.metros,
+      estimada: c.estimada,
+      valorCentavos: c.valorCentavos,
+      expiraEm: o.expiraEm.toISOString(),
+    };
+  }
+
+  async chamadaAtivaId(entregadorId: string): Promise<string | null> {
+    const c = await this.prisma.chamadaEntrega.findFirst({ where: { entregadorId, situacao: { in: [...SITUACOES_EM_ANDAMENTO] } }, select: { id: true } });
+    return c?.id ?? null;
+  }
+
+  async aceitar(entregadorId: string, ofertaId: string): Promise<ChamadaEntregador> {
+    const agora = new Date();
+    const chamadaId = await this.prisma.$transaction(async (tx) => {
+      const o = await tx.ofertaChamada.findFirst({ where: { id: ofertaId, entregadorId } });
+      if (!o) throw new NotFoundException('Oferta não encontrada.');
+      const { count } = await tx.ofertaChamada.updateMany({ where: { id: ofertaId, resultado: 'PENDENTE', expiraEm: { gt: agora } }, data: { resultado: 'ACEITA', respondidaEm: agora } });
+      if (!count) throw new ConflictException('Esta oferta não vale mais.');
+      if (await tx.chamadaEntrega.count({ where: { entregadorId, situacao: { in: [...SITUACOES_EM_ANDAMENTO] } } })) throw new ConflictException('Termine a chamada em andamento antes.');
+      const aceita = await tx.chamadaEntrega.updateMany({ where: { id: o.chamadaId, situacao: 'ABERTA' }, data: { situacao: 'ACEITA', entregadorId, aceitaEm: agora } });
+      if (!aceita.count) throw new ConflictException('A chamada foi cancelada.');
+      const e = await tx.entregador.findUniqueOrThrow({ where: { id: entregadorId }, select: { nome: true } });
+      await this.registrar(o.chamadaId, evento(`${primeiroNome(e.nome)} aceitou.`, 'entregador'), tx);
+      return o.chamadaId;
+    });
+    return this.daChamada(entregadorId, chamadaId);
+  }
+
+  async recusar(entregadorId: string, ofertaId: string): Promise<void> {
+    const o = await this.prisma.ofertaChamada.findFirst({ where: { id: ofertaId, entregadorId }, include: { entregador: { select: { nome: true } } } });
+    if (!o) throw new NotFoundException('Oferta não encontrada.');
+    const { count } = await this.prisma.ofertaChamada.updateMany({ where: { id: ofertaId, resultado: 'PENDENTE' }, data: { resultado: 'RECUSADA', respondidaEm: new Date() } });
+    if (count) await this.registrar(o.chamadaId, evento(`${primeiroNome(o.entregador.nome)} recusou.`, 'entregador'));
+  }
+
+  async daChamada(entregadorId: string, chamadaId: string): Promise<ChamadaEntregador> {
+    const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, entregadorId }, include: { empresa: { select: { nomeFantasia: true, razaoSocial: true } } } });
+    if (!c) throw new NotFoundException('Chamada não encontrada.');
+    return this.paraEntregador(c);
+  }
+
+  private paraEntregador(c: Prisma.ChamadaEntregaGetPayload<{ include: { empresa: { select: { nomeFantasia: true; razaoSocial: true } } } }>): ChamadaEntregador {
+    const oc = c.ocorrencia as Ocorrencia | null;
+    return {
+      id: c.id,
+      numero: c.numero,
+      tipo: c.tipo as TipoChamada,
+      situacao: c.situacao as SituacaoChamada,
+      empresa: c.empresa.nomeFantasia || c.empresa.razaoSocial,
+      origem: c.origem as unknown as ParadaChamada,
+      destino: c.destino as unknown as ParadaChamada,
+      metros: c.metros,
+      estimada: c.estimada,
+      valorCentavos: c.valorCentavos,
+      pedeSerie: c.tipo === 'DEVOLUCAO_MAQUINA' || !!c.serieEsperada,
+      serieColetada: c.serieColetada,
+      observacao: c.observacao,
+      ocorrencia: oc ? { motivo: oc.motivo, texto: oc.texto } : null,
+      aceitaEm: c.aceitaEm?.toISOString() ?? null,
+      concluidaEm: c.concluidaEm?.toISOString() ?? null,
+    };
+  }
+
+  async minhaChamada(entregadorId: string): Promise<ChamadaEntregador | null> {
+    const id = await this.chamadaAtivaId(entregadorId);
+    return id ? this.daChamada(entregadorId, id) : null;
+  }
+
+  /** Cada etapa confere o lugar (chegadas), a série (coleta de máquina) e o código (entrega). */
+  async avancar(entregadorId: string, chamadaId: string, dto: AvancarDto): Promise<ChamadaEntregador> {
+    const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, entregadorId } });
+    if (!c) throw new NotFoundException('Chamada não encontrada.');
+    const etapa = PROXIMA_ETAPA[c.situacao as SituacaoChamada];
+    if (!etapa || etapa.para !== dto.para) throw new ConflictException(`A chamada está em "${ROTULO_SITUACAO_CHAMADA[c.situacao as SituacaoChamada]}". Atualize a tela.`);
+    if (dto.simulada) throw new ForbiddenException('Desligue o aplicativo de localização falsa para continuar.');
+    if (!coordenadaValida(dto)) throw new BadRequestException('Sem localização do celular.');
+    const origem = c.origem as unknown as ParadaChamada;
+    const destino = c.destino as unknown as ParadaChamada;
+    const agora = new Date();
+    const data: Prisma.ChamadaEntregaUpdateManyMutationInput = { situacao: dto.para };
+    let texto = ROTULO_SITUACAO_CHAMADA[dto.para];
+
+    if (dto.para === 'NA_COLETA' && !chegouPerto(dto, origem, dto.precisao ?? null)) throw new BadRequestException('Você ainda não está no local da coleta.');
+    if (dto.para === 'NO_DESTINO' && !chegouPerto(dto, destino, dto.precisao ?? null)) throw new BadRequestException('Você ainda não está no destino.');
+    if (dto.para === 'COLETADA') {
+      const pede = c.tipo === 'DEVOLUCAO_MAQUINA' || !!c.serieEsperada;
+      const serie = normalizarSerie(dto.serie ?? '');
+      if (pede && serie.length < 4) throw new BadRequestException('Leia ou digite o número de série da máquina.');
+      if (c.serieEsperada && serie !== c.serieEsperada) throw new BadRequestException('O número de série não confere com o da chamada. Confira a máquina ou registre uma ocorrência.');
+      if (serie) {
+        data.serieColetada = serie;
+        texto = `Coletado (série ${serie}).`;
+      }
+    }
+    if (dto.para === 'CONCLUIDA') {
+      if (c.tentativasCodigo >= TENTATIVAS_CODIGO) throw new ForbiddenException('Código errado vezes demais. Peça para a empresa confirmar a entrega.');
+      if ((dto.codigo ?? '').trim() !== c.codigoConfirmacao) {
+        await this.prisma.chamadaEntrega.update({ where: { id: c.id }, data: { tentativasCodigo: { increment: 1 } } });
+        throw new BadRequestException(`Código errado. Restam ${TENTATIVAS_CODIGO - c.tentativasCodigo - 1} tentativas.`);
+      }
+      data.concluidaEm = agora;
+      texto = 'Entregue, com o código do destinatário.';
+    }
+    const foto = dto.foto ? imagemDoDataUrl(dto.foto, 'A foto') : null;
+
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.chamadaEntrega.updateMany({ where: { id: c.id, situacao: c.situacao, entregadorId }, data });
+      if (!count) throw new ConflictException('A chamada mudou. Atualize a tela.');
+      if (foto) await tx.fotoChamada.create({ data: { chamadaId: c.id, etapa: dto.para === 'CONCLUIDA' ? 'ENTREGA' : 'COLETA', mime: foto.mime, bytes: foto.bytes } });
+      await tx.entregador.update({ where: { id: entregadorId }, data: { lat: dto.lat, lon: dto.lon, precisaoMetros: dto.precisao ?? null, posicaoEm: agora, avisoEm: agora } });
+      await this.registrar(c.id, evento(texto, 'entregador'), tx);
+    });
+    return this.daChamada(entregadorId, c.id);
+  }
+
+  async ocorrencia(entregadorId: string, chamadaId: string, dto: OcorrenciaDto): Promise<ChamadaEntregador> {
+    const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, entregadorId, situacao: { in: ['ACEITA', 'NA_COLETA', 'COLETADA', 'NO_DESTINO'] } } });
+    if (!c) throw new ConflictException('Não há chamada em andamento para registrar a ocorrência.');
+    const foto = imagemDoDataUrl(dto.foto, 'A foto');
+    const oc: Ocorrencia = { motivo: dto.motivo, texto: dto.texto.trim(), em: new Date().toISOString(), situacaoAnterior: c.situacao as SituacaoChamada };
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.chamadaEntrega.updateMany({ where: { id: c.id, situacao: c.situacao }, data: { situacao: 'OCORRENCIA', ocorrencia: oc as never } });
+      if (!count) throw new ConflictException('A chamada mudou. Atualize a tela.');
+      await tx.fotoChamada.create({ data: { chamadaId: c.id, etapa: 'OCORRENCIA', mime: foto.mime, bytes: foto.bytes } });
+      await this.registrar(c.id, evento(`Ocorrência: ${ROTULO_MOTIVO_OCORRENCIA[dto.motivo]}${oc.texto ? ` (${oc.texto})` : ''}.`, 'entregador'), tx);
+    });
+    return this.daChamada(entregadorId, c.id);
+  }
+
+  async ganhos(entregadorId: string): Promise<GanhosEntregador> {
+    const lista = await this.prisma.chamadaEntrega.findMany({
+      where: { entregadorId, situacao: 'CONCLUIDA' },
+      orderBy: { concluidaEm: 'desc' },
+      take: 100,
+      include: { empresa: { select: { nomeFantasia: true, razaoSocial: true } } },
+    });
+    const fuso = config().fusoHorario;
+    const agora = new Date();
+    const hoje = diaNoFuso(agora, fuso);
+    const semana = agora.getTime() - 7 * DIA_MS;
+    let hojeCentavos = 0;
+    let semanaCentavos = 0;
+    for (const c of lista) {
+      if (!c.concluidaEm) continue;
+      if (diaNoFuso(c.concluidaEm, fuso) === hoje) hojeCentavos += c.valorCentavos;
+      if (c.concluidaEm.getTime() >= semana) semanaCentavos += c.valorCentavos;
+    }
+    const aReceber = await this.prisma.chamadaEntrega.aggregate({ where: { entregadorId, situacao: 'CONCLUIDA' }, _sum: { valorCentavos: true } });
+    return { hojeCentavos, semanaCentavos, aReceberCentavos: aReceber._sum.valorCentavos ?? 0, chamadas: lista.map((c) => this.paraEntregador(c)) };
+  }
+}
+
+// Rotas da empresa ---------------------------------------------------------------------------
+
+@Controller('entregas/chamadas')
+export class ChamadasEmpresaController {
+  constructor(private readonly chamadas: ChamadasService) {}
+
+  @Post('previa')
+  @HttpCode(200)
+  @RequerPermissao('entrega.gerenciar')
+  previa(@EmpresaAtual() empresaId: string, @Body() dto: NovaChamadaDto): Promise<PreviaChamada> {
+    return this.chamadas.previa(empresaId, { ...dto, serieEsperada: dto.serieEsperada ?? null });
+  }
+
+  @Post()
+  @RequerPermissao('entrega.gerenciar')
+  criar(@EmpresaAtual() empresaId: string, @Body() dto: NovaChamadaDto, @UsuarioAtual() u: UsuarioRequisicao): Promise<ChamadaResumo> {
+    return this.chamadas.criar(empresaId, dto, u.id);
+  }
+
+  @Get()
+  @RequerPermissao('entrega.ver')
+  listar(@EmpresaAtual() empresaId: string, @Query() f: FiltroChamadasDto): Promise<ChamadaResumo[]> {
+    return this.chamadas.listar(empresaId, f.filtro ?? 'ATIVAS');
+  }
+
+  @Get(':id')
+  @RequerPermissao('entrega.ver')
+  obter(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string): Promise<ChamadaResumo> {
+    return this.chamadas.obter(empresaId, id);
+  }
+
+  @Get(':id/fotos/:etapa')
+  @RequerPermissao('entrega.ver')
+  foto(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @Param('etapa') etapa: string): Promise<{ dados: string }> {
+    return this.chamadas.foto(empresaId, id, etapa);
+  }
+
+  @Get(':id/elegiveis')
+  @RequerPermissao('entrega.gerenciar')
+  elegiveis(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string): Promise<ElegivelOferta[]> {
+    return this.chamadas.elegiveis(empresaId, id);
+  }
+
+  @Post(':id/oferecer')
+  @HttpCode(200)
+  @RequerPermissao('entrega.gerenciar')
+  oferecer(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: OferecerDto, @UsuarioAtual() u: UsuarioRequisicao): Promise<ChamadaResumo> {
+    return this.chamadas.oferecer(empresaId, id, dto.entregadorId, u.id);
+  }
+
+  @Post(':id/cancelar-oferta')
+  @HttpCode(200)
+  @RequerPermissao('entrega.gerenciar')
+  cancelarOferta(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string): Promise<ChamadaResumo> {
+    return this.chamadas.cancelarOferta(empresaId, id);
+  }
+
+  @Post(':id/cancelar')
+  @HttpCode(200)
+  @RequerPermissao('entrega.gerenciar')
+  cancelar(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: MotivoDto, @UsuarioAtual() u: UsuarioRequisicao): Promise<ChamadaResumo> {
+    return this.chamadas.cancelar(empresaId, id, dto.motivo, u.id);
+  }
+
+  @Post(':id/ocorrencia')
+  @HttpCode(200)
+  @RequerPermissao('entrega.gerenciar')
+  resolver(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ResolverOcorrenciaDto, @UsuarioAtual() u: UsuarioRequisicao): Promise<ChamadaResumo> {
+    return this.chamadas.resolverOcorrencia(empresaId, id, dto, u.id);
+  }
+
+  @Post(':id/concluir')
+  @HttpCode(200)
+  @RequerPermissao('entrega.gerenciar')
+  concluir(@EmpresaAtual() empresaId: string, @Param('id', ParseUUIDPipe) id: string, @UsuarioAtual() u: UsuarioRequisicao): Promise<ChamadaResumo> {
+    return this.chamadas.concluirPelaEmpresa(empresaId, id, u.id);
+  }
+}
+
+// Rotas do app do entregador ----------------------------------------------------------------
+
+@Publico()
+@UseGuards(EntregadorGuard)
+@Controller('entregador')
+export class ChamadasEntregadorController {
+  constructor(private readonly chamadas: ChamadasService) {}
+
+  @Get('oferta')
+  oferta(@EntregadorAtual() e: { id: string }): Promise<OfertaResumo | null> {
+    return this.chamadas.ofertaPendente(e.id);
+  }
+
+  @Post('ofertas/:id/aceitar')
+  @HttpCode(200)
+  aceitar(@EntregadorAtual() e: { id: string }, @Param('id', ParseUUIDPipe) id: string): Promise<ChamadaEntregador> {
+    return this.chamadas.aceitar(e.id, id);
+  }
+
+  @Post('ofertas/:id/recusar')
+  @HttpCode(204)
+  recusar(@EntregadorAtual() e: { id: string }, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    return this.chamadas.recusar(e.id, id);
+  }
+
+  @Get('chamada')
+  chamada(@EntregadorAtual() e: { id: string }): Promise<ChamadaEntregador | null> {
+    return this.chamadas.minhaChamada(e.id);
+  }
+
+  @Post('chamadas/:id/avancar')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  avancar(@EntregadorAtual() e: { id: string }, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AvancarDto): Promise<ChamadaEntregador> {
+    return this.chamadas.avancar(e.id, id, dto);
+  }
+
+  @Post('chamadas/:id/ocorrencia')
+  @HttpCode(200)
+  ocorrencia(@EntregadorAtual() e: { id: string }, @Param('id', ParseUUIDPipe) id: string, @Body() dto: OcorrenciaDto): Promise<ChamadaEntregador> {
+    return this.chamadas.ocorrencia(e.id, id, dto);
+  }
+
+  @Get('ganhos')
+  ganhos(@EntregadorAtual() e: { id: string }): Promise<GanhosEntregador> {
+    return this.chamadas.ganhos(e.id);
+  }
+}

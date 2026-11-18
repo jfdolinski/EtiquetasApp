@@ -38,6 +38,8 @@ module.exports = {
         'android.permission.FOREGROUND_SERVICE',
         'android.permission.FOREGROUND_SERVICE_LOCATION',
         'android.permission.CAMERA',
+        'android.permission.POST_NOTIFICATIONS',
+        'android.permission.VIBRATE',
       ],
     },
     ios: {
@@ -55,6 +57,8 @@ module.exports = {
       ],
       ['expo-image-picker', { cameraPermission: 'A câmera fotografa seus documentos e o comprovante do Pix.', photosPermission: 'Para escolher a foto de um documento ou do comprovante.', microphonePermission: false }],
       'expo-secure-store',
+      ['expo-camera', { cameraPermission: 'A câmera lê o número de série das máquinas e fotografa documentos.', microphonePermission: false, recordAudioAndroid: false }],
+      ['expo-notifications', { color: '#ea580c' }],
       ...(testeHttp ? [liberarHttp] : []),
     ],
     extra: { servidor, testeHttp },

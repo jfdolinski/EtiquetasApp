@@ -5,9 +5,11 @@ import type { AuditoriaService } from '../auditoria/auditoria.service';
 import { hashDoToken } from '../auth/conta.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import { contextoHttp } from '../testes/contexto-http';
+import type { ChamadasService } from './chamadas';
 import { CreditosService, gerarTxid } from './creditos';
 import { EntregasEmpresaService } from './empresa';
-import { EntregadoresService, EntregadorGuard } from './entregadores';
+import { EntregadoresService } from './entregadores';
+import { EntregadorGuard } from './guarda';
 import { chaveDoEndereco, type MapasService } from './mapas';
 
 class Rotas {
@@ -76,7 +78,8 @@ describe('diária e posição', () => {
       },
     };
     const creditos = { saldo: jest.fn(async () => lotes.reduce((s, l) => s + l.restante, 0)) } as unknown as CreditosService;
-    return { s: new EntregadoresService(prisma as unknown as PrismaService, creditos), prisma, tx, lotes };
+    const chamadas = { ofertaPendente: jest.fn(async () => null), chamadaAtivaId: jest.fn(async () => null) } as unknown as ChamadasService;
+    return { s: new EntregadoresService(prisma as unknown as PrismaService, creditos, chamadas), prisma, tx, lotes };
   }
   const ponto = { lat: -23.55, lon: -46.63, precisao: 10 };
 
@@ -195,8 +198,8 @@ describe('mapa da empresa', () => {
   const agora = new Date('2026-11-17T12:00:00Z');
 
   it('mostra só quem está no raio, aproximado e pelo primeiro nome', async () => {
-    const perto = { id: 'a', nome: 'Ana Souza', veiculo: 'MOTO', lat: -23.5614, lon: -46.6559, posicaoEm: new Date('2026-11-17T11:59:30Z') };
-    const longe = { id: 'b', nome: 'Bruno Lima', veiculo: 'CARRO', lat: -23.6, lon: -46.7, posicaoEm: new Date('2026-11-17T11:59:30Z') };
+    const perto = { id: 'a', nome: 'Ana Souza', veiculo: 'MOTO', lat: -23.5614, lon: -46.6559, posicaoEm: new Date('2026-11-17T11:59:30Z'), chamadas: [] };
+    const longe = { id: 'b', nome: 'Bruno Lima', veiculo: 'CARRO', lat: -23.6, lon: -46.7, posicaoEm: new Date('2026-11-17T11:59:30Z'), chamadas: [] };
     const { s } = montar([longe, perto]);
     const m = await s.mapa('emp', agora);
     expect(m.entregadores).toHaveLength(1);

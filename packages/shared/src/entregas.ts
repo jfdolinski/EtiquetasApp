@@ -2,6 +2,7 @@
 // Regras puras: a API e o site usam daqui; o app do entregador tem cópias conferidas em entregas-app.test.ts.
 
 import { normalizarCelular } from './pedidos';
+import type { OfertaResumo, TabelaPrecos } from './entregas-chamadas';
 
 // Entregador ------------------------------------------------------------------------------
 
@@ -268,9 +269,9 @@ export function posicaoAproximada(p: Ponto, metros = METROS_APROXIMACAO): Ponto 
   return { lat: Number(lat.toFixed(6)), lon: Number(lon.toFixed(6)) };
 }
 
-export type SituacaoNoMapa = 'LIVRE' | 'SEM_SINAL';
+export type SituacaoNoMapa = 'LIVRE' | 'OCUPADO' | 'SEM_SINAL';
 
-export const ROTULO_SITUACAO_MAPA: Record<SituacaoNoMapa, string> = { LIVRE: 'Livre', SEM_SINAL: 'Sem sinal' };
+export const ROTULO_SITUACAO_MAPA: Record<SituacaoNoMapa, string> = { LIVRE: 'Livre', OCUPADO: 'Em chamada', SEM_SINAL: 'Sem sinal' };
 
 export function situacaoNoMapa(posicaoEm: Date | string | null, agora: Date): SituacaoNoMapa {
   if (!posicaoEm) return 'SEM_SINAL';
@@ -286,6 +287,8 @@ export interface ConfigEntregasEmpresa {
   /** Ponto de partida da empresa (loja, depósito); sem ele, o mapa não sabe o que é perto. */
   base: (Ponto & { endereco: string }) | null;
   raioAtendimentoKm: number;
+  precos: TabelaPrecos;
+  segundosParaAceitar: number;
 }
 
 export interface ResultadoEndereco extends Ponto {
@@ -382,6 +385,10 @@ export interface RespostaPosicao {
   /** Por que ficou offline ou a posição foi recusada. */
   aviso: 'SEM_CREDITO' | 'GPS_FALSO' | 'NAO_APROVADO' | null;
   saldoDiarias: number;
+  /** Oferta esperando a resposta dele (o app toca o aviso). */
+  oferta: OfertaResumo | null;
+  /** Chamada em andamento, se houver. */
+  chamadaId: string | null;
 }
 
 /** Lista do super-admin. */

@@ -1,6 +1,6 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import type { ConfigMapa, ResultadoEndereco } from '@etiquetas/shared';
-import { coordenadaValida } from '@etiquetas/shared';
+import type { ConfigMapa, Ponto, ResultadoEndereco } from '@etiquetas/shared';
+import { coordenadaValida, rotaEstimada } from '@etiquetas/shared';
 import { config } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -10,7 +10,15 @@ import { PrismaService } from '../prisma/prisma.service';
  */
 export interface ProvedorMapas {
   geocodificar(texto: string): Promise<ResultadoEndereco[]>;
+  /** Distância e tempo pela rua; `estimada` quando veio da linha reta. */
+  rota(de: Ponto, para: Ponto): Promise<Rota>;
   configuracaoDoMapa(): ConfigMapa;
+}
+
+export interface Rota {
+  metros: number;
+  segundos: number;
+  estimada: boolean;
 }
 
 /** O Nominatim público aceita no máximo uma requisição por segundo. */
@@ -61,6 +69,22 @@ export class MapasService implements ProvedorMapas {
       update: { resultados: resultados as never, criadoEm: new Date() },
     });
     return resultados;
+  }
+
+  async rota(de: Ponto, para: Ponto): Promise<Rota> {
+    const osrm = config().mapas.osrmUrl;
+    if (osrm) {
+      try {
+        const r = await fetch(`${osrm}/route/v1/driving/${de.lon},${de.lat};${para.lon},${para.lat}?overview=false`, { signal: AbortSignal.timeout(TEMPO_LIMITE_MS) });
+        const j = (await r.json()) as { code?: string; routes?: { distance: number; duration: number }[] };
+        const melhor = j.routes?.[0];
+        if (r.ok && j.code === 'Ok' && melhor) return { metros: Math.round(melhor.distance), segundos: Math.round(melhor.duration), estimada: false };
+        this.log.warn(`Rota respondeu ${r.status} ${j.code ?? ''}`);
+      } catch (e) {
+        this.log.warn(`Rota falhou: ${(e as Error).message}`);
+      }
+    }
+    return { ...rotaEstimada(de, para), estimada: true };
   }
 
   private naFila<T>(f: () => Promise<T>): Promise<T> {
