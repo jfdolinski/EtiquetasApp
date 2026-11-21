@@ -11,5 +11,11 @@
     "dev:web": "corepack pnpm --filter @etiquetas/web dev",
     "test": "corepack pnpm -r test",
     "typecheck": "corepack pnpm -r typecheck"
+  },
+  "pnpm": {
+    "overrides": {
+      "multer": "2.5.0",
+      "effect": "3.22.4"
+    }
   }
 }

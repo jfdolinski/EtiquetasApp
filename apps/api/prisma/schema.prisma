@@ -103,6 +103,9 @@ model Usuario {
   totpUltimoPasso           BigInt?             @map("totp_ultimo_passo")
   totpFalhas                Int                 @default(0) @map("totp_falhas")
   totpBloqueadoAte          DateTime?           @map("totp_bloqueado_ate")
+  /// Senhas erradas seguidas e até quando a conta não aceita senha (bloqueio por conta).
+  senhaFalhas               Int                 @default(0) @map("senha_falhas")
+  senhaBloqueadaAte         DateTime?           @map("senha_bloqueada_ate")
   /// SHA-256 dos códigos de recuperação ainda não usados.
   totpCodigosRecuperacao    String[]            @default([]) @map("totp_codigos_recuperacao")
   /// Código do atendente no ERP: vai em código de barras na folha de lançamento dos pedidos.
@@ -1264,32 +1267,35 @@ model Pedido {
 
 /// Entregador: cadastro da plataforma (sem empresa_id), atende várias empresas.
 model Entregador {
-  id              String    @id @default(uuid()) @db.Uuid
-  nome            String
-  cpf             String    @unique
-  email           String    @unique
-  celular         String
-  senhaHash       String    @map("senha_hash")
-  veiculo         String
-  placa           String?
-  chavePix        String    @map("chave_pix")
+  id                String    @id @default(uuid()) @db.Uuid
+  nome              String
+  cpf               String    @unique
+  email             String    @unique
+  celular           String
+  senhaHash         String    @map("senha_hash")
+  /// Senhas erradas seguidas e até quando a conta não aceita senha (bloqueio por conta).
+  senhaFalhas       Int       @default(0) @map("senha_falhas")
+  senhaBloqueadaAte DateTime? @map("senha_bloqueada_ate")
+  veiculo           String
+  placa             String?
+  chavePix          String    @map("chave_pix")
   /// PENDENTE, APROVADO, RECUSADO ou SUSPENSO.
-  situacao        String    @default("PENDENTE")
-  motivo          String?
-  decididoEm      DateTime? @map("decidido_em")
-  termosVersao    Int       @map("termos_versao")
-  termosAceitosEm DateTime  @map("termos_aceitos_em")
-  online          Boolean   @default(false)
-  onlineDesde     DateTime? @map("online_desde")
-  lat             Float?
-  lon             Float?
-  precisaoMetros  Float?    @map("precisao_metros")
-  posicaoEm       DateTime? @map("posicao_em")
+  situacao          String    @default("PENDENTE")
+  motivo            String?
+  decididoEm        DateTime? @map("decidido_em")
+  termosVersao      Int       @map("termos_versao")
+  termosAceitosEm   DateTime  @map("termos_aceitos_em")
+  online            Boolean   @default(false)
+  onlineDesde       DateTime? @map("online_desde")
+  lat               Float?
+  lon               Float?
+  precisaoMetros    Float?    @map("precisao_metros")
+  posicaoEm         DateTime? @map("posicao_em")
   /// Último aviso do app (posição ou recusa): sem ele por 10 min, fica offline.
-  avisoEm         DateTime? @map("aviso_em")
-  versaoApp       String?   @map("versao_app")
-  criadoEm        DateTime  @default(now()) @map("criado_em")
-  atualizadoEm    DateTime  @updatedAt @map("atualizado_em")
+  avisoEm           DateTime? @map("aviso_em")
+  versaoApp         String?   @map("versao_app")
+  criadoEm          DateTime  @default(now()) @map("criado_em")
+  atualizadoEm      DateTime  @updatedAt @map("atualizado_em")
 
   sessoes      SessaoEntregador[]
   documentos   DocumentoEntregador[]

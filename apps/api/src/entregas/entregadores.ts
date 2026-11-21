@@ -1,27 +1,4 @@
-import {
-  BadRequestException,
-  Body,
-  CanActivate,
-  ConflictException,
-  Controller,
-  createParamDecorator,
-  Delete,
-  ExecutionContext,
-  ForbiddenException,
-  Get,
-  HttpCode,
-  Injectable,
-  Logger,
-  NotFoundException,
-  OnApplicationBootstrap,
-  OnModuleDestroy,
-  Param,
-  ParseUUIDPipe,
-  Post,
-  Put,
-  UnauthorizedException,
-  UseGuards,
-} from '@nestjs/common';
+import { BadRequestException, Body, CanActivate, ConflictException, Controller, createParamDecorator, Delete, ExecutionContext, ForbiddenException, Get, HttpCode, Injectable, Logger, NotFoundException, OnApplicationBootstrap, OnModuleDestroy, Param, ParseUUIDPipe, Post, Put, UnauthorizedException, UseGuards, HttpException, HttpStatus } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
@@ -55,7 +32,7 @@ import {
 } from '@etiquetas/shared';
 import { hashDoToken } from '../auth/conta.service';
 import { Publico } from '../auth/decorators';
-import { compararComHashFicticio, conferirSenha, gerarHashSenha } from '../auth/senha';
+import { compararComHashFicticio, conferirSenha, gerarHashSenha, aposSenhaErrada, MENSAGEM_SENHA_BLOQUEADA, senhaBloqueada } from '../auth/senha';
 import { sha256 } from '../cripto';
 import { EmailService } from '../email/email.service';
 import { config } from '../config';
@@ -207,9 +184,17 @@ export class EntregadoresService implements OnApplicationBootstrap, OnModuleDest
   async entrar(dto: LoginEntregadorDto): Promise<SessaoEntregadorResposta> {
     const login = dto.login.trim().toLowerCase();
     const cpf = normalizarCpf(login);
-    const e = await this.prisma.entregador.findFirst({ where: login.includes('@') ? { email: login } : { cpf }, select: { id: true, senhaHash: true } });
+    const e = await this.prisma.entregador.findFirst({ where: login.includes('@') ? { email: login } : { cpf }, select: { id: true, senhaHash: true, senhaFalhas: true, senhaBloqueadaAte: true } });
     const ok = e ? await conferirSenha(dto.senha, e.senhaHash) : await compararComHashFicticio(dto.senha);
+    // Bloqueio por conta (o limite por IP não segura tentativas de vários endereços).
+    if (e && senhaBloqueada(e.senhaBloqueadaAte)) throw new HttpException(MENSAGEM_SENHA_BLOQUEADA, HttpStatus.TOO_MANY_REQUESTS);
+    if (e && !ok) {
+      const { senhaFalhas } = await this.prisma.entregador.update({ where: { id: e.id }, data: { senhaFalhas: { increment: 1 } }, select: { senhaFalhas: true } });
+      const bloqueio = aposSenhaErrada(senhaFalhas);
+      if (bloqueio) await this.prisma.entregador.update({ where: { id: e.id }, data: bloqueio });
+    }
     if (!e || !ok) throw new UnauthorizedException('E-mail/CPF ou senha incorretos.');
+    if (e.senhaFalhas > 0) await this.prisma.entregador.update({ where: { id: e.id }, data: { senhaFalhas: 0 } });
     if (dto.versao) await this.prisma.entregador.update({ where: { id: e.id }, data: { versaoApp: dto.versao } });
     return this.abrirSessao(e.id, dto.dispositivo);
   }
@@ -410,7 +395,7 @@ export class EntregadoresService implements OnApplicationBootstrap, OnModuleDest
     await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.redefinicaoSenhaEntregador.updateMany({ where: { id: pedido.id, usadoEm: null }, data: { usadoEm: agora } });
       if (!count) throw new BadRequestException('Este link já foi usado ou expirou. Peça um novo no aplicativo.');
-      await tx.entregador.update({ where: { id: pedido.entregadorId }, data: { senhaHash } });
+      await tx.entregador.update({ where: { id: pedido.entregadorId }, data: { senhaHash, senhaFalhas: 0, senhaBloqueadaAte: null } });
       await tx.sessaoEntregador.updateMany({ where: { entregadorId: pedido.entregadorId, encerradaEm: null }, data: { encerradaEm: agora } });
     });
   }

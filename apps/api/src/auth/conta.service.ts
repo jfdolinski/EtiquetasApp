@@ -133,7 +133,7 @@ export class ContaService {
       // updateMany no estado antigo: dois cliques simultâneos não usam o mesmo link.
       const { count } = await tx.redefinicaoSenha.updateMany({ where: { id: pedido.id, usadoEm: null }, data: { usadoEm: agora } });
       if (count === 0) throw new BadRequestException('Este link já foi usado ou expirou. Peça um novo.');
-      await tx.usuario.update({ where: { id: pedido.usuarioId }, data: { senhaHash } });
+      await tx.usuario.update({ where: { id: pedido.usuarioId }, data: { senhaHash, senhaFalhas: 0, senhaBloqueadaAte: null } });
       await tx.sessaoUsuario.updateMany({ where: { usuarioId: pedido.usuarioId, encerradaEm: null }, data: { encerradaEm: agora } });
       await tx.dispositivoMovel.updateMany({ where: { usuarioId: pedido.usuarioId, revogadoEm: null }, data: { revogadoEm: agora, pushToken: null } });
       await this.auditoria.registrar({ empresaId: pedido.usuario.empresaId, usuarioId: pedido.usuarioId, acao: 'auth.redefinir_senha', entidade: 'Usuario', entidadeId: pedido.usuarioId }, tx);

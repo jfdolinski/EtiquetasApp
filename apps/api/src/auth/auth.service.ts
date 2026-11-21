@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException, HttpException, HttpStatus } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ehCodigoPermissao, type LoginDesafio, type LoginResposta, type UsuarioLogado } from '@etiquetas/shared';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -9,7 +9,7 @@ import { empresaBloqueada } from './acesso-empresa';
 import type { PayloadToken } from './auth.guard';
 import { config } from '../config';
 import { decifrar } from '../cripto';
-import { compararComHashFicticio, conferirSenha, gerarHashSenha } from './senha';
+import { compararComHashFicticio, conferirSenha, gerarHashSenha, aposSenhaErrada, MENSAGEM_SENHA_BLOQUEADA, senhaBloqueada } from './senha';
 import { conferirTotp, hashDoCodigo } from './totp';
 
 const FALHAS_ATE_BLOQUEAR = 5;
@@ -33,7 +33,18 @@ export class AuthService {
     });
 
     const senhaOk = usuario ? await conferirSenha(senha, usuario.senhaHash) : await compararComHashFicticio(senha);
+    // Bloqueio por conta: confere depois da comparação, para o tempo de resposta não revelar nada.
+    if (usuario && senhaBloqueada(usuario.senhaBloqueadaAte)) throw new HttpException(MENSAGEM_SENHA_BLOQUEADA, HttpStatus.TOO_MANY_REQUESTS);
+    if (usuario && !senhaOk) {
+      const { senhaFalhas } = await this.prisma.usuario.update({ where: { id: usuario.id }, data: { senhaFalhas: { increment: 1 } }, select: { senhaFalhas: true } });
+      const bloqueio = aposSenhaErrada(senhaFalhas);
+      if (bloqueio) {
+        await this.prisma.usuario.update({ where: { id: usuario.id }, data: bloqueio });
+        await this.auditoria.registrar({ empresaId: usuario.empresaId, usuarioId: usuario.id, acao: 'auth.senha_bloqueada', entidade: 'Usuario', entidadeId: usuario.id, detalhes: { ip: origem.ip ?? null } });
+      }
+    }
     if (!usuario || !senhaOk) throw new UnauthorizedException(CREDENCIAIS_INVALIDAS);
+    if (usuario.senhaFalhas > 0) await this.prisma.usuario.update({ where: { id: usuario.id }, data: { senhaFalhas: 0 } });
     if (usuario.cadastroPendente) throw new UnauthorizedException('Seu cadastro aguarda a aprovação de um administrador.');
     if (!usuario.ativo) throw new UnauthorizedException('Usuário desativado. Fale com o administrador da empresa.');
 
