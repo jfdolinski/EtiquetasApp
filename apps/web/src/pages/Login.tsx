@@ -35,14 +35,27 @@ export function Login() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <form onSubmit={enviar} className="w-full max-w-sm space-y-4 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+    <div className="grid min-h-screen md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+      {/* O lado grafite: a etiqueta grande é a marca do Flow (o mesmo desenho do item ativo do menu). */}
+      <div className="relative hidden overflow-hidden bg-grafite p-12 md:flex md:flex-col md:justify-between">
+        <div className="flex items-center gap-2.5 font-display text-xl font-extrabold text-white">
+          <img src="/favicon.svg" alt="" className="h-9 w-9" />
+          Flow
+        </div>
+        <div className="etiqueta-ativa max-w-md py-8 pr-8 pl-14">
+          <p className="font-display text-3xl leading-tight font-extrabold text-white">Etiqueta, preço na tela, pedido e entrega.</p>
+          <p className="mt-3 text-base text-blue-50">Tudo lendo direto do ERP da sua loja.</p>
+        </div>
+        <p className="text-sm text-slate-400">Para lojas que trocam preço todo dia.</p>
+      </div>
+      <div className="flex items-center justify-center px-4 py-10">
+      <form onSubmit={enviar} className="w-full max-w-sm space-y-4">
         <div>
-          <h1 className="flex items-center gap-2 text-xl font-semibold text-slate-900">
-            <img src="/favicon.svg" alt="" className="h-8 w-8" />
-            Flow
+          <h1 className="flex items-center gap-2 text-3xl font-extrabold text-slate-900">
+            <img src="/favicon.svg" alt="" className="h-8 w-8 md:hidden" />
+            Entrar no Flow
           </h1>
-          <p className="text-sm text-slate-500">{precisaCodigo ? 'Digite o código do seu aplicativo autenticador.' : 'Entre com seu e-mail e senha.'}</p>
+          <p className="mt-1 text-sm text-slate-500">{precisaCodigo ? 'Digite o código do seu aplicativo autenticador.' : 'Entre com seu e-mail e senha.'}</p>
         </div>
         {erro && <Alerta>{erro}</Alerta>}
         {precisaCodigo ? (
@@ -69,6 +82,7 @@ export function Login() {
           </div>
         )}
       </form>
+      </div>
     </div>
   );
 }

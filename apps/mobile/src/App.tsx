@@ -18,12 +18,13 @@ import { TelaLista } from './TelaLista';
 import { TelaPedidos } from './TelaPedidos';
 import { TelaTelas } from './TelaTelas';
 import { TelaVincular } from './TelaVincular';
-import { Alerta, cores } from './ui';
+import { Alerta, cores, RotuloGuia, useFontesFlow } from './ui';
 
 type Aba = 'inicio' | 'lista' | 'avulsa' | 'pedidos' | 'telas' | 'avisos';
 const INTERVALO_AVISOS_MS = 60_000;
 
 export function App() {
+  useFontesFlow();
   const [carregando, setCarregando] = useState(true);
   const [sessao, setSessao] = useState<Sessao | null>(null);
   const [motivo, setMotivo] = useState<string | null>(null);
@@ -43,8 +44,10 @@ export function App() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar style="dark" />
-      <SafeAreaView style={{ flex: 1, backgroundColor: cores.branco }} edges={['top', 'bottom']}>
+      <StatusBar style="light" />
+      {/* Grafite atrás da barra de status e das guias; o conteúdo fica no fundo claro. */}
+      <SafeAreaView style={{ flex: 1, backgroundColor: cores.grafite }} edges={['top', 'bottom']}>
+        <View style={{ flex: 1, backgroundColor: cores.fundo }}>
         {/* A tela encolhe com o teclado: no Android novo ele fica por cima do conteúdo. */}
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'web' ? undefined : 'padding'}>
         {carregando ? (
@@ -55,6 +58,7 @@ export function App() {
           <TelaVincular motivo={motivo} aoVincular={(s) => { setMotivo(null); setSessao(s); }} />
         )}
         </KeyboardAvoidingView>
+        </View>
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -211,8 +215,8 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
       <BannerPublicidade api={api} />
       <View style={estilos.abas} accessibilityRole="tablist">
         <BotaoAba rotulo="Início" ativa={aba === 'inicio'} aoTocar={() => setAba('inicio')} />
-        <BotaoAba rotulo="Lista do dia" ativa={aba === 'lista'} aoTocar={() => setAba('lista')} />
-        {podeImprimir && <BotaoAba rotulo="Etiqueta avulsa" ativa={aba === 'avulsa'} aoTocar={() => setAba('avulsa')} />}
+        <BotaoAba rotulo="Lista do dia" curto="Lista" ativa={aba === 'lista'} aoTocar={() => setAba('lista')} />
+        {podeImprimir && <BotaoAba rotulo="Etiqueta avulsa" curto="Avulsa" ativa={aba === 'avulsa'} aoTocar={() => setAba('avulsa')} />}
         {podeVerPedidos && <BotaoAba rotulo="Pedidos" ativa={aba === 'pedidos'} aoTocar={() => setAba('pedidos')} />}
         {podeVerTelas && <BotaoAba rotulo="Telas" ativa={aba === 'telas'} aoTocar={() => setAba('telas')} />}
         <BotaoAba rotulo="Avisos" contagem={naoLidas} ativa={aba === 'avisos'} aoTocar={() => setAba('avisos')} />
@@ -221,19 +225,16 @@ function Principal({ sessao, encerrar, atualizarSessao }: { sessao: Sessao; ence
   );
 }
 
-function BotaoAba({ rotulo, ativa, contagem, aoTocar }: { rotulo: string; ativa: boolean; contagem?: number; aoTocar: () => void }) {
+function BotaoAba({ rotulo, curto, ativa, contagem, aoTocar }: { rotulo: string; curto?: string; ativa: boolean; contagem?: number; aoTocar: () => void }) {
   return (
-    <Pressable accessibilityRole="tab" accessibilityState={{ selected: ativa }} accessibilityLabel={contagem ? `${rotulo}, ${contagem} sem ler` : rotulo} onPress={aoTocar} style={[estilos.aba, ativa && estilos.abaAtiva]}>
-      <Text style={[estilos.abaTexto, ativa && estilos.abaTextoAtivo]}>{rotulo}{contagem ? ` (${contagem})` : ''}</Text>
+    <Pressable accessibilityRole="tab" accessibilityState={{ selected: ativa }} accessibilityLabel={contagem ? `${rotulo}, ${contagem} sem ler` : rotulo} onPress={aoTocar} style={estilos.aba}>
+      <RotuloGuia texto={`${curto ?? rotulo}${contagem ? ` (${contagem})` : ''}`} ativa={ativa} />
     </Pressable>
   );
 }
 
 const estilos = StyleSheet.create({
   centro: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  abas: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: cores.borda, backgroundColor: cores.branco },
-  aba: { flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', borderTopWidth: 3, borderTopColor: 'transparent' },
-  abaAtiva: { borderTopColor: cores.azul },
-  abaTexto: { fontSize: 13, color: cores.suave, fontWeight: '500', textAlign: 'center', paddingHorizontal: 2 },
-  abaTextoAtivo: { color: cores.azul, fontWeight: '700' },
+  abas: { flexDirection: 'row', backgroundColor: cores.grafite, paddingHorizontal: 4, paddingVertical: 6 },
+  aba: { flex: 1, minHeight: 46, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2 },
 });

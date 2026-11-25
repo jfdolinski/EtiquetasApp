@@ -17,12 +17,13 @@ import { TelaEntrar } from './TelaEntrar';
 import { TelaInicio } from './TelaInicio';
 import { TelaPerfil } from './TelaPerfil';
 import { enviarGuardadas, etapasGuardadas } from './fila';
-import { Alerta, Botao, cores } from './ui';
+import { Alerta, Botao, cores, RotuloGuia, useFontesFlow } from './ui';
 
 type Aba = 'inicio' | 'avisos' | 'ganhos' | 'creditos' | 'perfil';
 const INTERVALO_TRABALHO_MS = 5_000;
 
 export function App() {
+  useFontesFlow();
   const [carregando, setCarregando] = useState(true);
   const [sessao, setSessao] = useState<Sessao | null>(null);
   const [perfilInicial, setPerfilInicial] = useState<PerfilEntregador | null>(null);
@@ -45,8 +46,10 @@ export function App() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar style="dark" />
-      <SafeAreaView style={{ flex: 1, backgroundColor: cores.branco }} edges={['top', 'bottom']}>
+      <StatusBar style="light" />
+      {/* Grafite atrás da barra de status e das guias; o conteúdo fica no fundo claro. */}
+      <SafeAreaView style={{ flex: 1, backgroundColor: cores.grafite }} edges={['top', 'bottom']}>
+        <View style={{ flex: 1, backgroundColor: cores.fundo }}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'web' ? undefined : 'padding'}>
           {carregando ? (
             <View style={estilos.centro}>
@@ -66,6 +69,7 @@ export function App() {
             />
           )}
         </KeyboardAvoidingView>
+        </View>
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -246,7 +250,7 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
       <View style={estilos.guias} accessibilityRole="tablist">
         {abas.map((a) => (
           <Pressable key={a.id} accessibilityRole="tab" accessibilityState={{ selected: aba === a.id }} accessibilityLabel={a.rotulo} onPress={() => setAba(a.id)} style={estilos.guia}>
-            <Text style={[estilos.guiaTexto, aba === a.id && { color: cores.azul }]}>{a.rotulo}</Text>
+            <RotuloGuia texto={a.rotulo} ativa={aba === a.id} />
           </Pressable>
         ))}
       </View>
@@ -256,8 +260,7 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
 
 const estilos = StyleSheet.create({
   centro: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  guias: { flexDirection: 'row', borderTopWidth: 1, borderColor: cores.borda, backgroundColor: cores.branco },
-  guia: { flex: 1, paddingVertical: 14, alignItems: 'center' },
-  guiaTexto: { fontSize: 14, fontWeight: '600', color: cores.suave },
+  guias: { flexDirection: 'row', backgroundColor: cores.grafite, paddingHorizontal: 4, paddingVertical: 6 },
+  guia: { flex: 1, minHeight: 46, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2 },
   versao: { backgroundColor: cores.azul, padding: 12 },
 });

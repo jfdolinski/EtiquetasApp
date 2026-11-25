@@ -1,5 +1,96 @@
 @import 'tailwindcss';
+@import '@fontsource/archivo/500.css';
+@import '@fontsource/archivo/600.css';
+@import '@fontsource/archivo/700.css';
+@import '@fontsource/archivo/800.css';
+@import '@fontsource/instrument-sans/400.css';
+@import '@fontsource/instrument-sans/500.css';
+@import '@fontsource/instrument-sans/600.css';
 
+/*
+ * Visual do Flow (novembro/2026): balcão de loja. Grafite na estrutura, fundo claro e frio, o laranja
+ * da logomarca só onde se age (botões principais, item ativo, links), verde para pago/online.
+ * Archivo (a cara de etiqueta e de número de preço) em títulos, números e menu; Instrument Sans no texto.
+ *
+ * As telas usam as classes `blue-*` e `slate-*` do Tailwind: em vez de trocar centenas de arquivos,
+ * a escala `blue` vira o laranja Flow e a `slate` vira o grafite frio. Cor nova = mudar aqui.
+ */
 @theme {
-  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Archivo', 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+
+  --color-blue-50: #fff4ec;
+  --color-blue-100: #ffe5d2;
+  --color-blue-200: #ffcaa4;
+  --color-blue-300: #fca56d;
+  --color-blue-400: #f6813f;
+  --color-blue-500: #ee6a1f;
+  --color-blue-600: #e2570b;
+  --color-blue-700: #b8470a;
+  --color-blue-800: #923a0d;
+  --color-blue-900: #76310f;
+  --color-blue-950: #401606;
+
+  --color-slate-50: #f2f4f6;
+  --color-slate-100: #e7ebee;
+  --color-slate-200: #d7dde2;
+  --color-slate-300: #bac3cb;
+  --color-slate-400: #8995a0;
+  --color-slate-500: #5d6a76;
+  --color-slate-600: #46525d;
+  --color-slate-700: #333f49;
+  --color-slate-800: #24303a;
+  --color-slate-900: #18222b;
+  --color-slate-950: #10171d;
+
+  --color-grafite: #1d2831;
+  --color-grafite-claro: #2a3641;
+}
+
+@layer base {
+  html {
+    background: var(--color-slate-50);
+    color: var(--color-slate-900);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-blue-500);
+    outline-offset: 2px;
+  }
+}
+
+/*
+ * O item ativo do menu é uma etiqueta de preço: ponta à esquerda e o furinho do barbante.
+ * É o único enfeite do sistema; o resto fica quieto.
+ */
+.etiqueta-ativa {
+  position: relative;
+  background: var(--color-blue-600);
+  color: #fff;
+  clip-path: polygon(12px 0, 100% 0, 100% 100%, 12px 100%, 0 50%);
+  padding-left: 1.6rem;
+}
+.etiqueta-ativa::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 9999px;
+  background: var(--color-grafite);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
 }

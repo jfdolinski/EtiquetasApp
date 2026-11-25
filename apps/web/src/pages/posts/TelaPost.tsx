@@ -221,7 +221,15 @@ export const TelaPost = forwardRef<TelaPostControle, Props>(function TelaPost({ 
       // Moldura da seleção e guias não saem na imagem.
       transformador.current?.hide();
       setGuias({ x: [], y: [] });
-      const canvas = stage.toCanvas({ pixelRatio: 1 / escala });
+      // A escala da tela pode ser fracionária: o arquivo sai sempre no tamanho exato da rede social.
+      const origem = stage.toCanvas({ pixelRatio: largura / stage.width() });
+      let canvas = origem;
+      if (origem.width !== largura || origem.height !== altura) {
+        canvas = document.createElement('canvas');
+        canvas.width = largura;
+        canvas.height = altura;
+        canvas.getContext('2d')!.drawImage(origem, 0, 0, largura, altura);
+      }
       transformador.current?.show();
       return new Promise((resolver) => canvas.toBlob(resolver, tipo, 0.92));
     },

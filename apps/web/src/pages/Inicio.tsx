@@ -56,7 +56,7 @@ function Cartao({ titulo, valor, detalhe, alerta, para }: { titulo: string; valo
   const conteudo = (
     <>
       <div className="text-xs font-medium text-slate-500">{titulo}</div>
-      <div className={`mt-1 text-2xl font-semibold tabular-nums ${alerta ? 'text-red-700' : 'text-slate-900'}`}>{valor}</div>
+      <div className={`mt-1 font-display text-3xl font-bold tabular-nums ${alerta ? 'text-red-700' : 'text-slate-900'}`}>{valor}</div>
       {detalhe && <div className="mt-1 text-xs text-slate-500">{detalhe}</div>}
     </>
   );

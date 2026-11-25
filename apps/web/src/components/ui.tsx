@@ -3,23 +3,23 @@ import { useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type Re
 type Variante = 'primario' | 'secundario' | 'perigo';
 
 const VARIANTES: Record<Variante, string> = {
-  primario: 'bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-300',
-  secundario: 'bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50 disabled:text-slate-400',
-  perigo: 'bg-red-600 text-white hover:bg-red-700 disabled:bg-red-300',
+  primario: 'bg-blue-600 text-white shadow-[inset_0_-2px_0_rgb(0_0_0/0.18)] hover:bg-blue-700 disabled:bg-blue-300 disabled:shadow-none',
+  secundario: 'bg-white text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50 hover:ring-slate-400 disabled:text-slate-400',
+  perigo: 'bg-red-700 text-white hover:bg-red-800 disabled:bg-red-300',
 };
 
 export function Botao({ variante = 'primario', className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variante?: Variante }) {
   return (
     <button
       type="button"
-      className={`inline-flex items-center justify-center gap-2 rounded-md px-3.5 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed ${VARIANTES[variante]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 font-display text-sm font-semibold transition-colors disabled:cursor-not-allowed ${VARIANTES[variante]} ${className}`}
       {...props}
     />
   );
 }
 
 const CLASSE_CAMPO =
-  'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-100';
+  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-3 focus:ring-blue-500/15 disabled:bg-slate-100';
 
 export function Campo({ rotulo, ajuda, ...props }: InputHTMLAttributes<HTMLInputElement> & { rotulo: string; ajuda?: string }) {
   return (
@@ -44,11 +44,11 @@ export function Selecao({ rotulo, children, ...props }: SelectHTMLAttributes<HTM
 
 export function Alerta({ tipo = 'erro', children }: { tipo?: 'erro' | 'aviso' | 'info'; children: ReactNode }) {
   const cores = {
-    erro: 'border-red-200 bg-red-50 text-red-800',
-    aviso: 'border-amber-200 bg-amber-50 text-amber-900',
-    info: 'border-blue-200 bg-blue-50 text-blue-900',
+    erro: 'border-red-500 bg-red-50 text-red-900',
+    aviso: 'border-amber-500 bg-amber-50 text-amber-950',
+    info: 'border-slate-400 bg-white text-slate-800',
   };
-  return <div className={`rounded-md border px-4 py-3 text-sm ${cores[tipo]}`}>{children}</div>;
+  return <div className={`rounded-lg border-l-4 px-4 py-3 text-sm ${cores[tipo]}`}>{children}</div>;
 }
 
 export function Modal({
@@ -73,10 +73,10 @@ export function Modal({
 
   if (!aberto) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 sm:items-center">
-      <div role="dialog" aria-modal="true" aria-label={titulo} className={`w-full ${largo ? 'max-w-5xl' : 'max-w-lg'} rounded-lg bg-white shadow-xl`}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 sm:items-center">
+      <div role="dialog" aria-modal="true" aria-label={titulo} className={`w-full ${largo ? 'max-w-5xl' : 'max-w-lg'} rounded-xl bg-white shadow-2xl`}>
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h2 className="text-base font-semibold">{titulo}</h2>
+          <h2 className="text-lg font-bold">{titulo}</h2>
           <button type="button" onClick={aoFechar} className="rounded p-1 text-slate-500 hover:bg-slate-100" aria-label="Fechar">
             ✕
           </button>
@@ -89,10 +89,10 @@ export function Modal({
 
 export function Cabecalho({ titulo, descricao, acoes }: { titulo: string; descricao?: string; acoes?: ReactNode }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+    <div className="mb-7 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-xl font-semibold">{titulo}</h1>
-        {descricao && <p className="mt-1 text-sm text-slate-500">{descricao}</p>}
+        <h1 className="text-[1.75rem] leading-tight font-extrabold text-slate-900">{titulo}</h1>
+        {descricao && <p className="mt-1.5 max-w-[72ch] text-sm text-slate-500">{descricao}</p>}
       </div>
       {acoes}
     </div>
@@ -101,22 +101,22 @@ export function Cabecalho({ titulo, descricao, acoes }: { titulo: string; descri
 
 export function Selo({ cor, children }: { cor: 'verde' | 'amarelo' | 'vermelho' | 'cinza'; children: ReactNode }) {
   const cores = {
-    verde: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+    verde: 'bg-emerald-50 text-emerald-800 ring-emerald-700/25',
     amarelo: 'bg-amber-50 text-amber-800 ring-amber-600/20',
     vermelho: 'bg-red-50 text-red-700 ring-red-600/20',
     cinza: 'bg-slate-100 text-slate-600 ring-slate-500/20',
   };
-  return <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${cores[cor]}`}>{children}</span>;
+  return <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${cores[cor]}`}>{children}</span>;
 }
 
 export function Tabela({ colunas, children, vazio }: { colunas: string[]; children: ReactNode; vazio?: boolean }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
       <table className="min-w-full divide-y divide-slate-200 text-sm">
-        <thead className="bg-slate-50">
+        <thead className="border-b-2 border-slate-200">
           <tr>
             {colunas.map((c) => (
-              <th key={c} className="px-4 py-2.5 text-left font-medium text-slate-600">
+              <th key={c} className="px-4 py-3 text-left font-display text-[0.8rem] font-semibold text-slate-500">
                 {c}
               </th>
             ))}
