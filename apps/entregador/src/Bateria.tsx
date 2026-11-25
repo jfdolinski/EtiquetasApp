@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { Linking, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Linking, Platform, ScrollView, Text } from 'react-native';
 import { File, Paths } from 'expo-file-system';
 import { Botao, Cartao, cores, Texto, Titulo } from './ui';
 
@@ -45,7 +44,7 @@ export function GuiaBateria({ aoFechar }: { aoFechar: () => void }) {
   );
 }
 
-// "Já fiz" fica guardado no aparelho: o aviso do Início não volta.
+// "Já fiz" fica guardado no aparelho: a bateria sai das pendências da guia Avisos.
 const ARQUIVO = 'guia-bateria-visto.txt';
 const CHAVE_WEB = `flow.entregador.${ARQUIVO}`;
 
@@ -65,31 +64,4 @@ export function marcarGuiaVisto() {
   } catch {
     // Sem onde guardar: o aviso volta na próxima vez, sem problema.
   }
-}
-
-/** Aviso no Início até o entregador abrir o guia ou dizer que já fez. */
-export function AvisoBateria({ abrir }: { abrir: () => void }) {
-  const [visto, setVisto] = useState(true);
-  useEffect(() => void guiaJaVisto().then(setVisto), []);
-  if (visto) return null;
-  return (
-    <Cartao>
-      <Text style={{ fontWeight: '700', color: cores.texto }}>Deixe o app sempre ligado</Text>
-      <Texto suave>O celular pode fechar o app quando a tela desliga, e você deixa de receber ofertas.</Texto>
-      <View style={{ flexDirection: 'row', gap: 16, marginTop: 8 }}>
-        <Pressable accessibilityRole="button" onPress={abrir}>
-          <Text style={{ color: cores.azul, fontWeight: '600' }}>Ver como fazer</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            marcarGuiaVisto();
-            setVisto(true);
-          }}
-        >
-          <Text style={{ color: cores.suave }}>Já fiz</Text>
-        </Pressable>
-      </View>
-    </Cartao>
-  );
 }

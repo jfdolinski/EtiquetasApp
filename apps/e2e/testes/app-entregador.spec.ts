@@ -205,12 +205,20 @@ test('duas chamadas ao mesmo tempo, assinatura de quem recebe e o guia da bateri
   await page.getByRole('button', { name: 'Entrar' }).click();
   await expect(page.getByText('Você está online')).toBeVisible();
 
-  // Guia da bateria pelo aviso do Início.
+  // O Início fica só com o trabalho; o que falta ajustar está na guia Avisos, com o número na guia.
+  await expect(page.getByRole('button', { name: 'Ver como fazer' })).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Avisos (1)' }).click();
+  await expect(page.getByText('Falta 1 ajuste para o app funcionar direito.')).toBeVisible();
+  await expect(page.getByLabel('Localização: tudo certo')).toBeVisible();
+  await expect(page.getByLabel('Bateria: pendente')).toBeVisible();
+  await page.screenshot({ path: 'test-results/app-entregador-avisos.png' });
   await page.getByRole('button', { name: 'Ver como fazer' }).click();
   await expect(page.getByText('Deixar o app sempre ligado')).toBeVisible();
   await expect(page.getByText('Xiaomi, Redmi e Poco')).toBeVisible();
   await page.getByRole('button', { name: 'Pronto' }).click();
-  await expect(page.getByRole('button', { name: 'Ver como fazer' })).toHaveCount(0);
+  await expect(page.getByText('Tudo certo: nada pendente.')).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Avisos', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Início' }).click();
 
   const nova = async (destino: { lat: number; lon: number }, rua: string) =>
     (await pedir('POST', '/entregas/chamadas', { token: emp.adminToken, corpo: { tipo: 'ENTREGA', origem: { ...SE, endereco: 'Praça da Sé, 1, Sé, São Paulo', contato: '', telefone: '', instrucoes: '' }, destino: { ...destino, endereco: rua, contato: 'Dona Maria', telefone: '', instrucoes: '' }, serieEsperada: null, observacao: '' } })).j;

@@ -112,3 +112,17 @@ export async function pararRastreio(): Promise<void> {
   }
   if (await rastreando()) await Location.stopLocationUpdatesAsync(TAREFA_POSICAO).catch(() => undefined);
 }
+
+/** Como estão as permissões, sem pedir nada (para a guia Avisos). */
+export async function situacaoPermissoes(): Promise<ProblemaPermissao> {
+  try {
+    if (!(await Location.hasServicesEnabledAsync())) return 'GPS_DESLIGADO';
+    const frente = await Location.getForegroundPermissionsAsync();
+    if (frente.status !== 'granted') return 'NEGADA';
+    if (Platform.OS === 'web') return null;
+    const fundo = await Location.getBackgroundPermissionsAsync();
+    return fundo.status === 'granted' ? null : 'SEM_SEGUNDO_PLANO';
+  } catch {
+    return null;
+  }
+}

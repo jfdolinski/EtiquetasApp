@@ -1,11 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { PerfilEntregador, RespostaPosicao } from '../../../packages/shared/src/entregas';
 import type { Api } from './api';
 import { prepararNotificacoes } from './avisos';
 import { aoReceberResposta, enviarPosicao, iniciarRastreio, pararRastreio, pedirPermissoes, posicaoAtual, rastreando, type ProblemaPermissao } from './localizacao';
-import { AvisoBateria } from './Bateria';
-import { Alerta, Botao, Cartao, cores, Numero, Texto } from './ui';
+import { Alerta, Botao, cores, Numero } from './ui';
 
 const AVISO: Record<NonNullable<RespostaPosicao['aviso']>, string> = {
   SEM_CREDITO: 'Você ficou sem diárias. Compre créditos na guia Créditos para ficar online.',
@@ -19,7 +18,7 @@ const PERMISSAO: Record<NonNullable<ProblemaPermissao>, string> = {
   SEM_SEGUNDO_PLANO: 'Para continuar online com a tela apagada, permita a localização "o tempo todo" nas configurações do aplicativo.',
 };
 
-export function TelaInicio({ api, perfil, aoMudar, irParaCreditos, oferta, abrirGuia }: { api: Api; perfil: PerfilEntregador; aoMudar: (p: PerfilEntregador) => void; irParaCreditos: () => void; oferta?: ReactNode; abrirGuia?: () => void }) {
+export function TelaInicio({ api, perfil, aoMudar, irParaCreditos, oferta, irParaAvisos }: { api: Api; perfil: PerfilEntregador; aoMudar: (p: PerfilEntregador) => void; irParaCreditos: () => void; oferta?: ReactNode; irParaAvisos?: () => void }) {
   const [ocupado, setOcupado] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [permissao, setPermissao] = useState<ProblemaPermissao>(null);
@@ -98,12 +97,12 @@ export function TelaInicio({ api, perfil, aoMudar, irParaCreditos, oferta, abrir
       </View>
 
       {oferta}
-      {abrirGuia && perfil.online && <AvisoBateria abrir={abrirGuia} />}
       {aviso && <Alerta tipo="aviso">{aviso}</Alerta>}
+      {/* Só o recado curto: o ajuste em si fica na guia Avisos. */}
       {permissao && <Alerta tipo="aviso">{PERMISSAO[permissao]}</Alerta>}
-      {permissao && Platform.OS !== 'web' && (
+      {permissao && irParaAvisos && (
         <View style={{ marginBottom: 12 }}>
-          <Botao titulo="Abrir configurações do aplicativo" variante="secundario" onPress={() => void Linking.openSettings()} />
+          <Botao titulo="Ver em Avisos" variante="secundario" onPress={irParaAvisos} />
         </View>
       )}
 
@@ -123,11 +122,6 @@ export function TelaInicio({ api, perfil, aoMudar, irParaCreditos, oferta, abrir
         <Numero rotulo="Diária de hoje" valor={perfil.diariaHoje ? 'Paga' : 'Não usada'} detalhe={perfil.diariaHoje ? 'Fique online à vontade hoje.' : 'É descontada ao ficar online.'} />
       </View>
 
-      <Cartao>
-        <Text style={estilos.dicaTitulo}>Para não cair do mapa</Text>
-        <Texto suave>Alguns celulares (Xiaomi, Samsung, Motorola) fecham aplicativos em segundo plano para economizar bateria. Nas configurações do Flow Entregas, deixe a bateria "sem restrições" e a localização "permitir o tempo todo".</Texto>
-        {Platform.OS !== 'web' && <Botao titulo="Abrir configurações do aplicativo" variante="secundario" onPress={() => void Linking.openSettings()} />}
-      </Cartao>
     </ScrollView>
   );
 }
@@ -137,5 +131,4 @@ const estilos = StyleSheet.create({
   statusTitulo: { fontSize: 22, fontWeight: '800' },
   envio: { fontSize: 12, color: cores.suave, marginTop: 4 },
   numeros: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginVertical: 16 },
-  dicaTitulo: { fontSize: 15, fontWeight: '700', color: cores.texto, marginBottom: 6 },
 });

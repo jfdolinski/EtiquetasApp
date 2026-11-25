@@ -44,3 +44,13 @@ export async function avisarOferta(o: OfertaResumo): Promise<void> {
     trigger: Platform.OS === 'android' ? { channelId: CANAL } : null,
   });
 }
+
+/** Notificações liberadas? No navegador não se aplica (nulo). */
+export async function notificacoesPermitidas(): Promise<boolean | null> {
+  if (Platform.OS === 'web') return null;
+  try {
+    return (await Notifications.getPermissionsAsync()).granted;
+  } catch {
+    return null;
+  }
+}

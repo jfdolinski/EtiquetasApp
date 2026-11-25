@@ -6,7 +6,7 @@ import type { Api } from './api';
 import { formatarCelular, ROTULO_DOCUMENTO, ROTULO_SITUACAO_ENTREGADOR, ROTULO_VEICULO } from './regras';
 import { Alerta, Botao, Campo, Cartao, cores, Texto } from './ui';
 
-export function TelaPerfil({ api, perfil, aoMudar, sair, versao, abrirGuia }: { api: Api; perfil: PerfilEntregador; aoMudar: (p: PerfilEntregador) => void; sair: () => void; versao: string; abrirGuia?: () => void }) {
+export function TelaPerfil({ api, perfil, aoMudar, sair, versao }: { api: Api; perfil: PerfilEntregador; aoMudar: (p: PerfilEntregador) => void; sair: () => void; versao: string }) {
   const [celular, setCelular] = useState(formatarCelular(perfil.celular));
   const [chavePix, setChavePix] = useState(perfil.chavePix);
   const [erro, setErro] = useState<string | null>(null);
@@ -53,7 +53,6 @@ export function TelaPerfil({ api, perfil, aoMudar, sair, versao, abrirGuia }: { 
       {salvo && <Alerta tipo="ok">Dados salvos.</Alerta>}
       <View style={{ gap: 10 }}>
         <Botao titulo="Salvar" onPress={() => void salvar()} ocupado={ocupado} />
-        {abrirGuia && <Botao titulo="Bateria: deixar o app sempre ligado" variante="secundario" onPress={abrirGuia} />}
         <Botao titulo="Sair" variante="perigo" onPress={sair} />
       </View>
       <Texto suave>Para trocar o veículo ou um documento depois da aprovação, fale com o suporte.</Texto>

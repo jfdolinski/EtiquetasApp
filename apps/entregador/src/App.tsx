@@ -8,6 +8,7 @@ import { apagarSessao, clienteDa, ErroApi, gravarSessao, lerSessao, versaoDoApp,
 import { aoReceberResposta, pararRastreio } from './localizacao';
 import { CartaoOferta, TelaChamada } from './TelaChamada';
 import { GuiaBateria, marcarGuiaVisto } from './Bateria';
+import { pendencias, TelaAvisos, useSituacaoDoCelular } from './TelaAvisos';
 import { TelaGanhos } from './TelaGanhos';
 import { versaoMaisNova } from './regras';
 import { TelaCreditos } from './TelaCreditos';
@@ -18,7 +19,7 @@ import { TelaPerfil } from './TelaPerfil';
 import { enviarGuardadas, etapasGuardadas } from './fila';
 import { Alerta, Botao, cores } from './ui';
 
-type Aba = 'inicio' | 'ganhos' | 'creditos' | 'perfil';
+type Aba = 'inicio' | 'avisos' | 'ganhos' | 'creditos' | 'perfil';
 const INTERVALO_TRABALHO_MS = 5_000;
 
 export function App() {
@@ -100,6 +101,8 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
   const [escolhida, setEscolhida] = useState<string | null>(null);
   const chamada = chamadas.find((c) => c.id === escolhida) ?? chamadas[0] ?? null;
   const [guia, setGuia] = useState(false);
+  // Permissões, bateria, versão nova e diárias: tudo na guia Avisos, com o número de pendências na guia.
+  const [situacao, conferirSituacao] = useSituacaoDoCelular();
   /** Troca a chamada que mudou na lista; terminada ou cancelada sai dela. */
   const atualizarChamada = useCallback((id: string, c: ChamadaEntregador | null) => {
     setChamadas((l) => {
@@ -178,16 +181,18 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
   }
 
   const ofertaValida = oferta && new Date(oferta.expiraEm).getTime() > Date.now() ? oferta : null;
+  const baixarVersao = () => void Linking.openURL(`${sessao.servidor}/downloads/flow-entregas.apk`);
+  const pendentes = pendencias(situacao, perfil, versaoNova).length;
   const abas: { id: Aba; rotulo: string }[] = [
     { id: 'inicio', rotulo: chamadas.length > 1 ? `Chamadas (${chamadas.length})` : chamada ? 'Chamada' : 'Início' },
     { id: 'ganhos', rotulo: 'Extrato' },
     { id: 'creditos', rotulo: 'Créditos' },
+    { id: 'avisos', rotulo: pendentes ? `Avisos (${pendentes})` : 'Avisos' },
     { id: 'perfil', rotulo: 'Perfil' },
   ];
 
   return (
     <View style={{ flex: 1, backgroundColor: cores.fundo }}>
-      {aviso}
       {avisoFila}
       {erro && (
         <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
@@ -200,6 +205,7 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
             aoFechar={() => {
               marcarGuiaVisto();
               setGuia(false);
+              conferirSituacao();
             }}
           />
         ) : null}
@@ -228,13 +234,14 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
               perfil={perfil}
               aoMudar={setPerfil}
               irParaCreditos={() => setAba('creditos')}
-              abrirGuia={() => setGuia(true)}
+              irParaAvisos={() => setAba('avisos')}
               oferta={ofertaValida ? <CartaoOferta key={ofertaValida.id} api={api} oferta={ofertaValida} aoResponder={(c) => { setOferta(null); if (c) atualizarChamada(c.id, c); }} /> : null}
             />
           ))}
         {!guia && aba === 'ganhos' && <TelaGanhos api={api} servidor={sessao.servidor} />}
         {!guia && aba === 'creditos' && <TelaCreditos api={api} aoMudarSaldo={mudarSaldo} />}
-        {!guia && aba === 'perfil' && <TelaPerfil api={api} perfil={perfil} aoMudar={setPerfil} sair={() => void sair()} versao={versaoDoApp()} abrirGuia={() => setGuia(true)} />}
+        {!guia && aba === 'avisos' && <TelaAvisos situacao={situacao} conferir={conferirSituacao} perfil={perfil} versaoNova={versaoNova} baixarVersao={baixarVersao} abrirGuia={() => setGuia(true)} irParaCreditos={() => setAba('creditos')} />}
+        {!guia && aba === 'perfil' && <TelaPerfil api={api} perfil={perfil} aoMudar={setPerfil} sair={() => void sair()} versao={versaoDoApp()} />}
       </View>
       <View style={estilos.guias} accessibilityRole="tablist">
         {abas.map((a) => (
