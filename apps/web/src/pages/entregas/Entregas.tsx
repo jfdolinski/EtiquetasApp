@@ -28,10 +28,11 @@ import { EntregadoresDaEmpresa } from './EntregadoresDaEmpresa';
 import { Financeiro } from './Financeiro';
 import { Maquinas } from './Maquinas';
 import { PedidosErp } from './PedidosErp';
+import { Relatorio } from './Relatorio';
 import { TabelaPrecosEditor } from './TabelaPrecosEditor';
 import { MapaEntregadores } from './MapaEntregadores';
 
-type Aba = 'chamadas' | 'pedidos-erp' | 'mapa' | 'demanda' | 'maquinas' | 'entregadores' | 'financeiro' | 'direcionamento' | 'configuracao';
+type Aba = 'chamadas' | 'pedidos-erp' | 'relatorio' | 'mapa' | 'demanda' | 'maquinas' | 'entregadores' | 'financeiro' | 'direcionamento' | 'configuracao';
 type RespostaConfig = { config: ConfigEntregasEmpresa; mapa: ConfigMapa };
 
 const ATUALIZAR_MS = 20_000;
@@ -44,6 +45,7 @@ export function Entregas() {
     { id: 'pedidos-erp', rotulo: 'Pedidos do ERP' },
     { id: 'mapa', rotulo: 'Mapa' },
     { id: 'demanda', rotulo: 'Demanda' },
+    { id: 'relatorio', rotulo: 'Relatório' },
     { id: 'maquinas', rotulo: 'Máquinas' },
     { id: 'entregadores', rotulo: 'Entregadores' },
     ...(pode('entrega.financeiro') ? [{ id: 'financeiro' as const, rotulo: 'Financeiro' }] : []),
@@ -81,6 +83,7 @@ export function Entregas() {
       {config.data && aba === 'mapa' && <PainelMapa mapa={config.data.mapa} configurar={pode('entrega.configurar') ? () => setAba('configuracao') : null} />}
       {config.data && aba === 'demanda' && <Demanda mapa={config.data.mapa} />}
       {aba === 'maquinas' && <Maquinas />}
+      {aba === 'relatorio' && <Relatorio />}
       {aba === 'entregadores' && <EntregadoresDaEmpresa />}
       {aba === 'financeiro' && <Financeiro />}
       {config.data && aba === 'direcionamento' && <Direcionamento inicial={config.data.config} mapa={config.data.mapa} />}

@@ -29,6 +29,8 @@ async function cenario() {
   expect(cfg.j.fotos).toEqual({ coleta: true, entrega: false });
   const nome = `Edu${randomUUID().slice(0, 4)}`;
   const ent = await entregadorOnline(tokenSuper, deslocar(C, 300), `${nome} Teste`);
+  // Leva máquina: aceita o termo de custódia (etapa 12).
+  await pedir('POST', '/entregador/termo-custodia', { token: ent.token });
   return { tokenSuper, emp, t, C, D, nome, ent };
 }
 

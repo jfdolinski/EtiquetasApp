@@ -22,6 +22,7 @@ function montar(chamada: Record<string, unknown>) {
     $executeRaw: jest.fn(async () => 1),
   };
   const prisma = {
+    mensagemChamadaEntrega: { count: jest.fn(async () => 0) },
     $transaction: jest.fn(async (f: (t: typeof tx) => unknown) => f(tx)),
     chamadaEntrega: { findFirst: jest.fn(async () => ({ ...c, empresa: { nomeFantasia: 'Loja', razaoSocial: 'Loja' }, ocorrencia: null, aceitaEm: null, concluidaEm: null, serieColetada: null, observacao: '', numero: 1, metros: 3000, estimada: true, valorCentavos: 800 })), update: jest.fn(async () => ({})), findUnique: jest.fn(async () => ({ pedidoId: null })) },
   };

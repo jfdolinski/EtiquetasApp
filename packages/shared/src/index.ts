@@ -32,3 +32,4 @@ export * from './entregas-operacao';
 export * from './entregas-servico';
 export * from './entregas-erp';
 export * from './entregas-comprovacao';
+export * from './entregas-balcao';

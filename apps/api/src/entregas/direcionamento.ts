@@ -30,6 +30,9 @@ import {
   SEGUNDOS_POSICAO_VALIDA,
   SITUACOES_EM_ANDAMENTO,
   podePegarOutra,
+  exigeTermoCustodia,
+  inicioDaDistribuicao,
+  VERSAO_TERMO_CUSTODIA,
   SITUACOES_FINAIS,
   textoDoMotivo,
   TIPOS_CHAMADA,
@@ -48,6 +51,7 @@ import { Prisma } from '@prisma/client';
 import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { config } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import { EntregasEmpresaService } from './empresa';
 
@@ -128,9 +132,13 @@ export class DirecionamentoService implements OnApplicationBootstrap, OnModuleDe
   async candidatos(empresaId: string, origem: Ponto, raioMaxKm: number, chamadaId: string | null, tx: Cliente = this.prisma, agora = new Date()): Promise<CandidatoDirecionamento[]> {
     const dLat = raioMaxKm / KM_POR_GRAU_LAT;
     const dLon = raioMaxKm / (KM_POR_GRAU_LAT * Math.max(0.01, Math.cos((origem.lat * Math.PI) / 180)));
+    // Chamada de máquina: só quem aceitou o termo de custódia vigente.
+    const daChamada = chamadaId ? await tx.chamadaEntrega.findUnique({ where: { id: chamadaId }, select: { tipo: true, serieEsperada: true } }) : null;
+    const exigeTermo = !!daChamada && exigeTermoCustodia(daChamada.tipo as TipoChamada, daChamada.serieEsperada);
     let lista = await tx.entregador.findMany({
       where: {
         situacao: 'APROVADO',
+        ...(exigeTermo ? { termoCustodiaVersao: { gte: VERSAO_TERMO_CUSTODIA } } : {}),
         online: true,
         posicaoEm: { gte: new Date(agora.getTime() - SEGUNDOS_POSICAO_VALIDA * 1000) },
         lat: { gte: origem.lat - dLat, lte: origem.lat + dLat },
@@ -203,14 +211,19 @@ export class DirecionamentoService implements OnApplicationBootstrap, OnModuleDe
 
   /** Liga (ou religa do começo) a distribuição de uma chamada aberta e já faz a primeira oferta. */
   async ligar(empresaId: string, chamadaId: string, autorId: string | null): Promise<void> {
+    const agora = new Date();
+    const atual = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, empresaId }, select: { agendadaPara: true } });
+    // Agendada: a distribuição só começa um pouco antes da hora da coleta.
+    const inicio = atual?.agendadaPara ? new Date(Math.max(agora.getTime(), inicioDaDistribuicao(atual.agendadaPara).getTime())) : agora;
     const { count } = await this.prisma.chamadaEntrega.updateMany({
       where: { id: chamadaId, empresaId, situacao: 'ABERTA' },
-      data: { distribuicaoAtiva: true, rodada: 0, tentativas: 0, proximaTentativaEm: new Date(), semEntregadorEm: null },
+      data: { distribuicaoAtiva: true, rodada: 0, tentativas: 0, proximaTentativaEm: inicio, semEntregadorEm: null },
     });
     if (!count) throw new ConflictException('A chamada não está aguardando entregador.');
-    await this.registrar(chamadaId, evento('Distribuição automática ligada.'));
+    const hora = new Intl.DateTimeFormat('pt-BR', { timeZone: config().fusoHorario, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(inicio);
+    await this.registrar(chamadaId, evento(inicio > agora ? `Distribuição automática ligada: começa em ${hora}.` : 'Distribuição automática ligada.'));
     if (autorId) await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.chamada.distribuir', entidade: 'ChamadaEntrega', entidadeId: chamadaId });
-    await this.passo(chamadaId);
+    if (inicio <= agora) await this.passo(chamadaId);
   }
 
   async parar(empresaId: string, chamadaId: string, autorId: string): Promise<void> {
@@ -253,9 +266,14 @@ export class DirecionamentoService implements OnApplicationBootstrap, OnModuleDe
   async passo(chamadaId: string, agora = new Date()): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       // Prende a chamada: relógio e aceite não andam juntos sobre ela.
-      const [c] = await tx.$queryRaw<{ empresa_id: string; situacao: string; tipo: string; origem: ParadaChamada; distribuicao_ativa: boolean; rodada: number; tentativas: number; sem_entregador_em: Date | null }[]>`
-        SELECT empresa_id, situacao, tipo, origem, distribuicao_ativa, rodada, tentativas, sem_entregador_em FROM chamadas_entrega WHERE id = ${chamadaId}::uuid FOR UPDATE`;
+      const [c] = await tx.$queryRaw<{ empresa_id: string; situacao: string; tipo: string; origem: ParadaChamada; distribuicao_ativa: boolean; rodada: number; tentativas: number; sem_entregador_em: Date | null; agendada_para: Date | null }[]>`
+        SELECT empresa_id, situacao, tipo, origem, distribuicao_ativa, rodada, tentativas, sem_entregador_em, agendada_para FROM chamadas_entrega WHERE id = ${chamadaId}::uuid FOR UPDATE`;
       if (!c || c.situacao !== 'ABERTA' || !c.distribuicao_ativa) return;
+      // Agendada (inclusive reaberta antes da hora): espera o início da distribuição.
+      if (c.agendada_para && agora < inicioDaDistribuicao(c.agendada_para)) {
+        await tx.chamadaEntrega.update({ where: { id: chamadaId }, data: { proximaTentativaEm: inicioDaDistribuicao(c.agendada_para) } });
+        return;
+      }
       if (await tx.ofertaChamada.count({ where: { chamadaId, resultado: 'PENDENTE' } })) return;
       const cfg = await this.empresas.config(c.empresa_id);
       const regras = cfg.direcionamento;

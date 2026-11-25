@@ -19,6 +19,8 @@ test('API: abrir, oferecer, recusar, aceitar, etapas com série e código, ocorr
   await pedir('PUT', '/entregadores/parametros', { token: tokenSuper, corpo: { pixChave: 'pix@flow.e2e', pixNome: 'Flow', pixCidade: 'São Paulo', diariasBonusCadastro: 0, validadeBonusDias: 30 } });
   const emp = await empresaComBase(tokenSuper);
   const ent = await entregadorOnline(tokenSuper);
+  // Leva máquina: aceita o termo de custódia (etapa 12).
+  await pedir('POST', '/entregador/termo-custodia', { token: ent.token });
 
   const nova = { tipo: 'ENTREGA', origem: parada(SE, 'Praça da Sé, 1, Sé, São Paulo'), destino: parada(PAULISTA, 'Avenida Paulista, 1578, Bela Vista, São Paulo', { contato: 'Dona Maria', telefone: '11912345678' }), serieEsperada: null, observacao: 'Frágil' };
   const previa = await pedir('POST', '/entregas/chamadas/previa', { token: emp.adminToken, corpo: nova });

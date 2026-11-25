@@ -8,6 +8,7 @@ import { apagarSessao, clienteDa, ErroApi, gravarSessao, lerSessao, versaoDoApp,
 import { aoReceberResposta, pararRastreio } from './localizacao';
 import { CartaoOferta, TelaChamada } from './TelaChamada';
 import { GuiaBateria, marcarGuiaVisto } from './Bateria';
+import { PegarNoBalcao, TermoCustodia } from './Balcao';
 import { pendencias, TelaAvisos, useSituacaoDoCelular } from './TelaAvisos';
 import { TelaGanhos } from './TelaGanhos';
 import { versaoMaisNova } from './regras';
@@ -105,6 +106,7 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
   const [escolhida, setEscolhida] = useState<string | null>(null);
   const chamada = chamadas.find((c) => c.id === escolhida) ?? chamadas[0] ?? null;
   const [guia, setGuia] = useState(false);
+  const [termo, setTermo] = useState(false);
   // Permissões, bateria, versão nova e diárias: tudo na guia Avisos, com o número de pendências na guia.
   const [situacao, conferirSituacao] = useSituacaoDoCelular();
   /** Troca a chamada que mudou na lista; terminada ou cancelada sai dela. */
@@ -204,7 +206,17 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
         </View>
       )}
       <View style={{ flex: 1 }}>
-        {guia ? (
+        {termo && (
+          <TermoCustodia
+            api={api}
+            aoFechar={() => setTermo(false)}
+            aoAceitar={() => {
+              setTermo(false);
+              void recarregar();
+            }}
+          />
+        )}
+        {!termo && guia ? (
           <GuiaBateria
             aoFechar={() => {
               marcarGuiaVisto();
@@ -213,7 +225,7 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
             }}
           />
         ) : null}
-        {!guia && aba === 'inicio' &&
+        {!guia && !termo && aba === 'inicio' &&
           (chamada ? (
             <View style={{ flex: 1 }}>
               {ofertaValida && (
@@ -230,6 +242,9 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
                   ))}
                 </View>
               )}
+              <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
+                <PegarNoBalcao api={api} aoPegar={(c) => { atualizarChamada(c.id, c); setEscolhida(c.id); }} />
+              </View>
               <TelaChamada key={chamada.id} api={api} chamada={chamada} aoMudar={(c) => atualizarChamada(chamada.id, c)} />
             </View>
           ) : (
@@ -239,13 +254,14 @@ function Principal({ sessao, perfilInicial, encerrar }: { sessao: Sessao; perfil
               aoMudar={setPerfil}
               irParaCreditos={() => setAba('creditos')}
               irParaAvisos={() => setAba('avisos')}
+              aoPegar={(c) => { atualizarChamada(c.id, c); setEscolhida(c.id); }}
               oferta={ofertaValida ? <CartaoOferta key={ofertaValida.id} api={api} oferta={ofertaValida} aoResponder={(c) => { setOferta(null); if (c) atualizarChamada(c.id, c); }} /> : null}
             />
           ))}
-        {!guia && aba === 'ganhos' && <TelaGanhos api={api} servidor={sessao.servidor} />}
-        {!guia && aba === 'creditos' && <TelaCreditos api={api} aoMudarSaldo={mudarSaldo} />}
-        {!guia && aba === 'avisos' && <TelaAvisos situacao={situacao} conferir={conferirSituacao} perfil={perfil} versaoNova={versaoNova} baixarVersao={baixarVersao} abrirGuia={() => setGuia(true)} irParaCreditos={() => setAba('creditos')} />}
-        {!guia && aba === 'perfil' && <TelaPerfil api={api} perfil={perfil} aoMudar={setPerfil} sair={() => void sair()} versao={versaoDoApp()} />}
+        {!guia && !termo && aba === 'ganhos' && <TelaGanhos api={api} servidor={sessao.servidor} />}
+        {!guia && !termo && aba === 'creditos' && <TelaCreditos api={api} aoMudarSaldo={mudarSaldo} />}
+        {!guia && !termo && aba === 'avisos' && <TelaAvisos situacao={situacao} conferir={conferirSituacao} perfil={perfil} versaoNova={versaoNova} baixarVersao={baixarVersao} abrirGuia={() => setGuia(true)} irParaCreditos={() => setAba('creditos')} abrirTermo={() => setTermo(true)} />}
+        {!guia && !termo && aba === 'perfil' && <TelaPerfil api={api} perfil={perfil} aoMudar={setPerfil} sair={() => void sair()} versao={versaoDoApp()} />}
       </View>
       <View style={estilos.guias} accessibilityRole="tablist">
         {abas.map((a) => (

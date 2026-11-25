@@ -1267,35 +1267,38 @@ model Pedido {
 
 /// Entregador: cadastro da plataforma (sem empresa_id), atende várias empresas.
 model Entregador {
-  id                String    @id @default(uuid()) @db.Uuid
-  nome              String
-  cpf               String    @unique
-  email             String    @unique
-  celular           String
-  senhaHash         String    @map("senha_hash")
+  id                  String    @id @default(uuid()) @db.Uuid
+  nome                String
+  cpf                 String    @unique
+  email               String    @unique
+  celular             String
+  senhaHash           String    @map("senha_hash")
   /// Senhas erradas seguidas e até quando a conta não aceita senha (bloqueio por conta).
-  senhaFalhas       Int       @default(0) @map("senha_falhas")
-  senhaBloqueadaAte DateTime? @map("senha_bloqueada_ate")
-  veiculo           String
-  placa             String?
-  chavePix          String    @map("chave_pix")
+  senhaFalhas         Int       @default(0) @map("senha_falhas")
+  senhaBloqueadaAte   DateTime? @map("senha_bloqueada_ate")
+  /// Termo de custódia de máquinas: versão aceita e quando (sem a versão atual, não recebe chamada de máquina).
+  termoCustodiaVersao Int?      @map("termo_custodia_versao")
+  termoCustodiaEm     DateTime? @map("termo_custodia_em")
+  veiculo             String
+  placa               String?
+  chavePix            String    @map("chave_pix")
   /// PENDENTE, APROVADO, RECUSADO ou SUSPENSO.
-  situacao          String    @default("PENDENTE")
-  motivo            String?
-  decididoEm        DateTime? @map("decidido_em")
-  termosVersao      Int       @map("termos_versao")
-  termosAceitosEm   DateTime  @map("termos_aceitos_em")
-  online            Boolean   @default(false)
-  onlineDesde       DateTime? @map("online_desde")
-  lat               Float?
-  lon               Float?
-  precisaoMetros    Float?    @map("precisao_metros")
-  posicaoEm         DateTime? @map("posicao_em")
+  situacao            String    @default("PENDENTE")
+  motivo              String?
+  decididoEm          DateTime? @map("decidido_em")
+  termosVersao        Int       @map("termos_versao")
+  termosAceitosEm     DateTime  @map("termos_aceitos_em")
+  online              Boolean   @default(false)
+  onlineDesde         DateTime? @map("online_desde")
+  lat                 Float?
+  lon                 Float?
+  precisaoMetros      Float?    @map("precisao_metros")
+  posicaoEm           DateTime? @map("posicao_em")
   /// Último aviso do app (posição ou recusa): sem ele por 10 min, fica offline.
-  avisoEm           DateTime? @map("aviso_em")
-  versaoApp         String?   @map("versao_app")
-  criadoEm          DateTime  @default(now()) @map("criado_em")
-  atualizadoEm      DateTime  @updatedAt @map("atualizado_em")
+  avisoEm             DateTime? @map("aviso_em")
+  versaoApp           String?   @map("versao_app")
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+  atualizadoEm        DateTime  @updatedAt @map("atualizado_em")
 
   sessoes      SessaoEntregador[]
   documentos   DocumentoEntregador[]
@@ -1482,92 +1485,104 @@ model CacheGeocodificacao {
 
 /// Chamada de coleta, entrega ou devolução de máquina, aberta pela empresa.
 model ChamadaEntrega {
-  id                      String    @id @default(uuid()) @db.Uuid
-  empresaId               String    @map("empresa_id") @db.Uuid
-  numero                  Int
-  tipo                    String
+  id                         String    @id @default(uuid()) @db.Uuid
+  empresaId                  String    @map("empresa_id") @db.Uuid
+  numero                     Int
+  tipo                       String
   /// ABERTA, ACEITA, NA_COLETA, COLETADA, NO_DESTINO, CONCLUIDA, OCORRENCIA ou CANCELADA.
-  situacao                String    @default("ABERTA")
+  situacao                   String    @default("ABERTA")
   /// ParadaChamada: endereço, ponto, contato, telefone, instruções.
-  origem                  Json
-  destino                 Json
-  metros                  Int
-  segundos                Int
-  estimada                Boolean
-  valorCentavos           Int       @map("valor_centavos")
-  serieEsperada           String?   @map("serie_esperada")
-  serieColetada           String?   @map("serie_coletada")
-  observacao              String    @default("")
-  codigoConfirmacao       String    @map("codigo_confirmacao")
-  tentativasCodigo        Int       @default(0) @map("tentativas_codigo")
-  entregadorId            String?   @map("entregador_id") @db.Uuid
-  aceitaEm                DateTime? @map("aceita_em")
-  concluidaEm             DateTime? @map("concluida_em")
-  canceladaEm             DateTime? @map("cancelada_em")
+  origem                     Json
+  destino                    Json
+  metros                     Int
+  segundos                   Int
+  estimada                   Boolean
+  valorCentavos              Int       @map("valor_centavos")
+  serieEsperada              String?   @map("serie_esperada")
+  serieColetada              String?   @map("serie_coletada")
+  observacao                 String    @default("")
+  codigoConfirmacao          String    @map("codigo_confirmacao")
+  tentativasCodigo           Int       @default(0) @map("tentativas_codigo")
+  entregadorId               String?   @map("entregador_id") @db.Uuid
+  aceitaEm                   DateTime? @map("aceita_em")
+  concluidaEm                DateTime? @map("concluida_em")
+  canceladaEm                DateTime? @map("cancelada_em")
   /// { motivo, texto, em, situacaoAnterior }
-  ocorrencia              Json?
-  historico               Json      @default("[]")
+  ocorrencia                 Json?
+  historico                  Json      @default("[]")
   /// Distribuição automática: rodada (raio cresce), ofertas na rodada e quando tentar de novo.
-  distribuicaoAtiva       Boolean   @default(false) @map("distribuicao_ativa")
-  rodada                  Int       @default(0)
-  tentativas              Int       @default(0)
-  proximaTentativaEm      DateTime? @map("proxima_tentativa_em")
-  semEntregadorEm         DateTime? @map("sem_entregador_em")
+  distribuicaoAtiva          Boolean   @default(false) @map("distribuicao_ativa")
+  rodada                     Int       @default(0)
+  tentativas                 Int       @default(0)
+  proximaTentativaEm         DateTime? @map("proxima_tentativa_em")
+  semEntregadorEm            DateTime? @map("sem_entregador_em")
   /// Pedido do Flow que esta chamada entrega (opcional).
-  pedidoId                String?   @map("pedido_id") @db.Uuid
+  pedidoId                   String?   @map("pedido_id") @db.Uuid
   /// Somado depois de concluída (espera, volta), com o motivo; entra no que a empresa deve.
-  extraCentavos           Int       @default(0) @map("extra_centavos")
-  extraMotivo             String    @default("") @map("extra_motivo")
+  extraCentavos              Int       @default(0) @map("extra_centavos")
+  extraMotivo                String    @default("") @map("extra_motivo")
   /// Preenchido quando a empresa registra o pagamento (fechamento).
-  fechamentoId            String?   @map("fechamento_id") @db.Uuid
-  avaliacaoNota           Int?      @map("avaliacao_nota")
+  fechamentoId               String?   @map("fechamento_id") @db.Uuid
+  avaliacaoNota              Int?      @map("avaliacao_nota")
   /// Só a empresa vê.
-  avaliacaoComentario     String    @default("") @map("avaliacao_comentario")
-  avaliadaEm              DateTime? @map("avaliada_em")
+  avaliacaoComentario        String    @default("") @map("avaliacao_comentario")
+  avaliadaEm                 DateTime? @map("avaliada_em")
   /// Link público do destinatário (/rastreio/<codigo>): o código só em hash (busca) e cifrado (a empresa manda de novo).
-  rastreioHash            String?   @unique @map("rastreio_hash")
-  rastreioCifrado         String?   @map("rastreio_cifrado")
+  rastreioHash               String?   @unique @map("rastreio_hash")
+  rastreioCifrado            String?   @map("rastreio_cifrado")
   /// EmergenciaChamada (shared): o entregador pediu ajuda; a empresa marca como ciente.
-  emergencia              Json?
+  emergencia                 Json?
   /// Várias paradas: 0 = destino principal; 1… = paradas_chamada.ordem.
-  paradaAtual             Int       @default(0) @map("parada_atual")
+  paradaAtual                Int       @default(0) @map("parada_atual")
   /// Etapa 8: fotos obrigatórias copiadas da configuração ao abrir; quando coletou; cancelada com taxa paga.
-  fotoColeta              Boolean   @default(false) @map("foto_coleta")
-  fotoEntrega             Boolean   @default(false) @map("foto_entrega")
-  coletadaEm              DateTime? @map("coletada_em")
-  cancelamentoPago        Boolean   @default(false) @map("cancelamento_pago")
+  fotoColeta                 Boolean   @default(false) @map("foto_coleta")
+  fotoEntrega                Boolean   @default(false) @map("foto_entrega")
+  coletadaEm                 DateTime? @map("coletada_em")
+  cancelamentoPago           Boolean   @default(false) @map("cancelamento_pago")
   /// AdicionalAplicado[] (shared) que entraram no valor.
-  adicionais              Json      @default("[]")
+  adicionais                 Json      @default("[]")
   /// Etapa 10: chegada no ponto atual (a espera conta daí) e a regra da espera copiada da tabela ao abrir.
-  chegouNoPontoEm         DateTime? @map("chegou_no_ponto_em")
-  esperaToleranciaMinutos Int       @default(10) @map("espera_tolerancia_minutos")
-  esperaPorBlocoCentavos  Int       @default(0) @map("espera_por_bloco_centavos")
+  chegouNoPontoEm            DateTime? @map("chegou_no_ponto_em")
+  esperaToleranciaMinutos    Int       @default(10) @map("espera_tolerancia_minutos")
+  esperaPorBlocoCentavos     Int       @default(0) @map("espera_por_bloco_centavos")
   /// Espera cobrada, já somada ao valor.
-  esperaMinutos           Int       @default(0) @map("espera_minutos")
-  esperaCentavos          Int       @default(0) @map("espera_centavos")
+  esperaMinutos              Int       @default(0) @map("espera_minutos")
+  esperaCentavos             Int       @default(0) @map("espera_centavos")
   /// DevolucaoChamada (shared): voltou à origem; o trecho já está somado ao valor.
-  devolucao               Json?
+  devolucao                  Json?
   /// Na devolução, a empresa passa esse código ao entregador quando recebe de volta.
-  codigoDevolucao         String?   @map("codigo_devolucao")
+  codigoDevolucao            String?   @map("codigo_devolucao")
   /// ChecklistsDaChamada (shared): maquininha na coleta e na entrega.
-  checklists              Json      @default("{}")
+  checklists                 Json      @default("{}")
   /// Número do pedido no ERP, quando a chamada veio de lá.
-  pedidoErp               String?   @map("pedido_erp")
+  pedidoErp                  String?   @map("pedido_erp")
   /// Etapa 11: assinatura de quem recebe (copiada da configuração ao abrir).
-  assinatura              String    @default("NAO")
-  criadoPorId             String?   @map("criado_por_id") @db.Uuid
-  criadoEm                DateTime  @default(now()) @map("criado_em")
-  atualizadoEm            DateTime  @updatedAt @map("atualizado_em")
+  assinatura                 String    @default("NAO")
+  /// Etapa 12: código da etiqueta de coleta (único na plataforma: o entregador lê no balcão de qualquer empresa).
+  codigoColeta               String?   @unique @map("codigo_coleta")
+  etiquetaImpressaEm         DateTime? @map("etiqueta_impressa_em")
+  etiquetaLidaEm             DateTime? @map("etiqueta_lida_em")
+  volumes                    Int?
+  volumesEntregues           Int?      @map("volumes_entregues")
+  /// Coleta agendada: a distribuição começa MINUTOS_ANTES_DA_AGENDADA antes.
+  agendadaPara               DateTime? @map("agendada_para")
+  /// Até quando cada lado leu a conversa (as não lidas são as do outro lado depois disso).
+  mensagensLidasEmpresaEm    DateTime? @map("mensagens_lidas_empresa_em")
+  mensagensLidasEntregadorEm DateTime? @map("mensagens_lidas_entregador_em")
+  criadoPorId                String?   @map("criado_por_id") @db.Uuid
+  criadoEm                   DateTime  @default(now()) @map("criado_em")
+  atualizadoEm               DateTime  @updatedAt @map("atualizado_em")
 
-  empresa      Empresa              @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  entregador   Entregador?          @relation(fields: [entregadorId], references: [id], onDelete: SetNull)
+  empresa      Empresa                  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  entregador   Entregador?              @relation(fields: [entregadorId], references: [id], onDelete: SetNull)
   ofertas      OfertaChamada[]
   fotos        FotoChamada[]
-  pedido       Pedido?              @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
-  fechamento   FechamentoEntrega?   @relation(fields: [fechamentoId], references: [id], onDelete: SetNull)
+  pedido       Pedido?                  @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
+  fechamento   FechamentoEntrega?       @relation(fields: [fechamentoId], references: [id], onDelete: SetNull)
   contestacoes ContestacaoEntrega[]
   paradas      ParadaExtraChamada[]
   rastro       RastroChamada[]
+  mensagens    MensagemChamadaEntrega[]
 
   @@unique([empresaId, numero])
   @@index([empresaId, criadoEm])
@@ -1778,4 +1793,21 @@ model PedidoErpEntrega {
   @@unique([empresaId, codigo])
   @@index([empresaId, criadoEm])
   @@map("pedidos_erp_entrega")
+}
+
+/// Etapa 12: conversa da empresa com o entregador dentro da chamada (sem expor o celular de ninguém).
+model MensagemChamadaEntrega {
+  id        String   @id @default(uuid()) @db.Uuid
+  chamadaId String   @map("chamada_id") @db.Uuid
+  /// empresa ou entregador.
+  autor     String
+  usuarioId String?  @map("usuario_id") @db.Uuid
+  nome      String
+  texto     String
+  criadoEm  DateTime @default(now()) @map("criado_em")
+
+  chamada ChamadaEntrega @relation(fields: [chamadaId], references: [id], onDelete: Cascade)
+
+  @@index([chamadaId, criadoEm])
+  @@map("mensagens_chamada")
 }

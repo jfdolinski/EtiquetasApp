@@ -14,6 +14,7 @@ import {
 } from './entregas';
 import { formatarCelular, formatarCentavos, normalizarCelular } from './pedidos';
 import { formatarKm, linkNavegacao, MOTIVOS_OCORRENCIA, normalizarSerie, PROXIMA_ETAPA, ROTULO_MOTIVO_OCORRENCIA, ROTULO_SITUACAO_CHAMADA, ROTULO_TIPO_CHAMADA } from './entregas-chamadas';
+import { LIMITE_MENSAGEM, LIMITES_VOLUMES, normalizarCodigoColeta, problemaNosVolumes, textoVolumes } from './entregas-balcao';
 import { comprimentoDaAssinatura, LIMITES_ASSINATURA, problemaNaAssinatura, PROPORCAO_ASSINATURA } from './entregas-comprovacao';
 import { ESPERA_BLOCO_MINUTOS, ESTADOS_MAQUINA, ITENS_CHECKLIST, LIMITE_OBSERVACAO_CHECKLIST, problemaNoChecklist, ROTULO_ESTADO_MAQUINA } from './entregas-servico';
 
@@ -60,5 +61,11 @@ describe('cópias do app do entregador', () => {
     expect(app.comprimentoDaAssinatura([rabisco])).toBe(comprimentoDaAssinatura([rabisco]));
     for (const a of [null, { tracos: [rabisco], recebedor: '' }, { tracos: [rabisco], recebedor: 'Ana' }, { tracos: [[[0.5, 0.5]]] as [number, number][][], recebedor: 'Ana' }, { tracos: [[[2, 0.5]]] as [number, number][][], recebedor: 'Ana' }, { tracos: Array.from({ length: 61 }, () => rabisco), recebedor: 'Ana' }])
       expect(app.problemaNaAssinatura(a)).toBe(problemaNaAssinatura(a));
+
+    expect(app.LIMITE_MENSAGEM).toBe(LIMITE_MENSAGEM);
+    expect(app.LIMITES_VOLUMES).toEqual(LIMITES_VOLUMES);
+    for (const c of [" fc23456789ab ", "]C1FC23456789AB", "7891000100103", "FC0000000000", ""]) expect(app.normalizarCodigoColeta(c)).toBe(normalizarCodigoColeta(c));
+    for (const v of [0, 1, 2.5, 99, 100, "3"]) expect(app.problemaNosVolumes(v)).toBe(problemaNosVolumes(v));
+    for (const n of [1, 2]) expect(app.textoVolumes(n)).toBe(textoVolumes(n));
   });
 });

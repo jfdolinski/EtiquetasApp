@@ -164,6 +164,8 @@ export interface NovaChamada {
   pedidoErpId?: string | null;
   /** Entregas além do destino, na ordem (só no tipo Entrega). */
   paradasExtras?: ParadaComPedido[];
+  /** Coleta num horário futuro: a distribuição começa um pouco antes. */
+  agendadaPara?: string | null;
 }
 
 export function problemaNaChamada(c: NovaChamada): string | null {
@@ -216,6 +218,8 @@ export interface OfertaResumo {
   entregas?: number;
   /** Por que ele recebeu (distribuição automática). */
   motivo: string | null;
+  /** Coleta agendada para esse horário. */
+  agendadaPara?: string | null;
 }
 
 export interface ChamadaResumo {
@@ -274,6 +278,14 @@ export interface ChamadaResumo {
   pedidoErp: string | null;
   /** Como o entregador comprova a entrega (copiado da configuração ao abrir). */
   assinatura: ModoAssinatura;
+  /** Etiqueta de coleta: o código impresso que o entregador lê no balcão ou na coleta. */
+  codigoColeta: string | null;
+  etiquetaImpressaEm: string | null;
+  etiquetaLidaEm: string | null;
+  volumes: number | null;
+  volumesEntregues: number | null;
+  agendadaPara: string | null;
+  mensagensNaoLidas: number;
 }
 
 /** O que o app do entregador recebe da chamada dele. */
@@ -311,6 +323,11 @@ export interface ChamadaEntregador {
   esperaCentavos?: number;
   /** Assinatura de quem recebe: junto ao código ou no lugar dele. */
   assinatura?: ModoAssinatura;
+  /** A empresa imprimiu a etiqueta e ainda não foi lida: a coleta pede a leitura. */
+  pedeEtiqueta?: boolean;
+  volumes?: number | null;
+  agendadaPara?: string | null;
+  mensagensNaoLidas?: number;
 }
 
 export interface GanhosEntregador {

@@ -132,6 +132,8 @@ test('chamada pelo app: a oferta aparece, aceita, cumpre as etapas e conclui com
   await page.screenshot({ path: 'test-results/app-entregador-destino.png' });
   const codigo = (await pedir('GET', `/entregas/chamadas/${ch.j.id}`, { token: emp.adminToken })).j.codigoConfirmacao as string;
   await page.getByLabel('Código do destinatário').fill(codigo);
+  // Saiu 1 volume na coleta (o padrão): a entrega confirma.
+  await page.getByText('Entreguei os 1 volume').click();
   await page.getByRole('button', { name: 'Entreguei' }).click();
   await expect(page.getByText('Você está online')).toBeVisible();
   expect((await pedir('GET', `/entregas/chamadas/${ch.j.id}`, { token: emp.adminToken })).j.situacao).toBe('CONCLUIDA');
@@ -244,6 +246,7 @@ test('duas chamadas ao mesmo tempo, assinatura de quem recebe e o guia da bateri
   await page.getByRole('button', { name: 'Cheguei no destino' }).click();
   await expect(page.getByText('Peça para quem recebe assinar:')).toBeVisible();
   await expect(page.getByLabel('Código do destinatário')).toHaveCount(0);
+  await page.getByText('Entreguei os 1 volume').click();
   await page.getByRole('button', { name: 'Entreguei' }).click();
   await expect(page.getByText('Informe o nome de quem recebeu.')).toBeVisible();
   const area = await page.getByLabel('Área da assinatura').boundingBox();
@@ -262,5 +265,42 @@ test('duas chamadas ao mesmo tempo, assinatura de quem recebe e o guia da bateri
   await expect(page.getByRole('tab', { name: 'Chamada' })).toBeVisible();
   expect(erros).toEqual([]);
   await sql(`UPDATE chamadas_entrega SET situacao = 'CANCELADA' WHERE id = $1`, [b.id]);
+  await sql(`UPDATE entregadores SET online = false WHERE id = $1`, [ent.id]);
+});
+
+test('pegar no balcão lendo a etiqueta, volumes na coleta e a conversa com a empresa', async ({ page, context }) => {
+  const erros: string[] = [];
+  page.on('pageerror', (x) => erros.push(x.message));
+  const tokenSuper = await superToken();
+  const emp = await empresaComBase(tokenSuper);
+  const ent = await entregadorOnline(tokenSuper, SE, `Edu${randomUUID().slice(0, 4)} App Teste`);
+  await context.setGeolocation({ latitude: SE.lat, longitude: SE.lon, accuracy: 10 });
+  await page.setExtraHTTPHeaders({ 'x-forwarded-for': `10.82.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}` });
+  await page.goto('/');
+  await page.getByLabel('Endereço do sistema').fill(new URL(API).origin);
+  await page.getByLabel('E-mail ou CPF').fill(ent.email);
+  await page.getByLabel('Senha').fill('SenhaEntregador1');
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  await expect(page.getByText('Você está online')).toBeVisible();
+
+  const ch = (await pedir('POST', '/entregas/chamadas', { token: emp.adminToken, corpo: { tipo: 'ENTREGA', origem: { ...SE, endereco: 'Praça da Sé, 1, Sé, São Paulo', contato: '', telefone: '', instrucoes: '' }, destino: { ...PAULISTA, endereco: 'Avenida Paulista, 1578, Bela Vista, São Paulo', contato: 'Dona Maria', telefone: '', instrucoes: '' }, serieEsperada: null, observacao: '' } })).j;
+  await page.getByRole('button', { name: 'Pegar no balcão (ler etiqueta)' }).click();
+  await page.getByLabel('Etiqueta de coleta').fill(ch.codigoColeta);
+  await page.getByRole('button', { name: 'Pegar esta chamada' }).click();
+  await expect(page.getByText('No local da coleta')).toBeVisible();
+  await pedir('POST', `/entregas/chamadas/${ch.id}/mensagens`, { token: emp.adminToken, corpo: { texto: 'São 2 sacolas, estão no caixa 3.' } });
+  await page.getByLabel('Quantos volumes você está levando?').fill('2');
+  await page.screenshot({ path: 'test-results/app-entregador-balcao.png' });
+  await page.getByRole('button', { name: 'Coletei' }).click();
+  await expect(page.getByText('A caminho do destino')).toBeVisible();
+  await expect(page.getByText('Levando 2 volumes.')).toBeVisible();
+  await page.getByRole('button', { name: /Conversa com a empresa/ }).click();
+  await expect(page.getByText('São 2 sacolas, estão no caixa 3.')).toBeVisible();
+  await page.getByLabel('Mensagem para a empresa').fill('Peguei, obrigado.');
+  await page.getByRole('button', { name: 'Enviar mensagem' }).click();
+  await expect(page.getByText('Peguei, obrigado.')).toBeVisible();
+  expect((await pedir('GET', `/entregas/chamadas/${ch.id}`, { token: emp.adminToken })).j).toMatchObject({ situacao: 'COLETADA', volumes: 2, mensagensNaoLidas: 1 });
+  expect(erros).toEqual([]);
+  await sql(`UPDATE chamadas_entrega SET situacao = 'CANCELADA' WHERE id = $1`, [ch.id]);
   await sql(`UPDATE entregadores SET online = false WHERE id = $1`, [ent.id]);
 });

@@ -32,6 +32,8 @@ test('API: espera paga, devolução à origem e checklist da maquininha', async 
   const D = deslocar(C, 1500);
   expect((await pedir('PUT', '/entregas/config', { token: t, corpo: { base: { ...C, endereco: 'Rua da Loja, 1' }, raioAtendimentoKm: 10, precos } })).status).toBe(200);
   const ent = await entregadorOnline(tokenSuper, deslocar(C, 300), `Ivo${randomUUID().slice(0, 4)} Teste`);
+  // Leva máquina: aceita o termo de custódia (etapa 12).
+  await pedir('POST', '/entregador/termo-custodia', { token: ent.token });
   const aceitar = async (id: string) => {
     expect((await pedir('POST', `/entregas/chamadas/${id}/oferecer`, { token: t, corpo: { entregadorId: ent.id } })).status).toBe(200);
     const of = await pedir('GET', '/entregador/oferta', { token: ent.token });

@@ -206,3 +206,20 @@ export function problemaNaAssinatura(a: Partial<AssinaturaEntrega> | null | unde
   if (comprimentoDaAssinatura(a.tracos) < 0.3) return 'Peça para quem recebe assinar na tela.';
   return null;
 }
+
+// Etapa 12 (cópias de entregas-balcao.ts): etiqueta de coleta, volumes e conversa.
+export const LIMITE_MENSAGEM = 500;
+export const LIMITES_VOLUMES = { minimo: 1, maximo: 99 };
+
+export function normalizarCodigoColeta(lido: string): string | null {
+  const t = (lido ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+  const m = /FC[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{10}/.exec(t);
+  return m ? m[0] : null;
+}
+
+export function problemaNosVolumes(v: unknown): string | null {
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < LIMITES_VOLUMES.minimo || v > LIMITES_VOLUMES.maximo) return `Informe quantos volumes (de ${LIMITES_VOLUMES.minimo} a ${LIMITES_VOLUMES.maximo}).`;
+  return null;
+}
+
+export const textoVolumes = (n: number) => (n === 1 ? '1 volume' : `${n} volumes`);

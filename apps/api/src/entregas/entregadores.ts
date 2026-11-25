@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import type { Request } from 'express';
 import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
 import {
+  temTermoVigente,
   coordenadaValida,
   diaNoFuso,
   documentosExigidos,
@@ -240,6 +241,7 @@ export class EntregadoresService implements OnApplicationBootstrap, OnModuleDest
       online: e.online,
       diariaHoje,
       saldoDiarias: saldo,
+      termoCustodia: temTermoVigente(e.termoCustodiaVersao),
     };
   }
 

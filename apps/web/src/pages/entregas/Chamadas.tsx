@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  MINUTOS_ANTES_DA_AGENDADA,
+  textoVolumes,
   problemaNosPedidosJuntos,
   ROTULO_MODO_ASSINATURA,
   type ParadaComPedido,
@@ -36,11 +38,12 @@ import {
   type SituacaoChamada,
   type TipoChamada,
 } from '@etiquetas/shared';
-import { api } from '../../api';
+import { api, apiArquivo } from '../../api';
 import { useAuth } from '../../auth';
 import { Alerta, Botao, Campo, formatarData, Modal, Selecao, Selo, Tabela } from '../../components/ui';
 import { MapaEntregadores } from './MapaEntregadores';
 import { PosEntrega } from './PosEntrega';
+import { ConversaDaChamada } from './Conversa';
 import { AlertaEmergencia, LinkRastreio } from './RastreioDaChamada';
 
 const COR_SITUACAO: Record<SituacaoChamada, 'verde' | 'amarelo' | 'vermelho' | 'cinza'> = {
@@ -100,7 +103,8 @@ export function Chamadas({ config, mapa, abrir }: { config: ConfigEntregasEmpres
               <td className="px-4 py-2.5 font-medium">{c.numero}</td>
               <td className="px-4 py-2.5">
                 {ROTULO_TIPO_CHAMADA[c.tipo]}
-                <div className="text-xs text-slate-500">{formatarData(c.criadoEm)}</div>
+                <div className="text-xs text-slate-500">{c.agendadaPara ? `Agendada para ${formatarData(c.agendadaPara)}` : formatarData(c.criadoEm)}</div>
+                {c.mensagensNaoLidas > 0 && <div className="text-xs font-semibold text-blue-700" data-testid="mensagens-nao-lidas">{c.mensagensNaoLidas === 1 ? '1 mensagem nova' : `${c.mensagensNaoLidas} mensagens novas`}</div>}
               </td>
               <td className="max-w-xs truncate px-4 py-2.5 text-slate-600">{c.destino.endereco}</td>
               <td className="px-4 py-2.5">{c.entregador?.nome ?? (c.ofertaPendente ? <span className="text-slate-500">Oferecida a {c.ofertaPendente.entregadorNome}</span> : c.distribuicao.ativa ? <span className="text-slate-500">{c.distribuicao.semEntregadorDesde ? 'Procurando (ninguém aceitou ainda)' : 'Distribuindo…'}</span> : <span className="text-slate-400">—</span>)}</td>
@@ -170,6 +174,34 @@ function JuntarPedidos({ aoFechar, aoMontar }: { aoFechar: () => void; aoMontar:
   );
 }
 
+/** Etiqueta de coleta: o entregador lê no balcão (pega a chamada) ou na coleta (confere o pacote). */
+function EtiquetaDeColeta({ c, gerencia }: { c: ChamadaResumo; gerencia: boolean }) {
+  const cliente = useQueryClient();
+  const imprimir = useMutation({
+    mutationFn: async () => {
+      const blob = await apiArquivo(`/entregas/chamadas/${c.id}/etiqueta.pdf`);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    },
+    onSuccess: () => void cliente.invalidateQueries({ queryKey: ['chamada', c.id] }),
+  });
+  const terminada = c.situacao === 'CONCLUIDA' || c.situacao === 'CANCELADA';
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-slate-50 px-3 py-2 text-sm" data-testid="etiqueta-coleta">
+      {c.agendadaPara && <span>Coleta agendada para <strong>{formatarData(c.agendadaPara)}</strong></span>}
+      {c.volumes ? <span>{textoVolumes(c.volumes)}{c.volumesEntregues ? ' entregues' : ' na coleta'}</span> : null}
+      {c.etiquetaLidaEm ? <span>Etiqueta lida às {new Date(c.etiquetaLidaEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span> : c.etiquetaImpressaEm ? <span>Etiqueta impressa: a coleta pede a leitura</span> : null}
+      {gerencia && !terminada && (
+        <Botao variante="secundario" onClick={() => imprimir.mutate()} disabled={imprimir.isPending}>
+          {imprimir.isPending ? 'Gerando…' : 'Imprimir etiqueta de coleta'}
+        </Botao>
+      )}
+      {imprimir.error && <Alerta>{imprimir.error.message}</Alerta>}
+    </div>
+  );
+}
+
 export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, erp, juntos }: { config: ConfigEntregasEmpresa; mapa: ConfigMapa; aoFechar: () => void; aoCriar: (id: string) => void; rascunho?: RascunhoDoPedido; erp?: RascunhoPedidoErp; juntos?: RascunhoJuntos }) {
   const cliente = useQueryClient();
   const [tipo, setTipo] = useState<TipoChamada>(erp?.tipo ?? 'ENTREGA');
@@ -182,6 +214,8 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, er
   const [observacao, setObservacao] = useState(juntos?.observacao ?? erp?.observacao ?? rascunho?.observacao ?? '');
   const primeira = useRef(true);
   const [distribuir, setDistribuir] = useState(config.direcionamento.automatico);
+  const [agendar, setAgendar] = useState(false);
+  const [quando, setQuando] = useState('');
 
   // Coleta e devolução: buscar no cliente e trazer para a empresa.
   useEffect(() => {
@@ -203,7 +237,7 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, er
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipo]);
 
-  const corpo: NovaChamada = { tipo, origem, destino, serieEsperada: serie.trim() || null, observacao, pedidoId: juntos?.pedidoId ?? rascunho?.pedidoId ?? null, pedidoErpId: juntos?.pedidoErpId ?? erp?.pedidoErpId ?? null, paradasExtras: tipo === 'ENTREGA' ? extras : [] };
+  const corpo: NovaChamada = { tipo, origem, destino, serieEsperada: serie.trim() || null, observacao, pedidoId: juntos?.pedidoId ?? rascunho?.pedidoId ?? null, pedidoErpId: juntos?.pedidoErpId ?? erp?.pedidoErpId ?? null, paradasExtras: tipo === 'ENTREGA' ? extras : [], agendadaPara: agendar && quando ? new Date(quando).toISOString() : null };
   const prontos = temPonto(origem) && temPonto(destino) && extras.every(temPonto);
   const previa = useQuery({
     queryKey: ['chamada-previa', tipo, origem.lat, origem.lon, destino.lat, destino.lon, extras.map((p) => `${p.lat},${p.lon}`).join('|')],
@@ -297,13 +331,21 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, er
           {previa.error && <Alerta tipo="aviso">{previa.error.message}</Alerta>}
           {criar.error && <Alerta>{criar.error.message}</Alerta>}
           <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-0.5" checked={agendar} onChange={(e) => setAgendar(e.target.checked)} />
+            <span>
+              Agendar a coleta
+              <span className="block text-xs text-slate-500">A distribuição começa {MINUTOS_ANTES_DA_AGENDADA} minutos antes do horário. Dá para oferecer antes, à mão, ou o entregador pegar no balcão.</span>
+            </span>
+          </label>
+          {agendar && <Campo rotulo="Coleta em" type="datetime-local" value={quando} onChange={(e) => setQuando(e.target.value)} />}
+          <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" className="mt-0.5" checked={distribuir} onChange={(e) => setDistribuir(e.target.checked)} />
             <span>
               Distribuir automaticamente
               <span className="block text-xs text-slate-500">O sistema oferece pelas regras do Direcionamento. Desmarcado, você escolhe o entregador depois de abrir.</span>
             </span>
           </label>
-          <Botao onClick={() => criar.mutate()} disabled={!prontos || !origem.endereco || !destino.endereco || extras.some((p) => !p.endereco.trim()) || criar.isPending}>
+          <Botao onClick={() => criar.mutate()} disabled={!prontos || !origem.endereco || !destino.endereco || extras.some((p) => !p.endereco.trim()) || (agendar && !quando) || criar.isPending}>
             {criar.isPending ? 'Abrindo…' : 'Abrir chamada'}
           </Botao>
         </div>
@@ -427,6 +469,7 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
               </div>
             )}
             {c.devolucao && !c.codigoDevolucao && <div className="text-slate-600">Devolvida à origem: {c.devolucao.motivo} ({formatarKm(c.devolucao.metros)}).</div>}
+            <EtiquetaDeColeta c={c} gerencia={gerencia} />
             <LinkRastreio c={c} />
             <AlertaEmergencia c={c} aoCiente={() => acao.mutate({ caminho: 'emergencia/ciente' })} ocupado={acao.isPending} />
             <Parada titulo="Coleta" p={c.origem} />
@@ -616,6 +659,7 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
                   ))}
               </div>
             )}
+            {c.entregador && <ConversaDaChamada chamadaId={c.id} gerencia={gerencia} />}
             <div>
               <div className="mb-1 text-sm font-medium">Histórico</div>
               <ol className="space-y-1 text-sm">

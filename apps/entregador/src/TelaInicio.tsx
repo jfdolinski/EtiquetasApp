@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { PerfilEntregador, RespostaPosicao } from '../../../packages/shared/src/entregas';
 import type { Api } from './api';
+import type { ChamadaEntregador } from '../../../packages/shared/src/entregas-chamadas';
+import { PegarNoBalcao } from './Balcao';
 import { prepararNotificacoes } from './avisos';
 import { aoReceberResposta, enviarPosicao, iniciarRastreio, pararRastreio, pedirPermissoes, posicaoAtual, rastreando, type ProblemaPermissao } from './localizacao';
 import { Alerta, Botao, cores, Numero } from './ui';
@@ -18,7 +20,7 @@ const PERMISSAO: Record<NonNullable<ProblemaPermissao>, string> = {
   SEM_SEGUNDO_PLANO: 'Para continuar online com a tela apagada, permita a localização "o tempo todo" nas configurações do aplicativo.',
 };
 
-export function TelaInicio({ api, perfil, aoMudar, irParaCreditos, oferta, irParaAvisos }: { api: Api; perfil: PerfilEntregador; aoMudar: (p: PerfilEntregador) => void; irParaCreditos: () => void; oferta?: ReactNode; irParaAvisos?: () => void }) {
+export function TelaInicio({ api, perfil, aoMudar, irParaCreditos, oferta, irParaAvisos, aoPegar }: { api: Api; perfil: PerfilEntregador; aoMudar: (p: PerfilEntregador) => void; irParaCreditos: () => void; oferta?: ReactNode; irParaAvisos?: () => void; aoPegar?: (c: ChamadaEntregador) => void }) {
   const [ocupado, setOcupado] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [permissao, setPermissao] = useState<ProblemaPermissao>(null);
@@ -97,6 +99,7 @@ export function TelaInicio({ api, perfil, aoMudar, irParaCreditos, oferta, irPar
       </View>
 
       {oferta}
+      {perfil.online && aoPegar && <PegarNoBalcao api={api} aoPegar={aoPegar} />}
       {aviso && <Alerta tipo="aviso">{aviso}</Alerta>}
       {/* Só o recado curto: o ajuste em si fica na guia Avisos. */}
       {permissao && <Alerta tipo="aviso">{PERMISSAO[permissao]}</Alerta>}

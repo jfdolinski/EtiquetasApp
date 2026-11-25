@@ -22,6 +22,14 @@ import { Type } from 'class-transformer';
 import { randomInt } from 'node:crypto';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import {
+  gerarCodigoColeta,
+  inicioDaDistribuicao,
+  normalizarCodigoColeta,
+  problemaNoAgendamento,
+  problemaNosVolumes,
+  exigeTermoCustodia,
+  temTermoVigente,
+  textoVolumes,
   podePegarOutra,
   problemaNaAssinatura,
   rasterizarAssinatura,
@@ -150,6 +158,7 @@ class NovaChamadaDto {
   @IsOptional() @IsBoolean() distribuir?: boolean;
   @IsOptional() @IsUUID('all', { message: 'Pedido inválido.' }) pedidoId?: string | null;
   @IsOptional() @IsUUID('all', { message: 'Pedido do ERP inválido.' }) pedidoErpId?: string | null;
+  @IsOptional() @IsISO8601({}, { message: 'Data do agendamento inválida.' }) agendadaPara?: string | null;
   @IsOptional() @IsArray() @ArrayMaxSize(9) @ValidateNested({ each: true }) @Type(() => ParadaDto) paradasExtras?: ParadaDto[];
 }
 
@@ -194,6 +203,17 @@ class AvancarDto {
   @IsOptional() @ValidateNested() @Type(() => ChecklistDto) checklist?: ChecklistDto;
   /** Assinatura de quem recebe (quando a empresa pede). */
   @IsOptional() @ValidateNested() @Type(() => AssinaturaDto) assinatura?: AssinaturaDto;
+  /** Etapa 12: volumes que saem na coleta e que chegam na entrega; a etiqueta lida na coleta. */
+  @IsOptional() @IsNumber() volumes?: number;
+  @IsOptional() @IsNumber() volumesEntregues?: number;
+  @IsOptional() @IsString() @MaxLength(60) etiqueta?: string;
+}
+
+class BalcaoDto {
+  @IsString() @MaxLength(60) codigo: string;
+  @IsNumber() @Min(-90) @Max(90) lat: number;
+  @IsNumber() @Min(-180) @Max(180) lon: number;
+  @IsOptional() @IsNumber() @Min(0) precisao?: number | null;
 }
 
 class DesistenciaDto {
@@ -306,6 +326,8 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
 
   async criar(empresaId: string, dto: NovaChamadaDto, autorId: string | null): Promise<ChamadaResumo> {
     const c: NovaChamada = { ...dto, serieEsperada: dto.serieEsperada ? normalizarSerie(dto.serieEsperada) : null, observacao: dto.observacao.trim() };
+    const problemaAgenda = problemaNoAgendamento(dto.agendadaPara, new Date());
+    if (problemaAgenda) throw new BadRequestException(problemaAgenda);
     const previa = await this.previa(empresaId, c);
     const pedidoId = dto.pedidoId ? await this.conferirPedido(empresaId, dto.pedidoId) : null;
     const erp = dto.pedidoErpId ? await this.conferirPedidoErp(empresaId, dto.pedidoErpId) : null;
@@ -346,6 +368,8 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
           esperaPorBlocoCentavos: espera.porBlocoCentavos,
           pedidoErp,
           assinatura,
+          codigoColeta: gerarCodigoColeta((n) => randomInt(0, n)),
+          agendadaPara: dto.agendadaPara ? new Date(dto.agendadaPara) : null,
           historico: [evento('Chamada aberta.', 'empresa')] as never,
           criadoPorId: autorId,
           pedidoId,
@@ -407,7 +431,18 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     });
     const { direcionamento } = await this.empresas.config(empresaId);
     const numeros = await this.numerosDosPedidos(lista);
-    return lista.map((c) => this.resumo(c, direcionamento, numeros));
+    const naoLidas = await this.naoLidasDaEmpresa(lista);
+    return lista.map((c) => this.resumo(c, direcionamento, numeros, naoLidas));
+  }
+
+  /** Mensagens do entregador que a empresa ainda não viu, por chamada. */
+  private async naoLidasDaEmpresa(lista: { id: string; mensagensLidasEmpresaEm: Date | null }[]): Promise<Map<string, number>> {
+    if (!lista.length) return new Map();
+    const msgs = await this.prisma.mensagemChamadaEntrega.findMany({ where: { chamadaId: { in: lista.map((c) => c.id) }, autor: 'entregador' }, select: { chamadaId: true, criadoEm: true } });
+    const lidas = new Map(lista.map((c) => [c.id, c.mensagensLidasEmpresaEm?.getTime() ?? 0]));
+    const n = new Map<string, number>();
+    for (const m of msgs) if (m.criadoEm.getTime() > (lidas.get(m.chamadaId) ?? 0)) n.set(m.chamadaId, (n.get(m.chamadaId) ?? 0) + 1);
+    return n;
   }
 
   /** Número dos pedidos entregues nas paradas (pedidos juntos). */
@@ -421,10 +456,10 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
   async obter(empresaId: string, id: string): Promise<ChamadaResumo> {
     const c = await this.prisma.chamadaEntrega.findFirst({ where: { id, empresaId }, include: INCLUIR });
     if (!c) throw new NotFoundException('Chamada não encontrada.');
-    return this.resumo(c, (await this.empresas.config(empresaId)).direcionamento, await this.numerosDosPedidos([c]));
+    return this.resumo(c, (await this.empresas.config(empresaId)).direcionamento, await this.numerosDosPedidos([c]), await this.naoLidasDaEmpresa([c]));
   }
 
-  private resumo(c: ChamadaDoBanco, regras: RegrasDirecionamento, numeros: Map<string, number> = new Map()): ChamadaResumo {
+  private resumo(c: ChamadaDoBanco, regras: RegrasDirecionamento, numeros: Map<string, number> = new Map(), naoLidas: Map<string, number> = new Map()): ChamadaResumo {
     const andamento = SITUACOES_EM_ANDAMENTO.includes(c.situacao as SituacaoChamada);
     const e = c.entregador;
     const oferta = c.ofertas.find((o) => o.resultado === 'PENDENTE');
@@ -471,6 +506,13 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       checklists: (c.checklists as unknown as ChecklistsDaChamada) ?? {},
       pedidoErp: c.pedidoErp,
       assinatura: c.assinatura as ModoAssinatura,
+      codigoColeta: c.codigoColeta,
+      etiquetaImpressaEm: c.etiquetaImpressaEm?.toISOString() ?? null,
+      etiquetaLidaEm: c.etiquetaLidaEm?.toISOString() ?? null,
+      volumes: c.volumes,
+      volumesEntregues: c.volumesEntregues,
+      agendadaPara: c.agendadaPara?.toISOString() ?? null,
+      mensagensNaoLidas: naoLidas.get(c.id) ?? 0,
       historico: c.historico as unknown as EventoChamada[],
       criadoEm: c.criadoEm.toISOString(),
       concluidaEm: c.concluidaEm?.toISOString() ?? null,
@@ -776,6 +818,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       valorCentavos: c.valorCentavos,
       expiraEm: o.expiraEm.toISOString(),
       entregas: 1 + c._count.paradas,
+      agendadaPara: c.agendadaPara?.toISOString() ?? null,
       motivo: o.motivo ? motivoParaEntregador(o.motivo as unknown as MotivoOferta) : null,
     };
   }
@@ -830,7 +873,8 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
   async daChamada(entregadorId: string, chamadaId: string): Promise<ChamadaEntregador> {
     const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, entregadorId }, include: { empresa: { select: { nomeFantasia: true, razaoSocial: true } }, paradas: { orderBy: { ordem: 'asc' } } } });
     if (!c) throw new NotFoundException('Chamada não encontrada.');
-    return this.paraEntregador(c);
+    const naoLidas = await this.prisma.mensagemChamadaEntrega.count({ where: { chamadaId, autor: 'empresa', ...(c.mensagensLidasEntregadorEm ? { criadoEm: { gt: c.mensagensLidasEntregadorEm } } : {}) } });
+    return { ...this.paraEntregador(c), mensagensNaoLidas: naoLidas };
   }
 
   private paraEntregador(c: Prisma.ChamadaEntregaGetPayload<{ include: { empresa: { select: { nomeFantasia: true; razaoSocial: true } } } }> & { paradas?: ParadaDoBanco[] }): ChamadaEntregador {
@@ -856,6 +900,9 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       espera: { toleranciaMinutos: c.esperaToleranciaMinutos, porBlocoCentavos: c.esperaPorBlocoCentavos },
       esperaCentavos: c.esperaCentavos,
       assinatura: c.assinatura as ModoAssinatura,
+      pedeEtiqueta: !!c.etiquetaImpressaEm && !c.etiquetaLidaEm,
+      volumes: c.volumes,
+      agendadaPara: c.agendadaPara?.toISOString() ?? null,
       destinos,
       paradaAtual: c.paradaAtual,
       pedeFotoColeta: c.fotoColeta,
@@ -943,6 +990,25 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       }
     }
     if (dto.para === 'COLETADA') data.coletadaEm = quando;
+    if (dto.para === 'COLETADA' && !c.devolucao) {
+      // Etiqueta impressa e ainda não lida (não pegou no balcão): a coleta confere o pacote.
+      if (c.etiquetaImpressaEm && !c.etiquetaLidaEm) {
+        if (!dto.etiqueta) throw new BadRequestException('Leia a etiqueta de coleta do pacote.');
+        if (normalizarCodigoColeta(dto.etiqueta) !== c.codigoColeta) throw new BadRequestException('Esta etiqueta não é desta chamada. Confira o pacote.');
+        data.etiquetaLidaEm = quando;
+      }
+      // Volumes: o app novo sempre manda; o antigo não, e a chamada segue sem a contagem.
+      if (dto.volumes !== undefined) {
+        const problema = problemaNosVolumes(dto.volumes);
+        if (problema) throw new BadRequestException(problema);
+        data.volumes = dto.volumes;
+        texto = `${texto.replace(/\.$/, '')} (${textoVolumes(dto.volumes)}).`;
+      }
+    }
+    if (dto.para === 'CONCLUIDA' && c.volumes && !c.devolucao && c.paradaAtual === 0 && c.paradas.length === 0) {
+      if (dto.volumesEntregues !== undefined && dto.volumesEntregues !== c.volumes) throw new BadRequestException(`Saíram ${textoVolumes(c.volumes)} na coleta. Entregue todos ou registre uma ocorrência.`);
+      if (dto.volumesEntregues !== undefined) data.volumesEntregues = dto.volumesEntregues;
+    }
     if (serieDiferente) return this.ocorrenciaDeSerie(c, entregadorId, serieDiferente, dto, quando);
     // Assinatura de quem recebe: junto ao código ou no lugar dele (na devolução à origem, vale o código da empresa).
     const modo = (c.devolucao ? 'NAO' : c.assinatura) as ModoAssinatura;
@@ -1006,6 +1072,61 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
       await this.registrar(c.id, evento(`Ocorrência: série diferente (lida ${serieLida}, esperada ${esperada}). A empresa decide se segue.`, 'entregador'), tx);
     });
     return this.daChamada(entregadorId, c.id);
+  }
+
+  /**
+   * Pegar no balcão: o entregador lê a etiqueta de coleta impressa pela empresa e a chamada fica com
+   * ele na hora, sem oferta. Valem as mesmas regras da oferta: aprovado e online, não bloqueado pela
+   * empresa, termo de custódia para máquina e o limite de chamadas ao mesmo tempo.
+   */
+  async pegarNoBalcao(entregadorId: string, dto: BalcaoDto): Promise<ChamadaEntregador> {
+    const codigo = normalizarCodigoColeta(dto.codigo);
+    if (!codigo) throw new BadRequestException('Este código não é uma etiqueta de coleta do Flow.');
+    if (!coordenadaValida(dto)) throw new BadRequestException('Sem localização do celular.');
+    const c = await this.prisma.chamadaEntrega.findUnique({ where: { codigoColeta: codigo }, select: { id: true, empresaId: true, situacao: true, tipo: true, serieEsperada: true, origem: true, entregadorId: true } });
+    if (!c) throw new NotFoundException('Etiqueta não encontrada. Confira com a empresa.');
+    if (c.entregadorId === entregadorId && SITUACOES_EM_ANDAMENTO.includes(c.situacao as SituacaoChamada)) return this.daChamada(entregadorId, c.id);
+    if (c.situacao !== 'ABERTA') throw new ConflictException(c.situacao === 'CANCELADA' ? 'Esta chamada foi cancelada.' : 'Esta chamada já está com outro entregador.');
+    const e = await this.prisma.entregador.findUniqueOrThrow({ where: { id: entregadorId }, select: { nome: true, situacao: true, online: true, termoCustodiaVersao: true, empresas: { where: { empresaId: c.empresaId }, select: { bloqueado: true } } } });
+    if (e.situacao !== 'APROVADO') throw new ForbiddenException('Seu cadastro não está liberado para pegar chamadas.');
+    if (!e.online) throw new ConflictException('Fique online para pegar a chamada.');
+    if (e.empresas[0]?.bloqueado) throw new ForbiddenException('Esta empresa não trabalha com você no momento.');
+    if (exigeTermoCustodia(c.tipo as TipoChamada, c.serieEsperada) && !temTermoVigente(e.termoCustodiaVersao)) throw new ForbiddenException('Para levar máquina, aceite o termo de custódia na guia Avisos.');
+    const origem = c.origem as unknown as ParadaChamada;
+    const agora = new Date();
+    const perto = chegouPerto(dto, origem, dto.precisao ?? null);
+    await this.prisma.$transaction(async (tx) => {
+      const ativas = await tx.chamadaEntrega.findMany({ where: { entregadorId, situacao: { in: [...SITUACOES_EM_ANDAMENTO] } }, select: { empresaId: true } });
+      const limite = (await tx.configuracaoEntregas.findUnique({ where: { empresaId: c.empresaId }, select: { chamadasSimultaneas: true } }))?.chamadasSimultaneas ?? 1;
+      if (!podePegarOutra(ativas, c.empresaId, limite)) throw new ConflictException('Termine a chamada em andamento antes (ou peça à empresa para permitir mais de uma).');
+      const { count } = await tx.chamadaEntrega.updateMany({
+        where: { id: c.id, situacao: 'ABERTA' },
+        data: { situacao: perto ? 'NA_COLETA' : 'ACEITA', entregadorId, aceitaEm: agora, etiquetaLidaEm: agora, distribuicaoAtiva: false, proximaTentativaEm: null, semEntregadorEm: null, ...(perto ? { chegouNoPontoEm: agora } : {}) },
+      });
+      if (!count) throw new ConflictException('Outro entregador pegou esta chamada primeiro.');
+      // A oferta que estava esperando outro entregador deixa de valer; a dele conta como aceita.
+      await tx.ofertaChamada.updateMany({ where: { chamadaId: c.id, resultado: 'PENDENTE' }, data: { resultado: 'CANCELADA', respondidaEm: agora } });
+      await tx.ofertaChamada.create({ data: { chamadaId: c.id, entregadorId, metrosAteColeta: Math.round(distanciaMetros(dto, origem)), expiraEm: agora, resultado: 'ACEITA', respondidaEm: agora } });
+      await this.registrar(c.id, evento(`${primeiroNome(e.nome)} pegou no balcão (etiqueta lida)${perto ? ' e já está no local da coleta' : ''}.`, 'entregador'), tx);
+    });
+    return this.daChamada(entregadorId, c.id);
+  }
+
+  /** Etiqueta impressa: a coleta passa a pedir a leitura (gera o código das chamadas antigas). */
+  async marcarEtiquetaImpressa(empresaId: string, chamadaId: string): Promise<{ codigo: string; numero: number; tipo: TipoChamada; empresa: string; origem: ParadaChamada; destino: ParadaChamada; agendadaPara: Date | null; paradas: number }> {
+    const c = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, empresaId }, include: { empresa: { select: { nomeFantasia: true, razaoSocial: true } }, _count: { select: { paradas: true } } } });
+    if (!c) throw new NotFoundException('Chamada não encontrada.');
+    let codigo = c.codigoColeta;
+    if (!codigo) {
+      codigo = gerarCodigoColeta((n) => randomInt(0, n));
+      await this.prisma.chamadaEntrega.updateMany({ where: { id: c.id, codigoColeta: null }, data: { codigoColeta: codigo } });
+      codigo = (await this.prisma.chamadaEntrega.findUniqueOrThrow({ where: { id: c.id }, select: { codigoColeta: true } })).codigoColeta!;
+    }
+    if (!c.etiquetaImpressaEm && !terminou(c.situacao)) {
+      await this.prisma.chamadaEntrega.updateMany({ where: { id: c.id, etiquetaImpressaEm: null }, data: { etiquetaImpressaEm: new Date() } });
+      await this.registrar(c.id, evento('Etiqueta de coleta impressa.', 'empresa'));
+    }
+    return { codigo, numero: c.numero, tipo: c.tipo as TipoChamada, empresa: c.empresa.nomeFantasia || c.empresa.razaoSocial, origem: c.origem as unknown as ParadaChamada, destino: c.destino as unknown as ParadaChamada, agendadaPara: c.agendadaPara, paradas: c._count.paradas };
   }
 
   /**
@@ -1230,6 +1351,14 @@ export class ChamadasEntregadorController {
   @Get('chamada')
   chamada(@EntregadorAtual() e: { id: string }): Promise<ChamadaEntregador | null> {
     return this.chamadas.minhaChamada(e.id);
+  }
+
+  /** Pegar no balcão: lê a etiqueta de coleta e a chamada fica com ele. */
+  @Post('balcao')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  balcao(@EntregadorAtual() e: { id: string }, @Body() dto: BalcaoDto): Promise<ChamadaEntregador> {
+    return this.chamadas.pegarNoBalcao(e.id, dto);
   }
 
   /** Todas as em andamento (app novo; o antigo usa só a primeira, em /chamada). */

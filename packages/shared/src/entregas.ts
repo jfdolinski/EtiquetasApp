@@ -358,6 +358,8 @@ export interface PerfilEntregador {
   /** A diária de hoje já foi descontada. */
   diariaHoje: boolean;
   saldoDiarias: number;
+  /** Aceitou a versão atual do termo de custódia (para levar maquininha). */
+  termoCustodia?: boolean;
 }
 
 export interface SessaoEntregadorResposta {

@@ -77,6 +77,7 @@ export function TelaAvisos({
   baixarVersao,
   abrirGuia,
   irParaCreditos,
+  abrirTermo,
 }: {
   situacao: Situacao | null;
   conferir: () => void;
@@ -85,6 +86,7 @@ export function TelaAvisos({
   baixarVersao: () => void;
   abrirGuia: () => void;
   irParaCreditos: () => void;
+  abrirTermo?: () => void;
 }) {
   const [ocupado, setOcupado] = useState(false);
   const lista = pendencias(situacao, perfil, versaoNova);
@@ -146,6 +148,11 @@ export function TelaAvisos({
         />
       </Item>
       {situacao && situacao.bateriaVista && <Botao titulo="Ver o guia da bateria" variante="secundario" onPress={abrirGuia} />}
+      {abrirTermo && (
+        <Item titulo="Termo de custódia de máquinas" texto={perfil.termoCustodia ? 'Aceito: você pode receber chamadas de maquininha.' : 'Para receber chamadas de maquininha (coleta e devolução), leia e aceite o termo.'} pendente={!perfil.termoCustodia}>
+          <Botao titulo="Ler o termo" onPress={abrirTermo} />
+        </Item>
+      )}
       <Item titulo="Diárias" texto={!perfil.diariaHoje && perfil.saldoDiarias === 0 ? 'Você está sem diárias: compre créditos para ficar online.' : `${perfil.saldoDiarias} ${perfil.saldoDiarias === 1 ? 'diária disponível' : 'diárias disponíveis'}.`} pendente={!perfil.diariaHoje && perfil.saldoDiarias === 0}>
         <Botao titulo="Comprar créditos" onPress={irParaCreditos} />
       </Item>
