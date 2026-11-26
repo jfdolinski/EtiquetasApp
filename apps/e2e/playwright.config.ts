@@ -22,6 +22,9 @@ const ambienteApi = {
   CATALOGO_URL: 'http://localhost:8097',
   // Avisos (webhook) da integração para o servidor local do entregas-integracao.spec.ts.
   WEBHOOK_PERMITE_REDE_INTERNA: '1',
+  // Sefin Nacional de mentira (HTTPS com certificado próprio), que o nfse.spec.ts sobe.
+  NFSE_SEFIN_URL: 'https://localhost:8096/SefinNacional',
+  NFSE_TESTE_SEM_VERIFICAR_SERVIDOR: '1',
 };
 
 export default defineConfig({

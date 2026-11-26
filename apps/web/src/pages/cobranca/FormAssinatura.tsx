@@ -1,9 +1,11 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   formatarDataBr,
   formatarMoeda,
   ROTULO_ETAPA,
+  ROTULO_SITUACAO_NOTA,
+  type SituacaoNota,
   type AssinaturaResumo,
   type PagamentoResumo,
   type ParametrosCobrancaEmpresa,
@@ -126,6 +128,17 @@ function Pagamentos({ empresaId, assinatura, aoMudar }: { empresaId: string; ass
     mutationFn: (id: string) => api<PagamentoResumo[]>(`/cobranca/empresas/${empresaId}/pagamentos/${id}/estornar`, { metodo: 'POST' }),
     onSuccess: aposMudar,
   });
+  const emitirNota = useMutation({
+    mutationFn: (id: string) => api(`/plataforma/nfse/pagamentos/${id}/nota`, { metodo: 'POST' }),
+    onSuccess: () => void cliente.invalidateQueries({ queryKey: chave }),
+  });
+  // Enquanto alguma nota está na fila, a situação é conferida de novo.
+  const naFila = pagamentos.some((p) => p.nota && ['PENDENTE', 'PROCESSANDO'].includes(p.nota.situacao));
+  useEffect(() => {
+    if (!naFila) return;
+    const t = setInterval(() => void cliente.invalidateQueries({ queryKey: chave }), 3000);
+    return () => clearInterval(t);
+  }, [naFila]);
 
   function enviar(e: FormEvent) {
     e.preventDefault();
@@ -135,7 +148,7 @@ function Pagamentos({ empresaId, assinatura, aoMudar }: { empresaId: string; ass
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold">Pagamentos</h3>
-      {(registrar.error ?? estornar.error) && <Alerta>{(registrar.error ?? estornar.error)!.message}</Alerta>}
+      {(registrar.error ?? estornar.error ?? emitirNota.error) && <Alerta>{(registrar.error ?? estornar.error ?? emitirNota.error)!.message}</Alerta>}
       <form onSubmit={enviar} className="grid items-end gap-2 sm:grid-cols-[6rem_9rem_10rem_1fr_auto]">
         <Campo rotulo="Meses" type="number" min={1} max={36} required value={f.meses} onChange={(e) => setF({ ...f, meses: e.target.value })} />
         <Campo
@@ -160,6 +173,7 @@ function Pagamentos({ empresaId, assinatura, aoMudar }: { empresaId: string; ass
               <th>Valor</th>
               <th>Quitou</th>
               <th>Por</th>
+              <th>Nota fiscal</th>
               <th />
             </tr>
           </thead>
@@ -172,13 +186,31 @@ function Pagamentos({ empresaId, assinatura, aoMudar }: { empresaId: string; ass
                   {p.meses} mês(es): {formatarDataBr(p.vencimentoQuitado)} → próximo {formatarDataBr(p.novoVencimento)}
                 </td>
                 <td className="text-slate-500">{p.registradoPor ?? '—'}</td>
+                <td className="text-xs" data-testid="nota-do-pagamento">
+                  {p.nota ? (
+                    <span title={p.nota.erro ?? undefined} className={p.nota.situacao === 'ERRO' ? 'text-red-700' : p.nota.situacao === 'EMITIDA' ? 'text-emerald-700' : 'text-slate-600'}>
+                      {ROTULO_SITUACAO_NOTA[p.nota.situacao as SituacaoNota] ?? p.nota.situacao}
+                      {p.nota.numeroNfse && ` nº ${p.nota.numeroNfse}`}
+                    </span>
+                  ) : (
+                    <button type="button" className="text-blue-700 hover:underline" disabled={emitirNota.isPending} onClick={() => emitirNota.mutate(p.id)}>
+                      Emitir nota
+                    </button>
+                  )}
+                </td>
                 <td className="text-right">
                   {i === 0 && (
                     <button
                       type="button"
                       className="text-xs text-red-700 hover:underline"
                       disabled={estornar.isPending}
-                      onClick={() => window.confirm('Estornar este pagamento? O vencimento volta ao anterior.') && estornar.mutate(p.id)}
+                      onClick={() =>
+                        window.confirm(
+                          p.nota?.situacao === 'EMITIDA'
+                            ? `Estornar este pagamento? O vencimento volta ao anterior. A NFS-e nº ${p.nota.numeroNfse ?? ''} continua valendo: cancele em Notas fiscais.`
+                            : 'Estornar este pagamento? O vencimento volta ao anterior.',
+                        ) && estornar.mutate(p.id)
+                      }
                     >
                       Estornar
                     </button>

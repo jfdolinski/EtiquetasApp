@@ -18,6 +18,7 @@ import { BannersModule } from './banners/banners.module';
 import { HealthController } from './health.controller';
 import { ImpressaoModule } from './impressao/impressao.module';
 import { ModelosModule } from './modelos/modelos.module';
+import { NfseModule } from './nfse/nfse.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { PainelModule } from './painel/painel.module';
 import { PerfisModule } from './perfis/perfis.module';
@@ -47,6 +48,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     ImpressaoModule,
     ErpsModule,
     CobrancaModule,
+    NfseModule,
     NotificacoesModule,
     PainelModule,
     AppMovelModule,

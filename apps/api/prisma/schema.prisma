@@ -82,6 +82,9 @@ model Empresa {
   lancamentosEntrega     LancamentoEntrega[]
   metasEntrega           MetaEntrega[]
   chavesApiEntregas      ChaveApiEntregas[]
+  emissorNfse            EmissorNfse?
+  notasFiscais           NotaFiscal[]            @relation("NotasDoEmissor")
+  notasRecebidas         NotaFiscal[]            @relation("NotasRecebidas")
   chamadosSuporte        ChamadoSuporte[]
 
   @@map("empresas")
@@ -759,9 +762,10 @@ model PagamentoAssinatura {
   registradoPorId   String?  @map("registrado_por_id") @db.Uuid
   criadoEm          DateTime @default(now()) @map("criado_em")
 
-  empresa       Empresa    @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  assinatura    Assinatura @relation(fields: [assinaturaId], references: [id], onDelete: Cascade)
-  registradoPor Usuario?   @relation(fields: [registradoPorId], references: [id], onDelete: SetNull)
+  empresa       Empresa     @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  assinatura    Assinatura  @relation(fields: [assinaturaId], references: [id], onDelete: Cascade)
+  registradoPor Usuario?    @relation(fields: [registradoPorId], references: [id], onDelete: SetNull)
+  notaFiscal    NotaFiscal?
 
   @@index([empresaId, criadoEm])
   @@map("pagamentos_assinatura")
@@ -1224,6 +1228,8 @@ model Pedido {
   clienteNome        String           @map("cliente_nome")
   /// Só os 11 dígitos.
   clienteTelefone    String           @map("cliente_telefone")
+  /// CPF ou CNPJ (só dígitos) para a nota fiscal; opcional, informado na loja.
+  clienteDocumento   String?          @map("cliente_documento")
   /// EnderecoPedido; nulo na retirada.
   endereco           Json?
   modalidade         String
@@ -1258,9 +1264,10 @@ model Pedido {
   criadoEm           DateTime         @default(now()) @map("criado_em")
   atualizadoEm       DateTime         @updatedAt @map("atualizado_em")
 
-  empresa   Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  aceitoPor Usuario? @relation("PedidosAceitos", fields: [aceitoPorId], references: [id], onDelete: SetNull)
-  vendedor  Usuario? @relation("PedidosVendidos", fields: [vendedorId], references: [id], onDelete: SetNull)
+  empresa    Empresa     @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  aceitoPor  Usuario?    @relation("PedidosAceitos", fields: [aceitoPorId], references: [id], onDelete: SetNull)
+  vendedor   Usuario?    @relation("PedidosVendidos", fields: [vendedorId], references: [id], onDelete: SetNull)
+  notaFiscal NotaFiscal?
 
   @@unique([empresaId, numero])
   @@index([empresaId, situacao])
@@ -2066,4 +2073,103 @@ model MensagemSuporte {
 
   @@index([chamadoId, criadoEm])
   @@map("mensagens_suporte")
+}
+
+// NFS-e (padrão nacional) --------------------------------------------------------------------
+
+/// Quem emite NFS-e: a plataforma (empresa_id nulo, uma só, índice parcial na migração) ou uma empresa.
+model EmissorNfse {
+  id                   String    @id @default(uuid()) @db.Uuid
+  empresaId            String?   @unique @map("empresa_id") @db.Uuid
+  /// AmbienteNfse: PRODUCAO_RESTRITA (testes, sem valor fiscal) ou PRODUCAO.
+  ambiente             String    @default("PRODUCAO_RESTRITA")
+  cnpj                 String    @db.VarChar(14)
+  inscricaoMunicipal   String?   @map("inscricao_municipal")
+  razaoSocial          String    @map("razao_social")
+  /// Código IBGE (7 dígitos) do município do prestador.
+  codigoMunicipio      String    @map("codigo_municipio") @db.VarChar(7)
+  /// RegimeNfse: MEI, SIMPLES (ME/EPP) ou NORMAL.
+  regime               String
+  /// Regime especial de tributação (0 = nenhum).
+  regimeEspecial       Int       @default(0) @map("regime_especial")
+  email                String?
+  telefone             String?
+  serie                String    @default("1")
+  /// Próximo número de DPS desta série (reservado ao criar a nota, nunca reaproveitado entre notas).
+  proximoNumero        Int       @default(1) @map("proximo_numero")
+  /// ServicoNfse padrão (código de tributação nacional, municipal, NBS, descrição, alíquota, retenção).
+  servico              Json
+  /// AutomaticoNfse: o que sai sozinho (mensalidade na plataforma; pedidos na empresa).
+  automatico           Json      @default("{}")
+  /// Quando o automático foi ligado: só pagamento ou pedido depois disso vira nota (o passado não).
+  automaticoDesde      DateTime? @map("automatico_desde")
+  /// JSON { pfx (base64), senha } cifrado com cifrar(); nunca vai ao navegador.
+  certificadoCifrado   String?   @map("certificado_cifrado")
+  certificadoTitular   String?   @map("certificado_titular")
+  certificadoDocumento String?   @map("certificado_documento")
+  certificadoValidoAte DateTime? @map("certificado_valido_ate")
+  atualizadoPorId      String?   @map("atualizado_por_id") @db.Uuid
+  criadoEm             DateTime  @default(now()) @map("criado_em")
+  atualizadoEm         DateTime  @updatedAt @map("atualizado_em")
+
+  empresa Empresa?     @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  notas   NotaFiscal[]
+
+  @@map("emissores_nfse")
+}
+
+/// NFS-e emitida (ou a emitir) por um emissor. A tabela também é a fila: o relógio reivindica PENDENTE.
+model NotaFiscal {
+  id                    String    @id @default(uuid()) @db.Uuid
+  emissorId             String    @map("emissor_id") @db.Uuid
+  /// Empresa dona do emissor (nulo = nota da plataforma).
+  empresaId             String?   @map("empresa_id") @db.Uuid
+  /// Empresa tomadora (nota da mensalidade): é ela que vê a nota em "Recebidas".
+  tomadorEmpresaId      String?   @map("tomador_empresa_id") @db.Uuid
+  /// OrigemNota: MENSALIDADE, PEDIDO ou AVULSA.
+  origem                String
+  pagamentoAssinaturaId String?   @unique @map("pagamento_assinatura_id") @db.Uuid
+  pedidoId              String?   @unique @map("pedido_id") @db.Uuid
+  ambiente              String
+  serie                 String
+  numeroDps             Int       @map("numero_dps")
+  /// Id da DPS (DPS + município + inscrição + série + número): o mesmo em toda tentativa.
+  idDps                 String    @map("id_dps")
+  /// SituacaoNota de packages/shared.
+  situacao              String    @default("PENDENTE")
+  /// TomadorNfse; nulo = tomador não identificado.
+  tomador               Json?
+  /// ServicoNfse usado nesta nota.
+  servico               Json
+  valorCentavos         Int       @map("valor_centavos")
+  issCentavos           Int       @default(0) @map("iss_centavos")
+  /// Competência (AAAA-MM-DD, dia do serviço no fuso do sistema).
+  competencia           DateTime  @db.Date
+  chaveAcesso           String?   @unique @map("chave_acesso")
+  numeroNfse            String?   @map("numero_nfse")
+  xmlNfse               String?   @map("xml_nfse")
+  erro                  String?
+  tentativas            Int       @default(0)
+  proximaTentativaEm    DateTime? @map("proxima_tentativa_em")
+  emitidaEm             DateTime? @map("emitida_em")
+  canceladaEm           DateTime? @map("cancelada_em")
+  motivoCancelamento    String?   @map("motivo_cancelamento")
+  criadoPorId           String?   @map("criado_por_id") @db.Uuid
+  /// EventoNota[]: o que aconteceu.
+  historico             Json      @default("[]")
+  criadoEm              DateTime  @default(now()) @map("criado_em")
+  atualizadoEm          DateTime  @updatedAt @map("atualizado_em")
+
+  emissor    EmissorNfse          @relation(fields: [emissorId], references: [id], onDelete: Cascade)
+  empresa    Empresa?             @relation("NotasDoEmissor", fields: [empresaId], references: [id], onDelete: Cascade)
+  tomadorEmp Empresa?             @relation("NotasRecebidas", fields: [tomadorEmpresaId], references: [id], onDelete: SetNull)
+  pagamento  PagamentoAssinatura? @relation(fields: [pagamentoAssinaturaId], references: [id], onDelete: SetNull)
+  pedido     Pedido?              @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
+
+  @@unique([ambiente, idDps])
+  @@unique([emissorId, ambiente, serie, numeroDps])
+  @@index([empresaId, criadoEm])
+  @@index([tomadorEmpresaId, criadoEm])
+  @@index([situacao, proximaTentativaEm])
+  @@map("notas_fiscais")
 }

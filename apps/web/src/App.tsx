@@ -37,6 +37,7 @@ import { Pedidos } from './pages/pedidos/Pedidos';
 import { Telas } from './pages/telas/Telas';
 import { VincularTela } from './pages/telas/VincularTela';
 import { Suporte } from './pages/suporte/Suporte';
+import { NotasFiscais } from './pages/nfse/NotasFiscais';
 
 // Konva e bwip-js são pesados: o editor só é baixado quando aberto.
 const EditorModelo = lazy(() => import('./pages/modelos/EditorModelo').then((m) => ({ default: m.EditorModelo })));
@@ -146,6 +147,8 @@ export function App() {
         <Route path="notificacoes" element={<Protegida permissao="notificacao.ver"><Notificacoes /></Protegida>} />
         <Route path="auditoria" element={<Protegida permissao="auditoria.ver"><Auditoria /></Protegida>} />
         <Route path="suporte" element={<Protegida permissao="suporte.abrir"><Suporte /></Protegida>} />
+        <Route path="notas-fiscais" element={<Protegida permissao="nfse.ver"><NotasFiscais /></Protegida>} />
+        <Route path="plataforma/notas-fiscais" element={<Protegida superAdmin><NotasFiscais plataforma /></Protegida>} />
         <Route path="minha-conta" element={<MinhaConta />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

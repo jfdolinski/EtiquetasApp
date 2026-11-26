@@ -51,6 +51,7 @@ function montar(extra: Record<string, unknown> = {}, empresa: Record<string, unk
   };
   const prisma = {
     configuracaoPedidos: { findUnique: jest.fn(async () => loja as unknown) },
+    emissorNfse: { findUnique: jest.fn(async () => null) },
     pedido: { count: jest.fn(async () => 0), findUnique: jest.fn(async () => null as unknown), findMany: jest.fn(async () => reservados) },
     $transaction: jest.fn(async (f: (t: typeof tx) => Promise<unknown>) => f(tx)),
   };

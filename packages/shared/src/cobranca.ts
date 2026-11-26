@@ -179,6 +179,8 @@ export interface PagamentoResumo {
   observacao: string | null;
   registradoPor: string | null;
   criadoEm: string;
+  /** Nota fiscal da mensalidade, quando a plataforma emite NFS-e. */
+  nota?: { id: string; situacao: string; numeroNfse: string | null; erro: string | null } | null;
 }
 
 export type TipoAvisoCobranca = 'AVISO_PREVIO' | 'CARENCIA' | 'PRE_BLOQUEIO' | 'BLOQUEADA';

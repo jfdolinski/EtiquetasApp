@@ -37,3 +37,4 @@ export * from './entregas-escala';
 export * from './entregas-metas';
 export * from './entregas-integracao';
 export * from './suporte';
+export * from './nfse';

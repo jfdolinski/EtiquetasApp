@@ -47,6 +47,9 @@ export const PERMISSOES = [
   { codigo: 'entrega.configurar', grupo: 'Entregas', descricao: 'Configurar o ponto de partida, o raio, a tabela de preços, as regras de direcionamento e os entregadores preferidos e bloqueados' },
   { codigo: 'suporte.abrir', grupo: 'Suporte', descricao: 'Abrir e acompanhar os chamados da empresa com o suporte da plataforma' },
   { codigo: 'entrega.financeiro', grupo: 'Entregas', descricao: 'Ver o que a empresa deve aos entregadores, registrar pagamentos, lançar extras e responder contestações' },
+  { codigo: 'nfse.ver', grupo: 'Notas fiscais', descricao: 'Ver e baixar as notas fiscais de serviço emitidas pela empresa e as recebidas da plataforma' },
+  { codigo: 'nfse.emitir', grupo: 'Notas fiscais', descricao: 'Emitir nota avulsa, emitir de novo a nota com erro e cancelar notas' },
+  { codigo: 'nfse.configurar', grupo: 'Notas fiscais', descricao: 'Configurar os dados fiscais, o certificado digital e a emissão automática' },
 ] as const;
 
 export type CodigoPermissao = (typeof PERMISSOES)[number]['codigo'];

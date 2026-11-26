@@ -27,6 +27,12 @@ export interface Config {
   /** Mapas das entregas (OpenStreetMap): busca de endereço e blocos do mapa no navegador. */
   mapas: { nominatimUrl: string; agenteUsuario: string; blocos: string; atribuicao: string; osrmUrl: string | null };
   retencaoAuditoriaDias: number;
+  /**
+   * NFS-e (padrão nacional). `sefinUrl` troca o endereço dos dois ambientes (só nos testes, com o
+   * simulador); `verificarServidor` falso aceita o certificado do simulador; `leiauteProducao` passa a
+   * produção para o leiaute da NT 009 quando ele chegar lá.
+   */
+  nfse: { sefinUrl: string | null; verificarServidor: boolean; leiauteProducao: 'PRODUCAO_2026' | 'NT_009' };
 }
 
 let cache: Config | null = null;
@@ -111,6 +117,11 @@ export function config(): Config {
     },
     retencaoConteudoDias: diasDe(process.env.RETENCAO_CONTEUDO_DIAS, 90),
     retencaoAuditoriaDias: diasDe(process.env.RETENCAO_AUDITORIA_DIAS, 730),
+    nfse: {
+      sefinUrl: process.env.NFSE_SEFIN_URL?.replace(/\/+$/, '') || null,
+      verificarServidor: process.env.NFSE_TESTE_SEM_VERIFICAR_SERVIDOR !== '1',
+      leiauteProducao: process.env.NFSE_LEIAUTE_PRODUCAO === 'NT_009' ? 'NT_009' : 'PRODUCAO_2026',
+    },
   };
   return cache;
 }

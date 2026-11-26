@@ -150,6 +150,7 @@ Cada conexão usa uma conta de serviço do Google, com acesso somente de leitura
 | `SMTP_HOST`, `SMTP_PORTA`, `SMTP_USUARIO`, `SMTP_SENHA`, `SMTP_REMETENTE` | Envio de e-mail: senha esquecida, avisos de cobrança e notificações |
 | `URL_PUBLICA` | Endereço do site nos links dos e-mails. Sem ele não há "Esqueci minha senha" |
 | `CATALOGO_URL` | Endereço do sistema de catálogo, fonte das imagens dos posts e das fotos dos produtos nas telas. Sem ele, os posts usam só imagem própria e as telas mostram os produtos sem foto |
+| `NFSE_LEIAUTE_PRODUCAO` | Opcional. `NT_009` quando a NT 009 da NFS-e entrar em produção (ver [NFSE.md](NFSE.md)). O certificado A1 não vai em variável: é enviado na tela Notas fiscais |
 | `FCM_CONTA_SERVICO` | Avisos no celular com o app fechado: JSON da conta de serviço do Firebase, em base64 |
 | `RETENCAO_CONTEUDO_DIAS`, `RETENCAO_AUDITORIA_DIAS` | Faxina diária; padrão 90 e 730 dias |
 | `NOMINATIM_URL`, `MAPAS_AGENTE_USUARIO` | Busca de endereço das Entregas (OpenStreetMap). Padrão: o Nominatim público, que aceita uso leve (uma busca por segundo, guardadas em cache); com volume, aponte para um Nominatim próprio |

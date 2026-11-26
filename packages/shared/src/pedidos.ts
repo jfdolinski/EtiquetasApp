@@ -760,6 +760,8 @@ export interface NovoPedido {
   /** Só em dinheiro; nulo = não precisa de troco. */
   trocoParaCentavos: number | null;
   observacao: string;
+  /** CPF ou CNPJ para a nota fiscal (opcional; só quando a loja emite NFS-e). */
+  documento?: string | null;
 }
 
 /** O que o servidor sabe na hora de conferir. */
@@ -836,6 +838,8 @@ export interface CatalogoPublico {
   localRetirada: PontoNoMapa | null;
   /** Só dígitos, com DDD; nulo sem WhatsApp configurado. */
   whatsappLoja: string | null;
+  /** A loja emite nota fiscal dos pedidos: o cliente pode informar CPF ou CNPJ. */
+  pedeDocumento?: boolean;
   faixas: FaixaAgendamento[];
   pedidoMinimoCentavos: number | null;
   itens: ItemCatalogo[];

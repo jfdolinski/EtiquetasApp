@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   caminhoAcompanhamento,
+  documentoDoTomador,
   itensParaRepetir,
   LIMITE_OBSERVACAO_ITEM,
   linkMapaRetirada,
@@ -643,6 +644,8 @@ function Finalizar({
   const [trocoTexto, setTrocoTexto] = useState('');
   const [semTroco, setSemTroco] = useState(false);
   const [observacao, setObservacao] = useState('');
+  // CPF/CNPJ na nota: não fica guardado no aparelho.
+  const [documento, setDocumento] = useState('');
   const [cepSituacao, setCepSituacao] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -670,7 +673,9 @@ function Finalizar({
             ? 'Escolha o dia e o horário da entrega.'
             : pagamento === 'DINHEIRO' && !semTroco && (trocoPara_ === null || troco === null)
               ? `Diga para quanto é o troco (o total é ${formatarCentavos(total)}), ou marque que não precisa.`
-              : null;
+              : documento.trim() && !documentoDoTomador(documento)
+                ? 'CPF ou CNPJ para a nota fiscal inválido (deixe em branco se não quiser).'
+                : null;
 
   const buscarCep = async (cep: string) => {
     const n = normalizarCep(cep);
@@ -699,6 +704,7 @@ function Finalizar({
       pagamento,
       trocoParaCentavos: trocoPara_,
       observacao: observacao.trim(),
+      ...(documento.trim() ? { documento: documento.trim() } : {}),
     };
     try {
       const r = await pedir<PedidoCriado>(`${codigo}/pedidos`, corpo);
@@ -729,6 +735,11 @@ function Finalizar({
         <Rotulo texto="Celular (WhatsApp)">
           <input className={campo} type="tel" inputMode="tel" autoComplete="tel-national" placeholder="(11) 98765-4321" value={telefone} onChange={(e) => setTelefone(mascaraCelular(e.target.value))} />
         </Rotulo>
+        {catalogo.pedeDocumento && (
+          <Rotulo texto="CPF ou CNPJ na nota fiscal (opcional)">
+            <input className={campo} inputMode="numeric" maxLength={18} placeholder="Só se quiser a nota no seu nome" value={documento} onChange={(e) => setDocumento(e.target.value)} />
+          </Rotulo>
+        )}
       </Bloco>
 
       <Bloco titulo="Como quer receber">

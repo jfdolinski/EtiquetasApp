@@ -6,6 +6,7 @@ import type { Request, Response } from 'express';
 import { IsArray, IsBoolean, IsDateString, IsInt, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import {
   caminhoLogoDaLoja,
+  documentoDoTomador,
   categoriasDoCatalogo,
   descontarReservas,
   reservasDosPedidos,
@@ -100,6 +101,11 @@ class NovoPedidoDto implements NovoPedido {
   @IsString()
   @MaxLength(2000)
   observacao: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  documento?: string | null;
 }
 
 class CancelarPeloClienteDto {
@@ -195,6 +201,12 @@ export class LojaService {
     return { cfg, horario, hoje, hora, diaSemana, aberta, faixas };
   }
 
+  /** A empresa emite NFS-e dos pedidos sozinha: aí vale pedir o CPF/CNPJ na loja. */
+  private async emiteNota(empresaId: string): Promise<boolean> {
+    const e = await this.prisma.emissorNfse.findUnique({ where: { empresaId }, select: { automatico: true } });
+    return !!(e?.automatico as { pedidos?: boolean } | null)?.pedidos;
+  }
+
   async catalogo(codigo: string, agora = new Date()): Promise<CatalogoPublico> {
     const l = await this.loja(codigo, agora);
     const { cfg, horario, hoje, hora, diaSemana, aberta, faixas } = this.contexto(l, agora);
@@ -213,6 +225,7 @@ export class LojaService {
       enderecoRetirada: permitidas.includes('RETIRADA') ? cfg.enderecoRetirada : null,
       localRetirada: permitidas.includes('RETIRADA') ? (cfg.localRetirada ?? null) : null,
       whatsappLoja: telefoneDaLoja(cfg.whatsappLoja ?? ''),
+      pedeDocumento: await this.emiteNota(l.empresaId),
       faixas: permitidas.includes('AGENDADA') ? faixas : [],
       pedidoMinimoCentavos: cfg.pedidoMinimoCentavos,
       itens,
@@ -295,7 +308,8 @@ ${logo ? `<meta property="og:image" content="${e(origem + logo)}">\n` : ''}<meta
     const pedido: NovoPedido = { ...dto, itens: carrinho, endereco: dto.endereco ? enderecoLimpo(dto.endereco) : null, agendamento: dto.agendamento ?? null, trocoParaCentavos: dto.trocoParaCentavos ?? null, observacao: dto.observacao ?? '' };
     const problema = problemaNoPedido(pedido, itens, { modalidades: cfg.modalidades, aberta, faixas, pedidoMinimoCentavos: cfg.pedidoMinimoCentavos });
     if (problema) throw new BadRequestException(problema);
-
+    const documento = (dto.documento ?? '').trim() ? documentoDoTomador(dto.documento) : null;
+    if ((dto.documento ?? '').trim() && !documento) throw new BadRequestException('CPF ou CNPJ para a nota fiscal inválido.');
 
     const taxa = cfg.modalidades[pedido.modalidade].precoCentavos;
     const troco = pedido.pagamento === 'DINHEIRO' ? pedido.trocoParaCentavos : null;
@@ -316,6 +330,7 @@ ${logo ? `<meta property="og:image" content="${e(origem + logo)}">\n` : ''}<meta
           codigoCifrado: cifrar(codigoAcompanhamento, config().chaveCriptografia),
           clienteNome: pedido.nome.trim(),
           clienteTelefone: normalizarCelular(pedido.telefone)!,
+          clienteDocumento: documento,
           endereco: pedido.modalidade === 'RETIRADA' ? Prisma.DbNull : (pedido.endereco as unknown as Prisma.InputJsonValue),
           modalidade: pedido.modalidade,
           agendamento: pedido.modalidade === 'AGENDADA' ? (pedido.agendamento as unknown as Prisma.InputJsonValue) : Prisma.DbNull,

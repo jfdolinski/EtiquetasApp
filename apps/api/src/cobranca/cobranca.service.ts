@@ -128,7 +128,7 @@ export class CobrancaService implements OnApplicationBootstrap {
       where: { empresaId },
       orderBy: { criadoEm: 'desc' },
       take: 100,
-      include: { registradoPor: { select: { nome: true } } },
+      include: { registradoPor: { select: { nome: true } }, notaFiscal: { select: { id: true, situacao: true, numeroNfse: true, erro: true } } },
     });
     return lista.map((p) => ({
       id: p.id,
@@ -140,6 +140,7 @@ export class CobrancaService implements OnApplicationBootstrap {
       observacao: p.observacao,
       registradoPor: p.registradoPor?.nome ?? null,
       criadoEm: p.criadoEm.toISOString(),
+      nota: p.notaFiscal,
     }));
   }
 
