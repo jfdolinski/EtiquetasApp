@@ -53,7 +53,7 @@ async function cumprir(t: string, chamadaId: string, ent: { id: string; token: s
   expect((await avancar({ para: 'CONCLUIDA', ...destino, codigo })).j.situacao).toBe('CONCLUIDA');
 }
 
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => new Intl.DateTimeFormat('sv', { timeZone: 'America/Sao_Paulo' }).format(new Date());
 
 test('API: pedido → chamada, avaliação, extra, contestação, pagamento e extrato', async () => {
   test.setTimeout(90_000);

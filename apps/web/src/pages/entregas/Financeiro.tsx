@@ -11,13 +11,10 @@ import {
   type LinhaFechamento,
 } from '@etiquetas/shared';
 import { api, apiArquivo } from '../../api';
+import { useHojeDoSistema } from '../../components/Relogio';
 import { Alerta, Botao, Campo, formatarData, Modal, Selo, Tabela } from '../../components/ui';
 
 const dataBr = (iso: string) => iso.slice(0, 10).split('-').reverse().join('/');
-const hojeLocal = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
 
 function lerArquivo(arquivo: File): Promise<string> {
   return new Promise((ok, erro) => {
@@ -90,7 +87,9 @@ function RegistrarPagamento({ a, aoFechar }: { a: APagarEntregador; aoFechar: ()
   const cliente = useQueryClient();
   const linhas = useQuery({ queryKey: ['entregas-pendentes', a.entregador.id], queryFn: () => api<LinhaFechamento[]>(`/entregas/financeiro/a-pagar/${a.entregador.id}`) });
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
-  const [pagoEm, setPagoEm] = useState(hojeLocal());
+  const hoje = useHojeDoSistema();
+  const [escolhido, setPagoEm] = useState<string | null>(null);
+  const pagoEm = escolhido ?? hoje;
   const [observacao, setObservacao] = useState('');
   const [comprovante, setComprovante] = useState<string | null>(null);
   useEffect(() => {
@@ -138,7 +137,7 @@ function RegistrarPagamento({ a, aoFechar }: { a: APagarEntregador; aoFechar: ()
           {escolhidas.length} chamada{escolhidas.length === 1 ? '' : 's'}: <strong>{formatarCentavos(somaDasLinhas(escolhidas))}</strong>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Campo rotulo="Data do pagamento" type="date" max={hojeLocal()} value={pagoEm} onChange={(e) => setPagoEm(e.target.value)} />
+          <Campo rotulo="Data do pagamento" type="date" max={hoje} value={pagoEm} onChange={(e) => setPagoEm(e.target.value)} />
           <Campo rotulo="Observação" value={observacao} onChange={(e) => setObservacao(e.target.value)} placeholder="Ex.: Pix do dia, id da transação" />
         </div>
         <label className="block">

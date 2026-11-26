@@ -39,7 +39,7 @@ test('API: PDF do pagamento para a empresa e para o entregador; etapa com a hora
   expect((await av({ para: 'CONCLUIDA', ...D, codigo: ch.codigoConfirmacao })).j.situacao).toBe('CONCLUIDA');
 
   // Pagamento e o PDF dele.
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = new Intl.DateTimeFormat('sv', { timeZone: 'America/Sao_Paulo' }).format(new Date());
   const pago = (await pedir('POST', '/entregas/financeiro/fechamentos', { token: t, corpo: { entregadorId: ent.id, chamadaIds: [ch.id], pagoEm: hoje, observacao: 'Pix da semana' } })).j;
   const pdfEmpresa = await fetch(`${API}/entregas/financeiro/fechamentos/${pago.id}/pdf`, { headers: { Authorization: `Bearer ${t}` } });
   expect(pdfEmpresa.status).toBe(200);
