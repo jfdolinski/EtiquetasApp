@@ -46,7 +46,8 @@ import { PosEntrega } from './PosEntrega';
 import { ConversaDaChamada } from './Conversa';
 import { AlertaEmergencia, LinkRastreio } from './RastreioDaChamada';
 import { AvariasDaChamada, centavosDoTexto } from './Avarias';
-import { MAX_COLETAS_EXTRAS } from '@etiquetas/shared';
+import { MAX_COLETAS_EXTRAS, type ResultadoRoteiro } from '@etiquetas/shared';
+import { ResultadoDoRoteiro, RoteirizarPedidos } from './Roteirizar';
 
 const COR_SITUACAO: Record<SituacaoChamada, 'verde' | 'amarelo' | 'vermelho' | 'cinza'> = {
   ABERTA: 'amarelo',
@@ -75,6 +76,8 @@ export function Chamadas({ config, mapa, abrir }: { config: ConfigEntregasEmpres
   const [nova, setNova] = useState(false);
   const [juntando, setJuntando] = useState(false);
   const [juntos, setJuntos] = useState<RascunhoJuntos | null>(null);
+  const [roteirizando, setRoteirizando] = useState(false);
+  const [roteiro, setRoteiro] = useState<ResultadoRoteiro | null>(null);
   const [aberta, setAberta] = useState<string | null>(abrir ?? null);
   const { data = [], error, isLoading } = useQuery({ queryKey: ['chamadas', filtro], queryFn: () => api<ChamadaResumo[]>(`/entregas/chamadas?filtro=${filtro}`), refetchInterval: 10_000 });
   const gerencia = pode('entrega.gerenciar');
@@ -90,6 +93,9 @@ export function Chamadas({ config, mapa, abrir }: { config: ConfigEntregasEmpres
         </div>
         {gerencia && (
           <div className="flex gap-2">
+            <Botao variante="secundario" onClick={() => setRoteirizando(true)}>
+              Roteirizar pedidos
+            </Botao>
             <Botao variante="secundario" onClick={() => setJuntando(true)}>
               Juntar pedidos
             </Botao>
@@ -97,6 +103,7 @@ export function Chamadas({ config, mapa, abrir }: { config: ConfigEntregasEmpres
           </div>
         )}
       </div>
+      {roteiro && <ResultadoDoRoteiro r={roteiro} aoFechar={() => setRoteiro(null)} />}
       {error && <Alerta>{error.message}</Alerta>}
       {!isLoading && (
         <Tabela colunas={['Nº', 'Serviço', 'Destino', 'Entregador', 'Valor', 'Situação']} vazio={data.length === 0}>
@@ -124,6 +131,7 @@ export function Chamadas({ config, mapa, abrir }: { config: ConfigEntregasEmpres
         </Tabela>
       )}
       {nova && <NovaChamadaModal config={config} mapa={mapa} aoFechar={() => setNova(false)} aoCriar={(id) => { setNova(false); setAberta(id); }} />}
+      {roteirizando && <RoteirizarPedidos aoFechar={() => setRoteirizando(false)} aoAbrir={(r) => { setRoteirizando(false); setRoteiro(r); }} />}
       {juntando && <JuntarPedidos aoFechar={() => setJuntando(false)} aoMontar={(r) => { setJuntando(false); setJuntos(r); }} />}
       {juntos && <NovaChamadaModal config={config} mapa={mapa} juntos={juntos} aoFechar={() => setJuntos(null)} aoCriar={(id) => { setJuntos(null); setAberta(id); }} />}
       {aberta && <DetalheChamada id={aberta} mapa={mapa} gerencia={gerencia} aoFechar={() => setAberta(null)} />}

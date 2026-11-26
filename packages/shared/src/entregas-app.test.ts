@@ -17,6 +17,8 @@ import { formatarKm, linkNavegacao, MOTIVOS_OCORRENCIA, normalizarSerie, PROXIMA
 import { LIMITE_MENSAGEM, LIMITES_VOLUMES, normalizarCodigoColeta, problemaNosVolumes, textoVolumes } from './entregas-balcao';
 import { comprimentoDaAssinatura, LIMITES_ASSINATURA, problemaNaAssinatura, PROPORCAO_ASSINATURA } from './entregas-comprovacao';
 import { ROTULO_RESPONSAVEL_AVARIA, ROTULO_SITUACAO_AVARIA, ROTULO_TIPO_AVARIA } from './entregas-escala';
+import { ROTULO_SITUACAO_META } from './entregas-metas';
+import { CATEGORIAS_SUPORTE, problemaNaMensagemDeSuporte, problemaNoChamado, ROTULO_CATEGORIA_SUPORTE, ROTULO_SITUACAO_SUPORTE } from './suporte';
 import { ESPERA_BLOCO_MINUTOS, ESTADOS_MAQUINA, ITENS_CHECKLIST, LIMITE_OBSERVACAO_CHECKLIST, problemaNoChecklist, ROTULO_ESTADO_MAQUINA } from './entregas-servico';
 
 /** O app do entregador só importa tipos daqui: as regras são copiadas em apps/entregador/src/regras.ts. */
@@ -71,5 +73,12 @@ describe('cópias do app do entregador', () => {
     for (const c of [" fc23456789ab ", "]C1FC23456789AB", "7891000100103", "FC0000000000", ""]) expect(app.normalizarCodigoColeta(c)).toBe(normalizarCodigoColeta(c));
     for (const v of [0, 1, 2.5, 99, 100, "3"]) expect(app.problemaNosVolumes(v)).toBe(problemaNosVolumes(v));
     for (const n of [1, 2]) expect(app.textoVolumes(n)).toBe(textoVolumes(n));
+    expect(app.ROTULO_SITUACAO_META).toEqual(ROTULO_SITUACAO_META);
+    expect(app.CATEGORIAS_SUPORTE).toEqual([...CATEGORIAS_SUPORTE]);
+    expect(app.ROTULO_CATEGORIA_SUPORTE).toEqual(ROTULO_CATEGORIA_SUPORTE);
+    expect(app.ROTULO_SITUACAO_SUPORTE).toEqual(ROTULO_SITUACAO_SUPORTE);
+    for (const t of ['', 'oi', 'Não consigo entrar', 'x'.repeat(2001)]) expect(app.problemaNaMensagemDeSuporte(t)).toBe(problemaNaMensagemDeSuporte(t));
+    for (const c of [{ categoria: 'APP', assunto: 'Erro', texto: 'Não abre o app' }, { categoria: 'X', assunto: 'Erro no app', texto: 'Não abre o app' }, { categoria: 'PAGAMENTO', assunto: 'Diária não caiu', texto: 'Paguei ontem' }, { categoria: 'OUTRO', assunto: 'y'.repeat(121), texto: 'texto longo' }])
+      expect(app.problemaNoChamado(c)).toBe(problemaNoChamado(c));
   });
 });

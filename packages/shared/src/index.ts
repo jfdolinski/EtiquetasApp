@@ -34,3 +34,6 @@ export * from './entregas-erp';
 export * from './entregas-comprovacao';
 export * from './entregas-balcao';
 export * from './entregas-escala';
+export * from './entregas-metas';
+export * from './entregas-integracao';
+export * from './suporte';

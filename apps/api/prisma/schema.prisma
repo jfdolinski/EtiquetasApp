@@ -80,6 +80,9 @@ model Empresa {
   turnosEntrega          TurnoEntrega[]
   avariasChamada         AvariaChamada[]
   lancamentosEntrega     LancamentoEntrega[]
+  metasEntrega           MetaEntrega[]
+  chavesApiEntregas      ChaveApiEntregas[]
+  chamadosSuporte        ChamadoSuporte[]
 
   @@map("empresas")
 }
@@ -128,6 +131,7 @@ model Usuario {
   redefinicoes            RedefinicaoSenha[]
   conteudosTela           ConteudoTela[]
   configuracoesPedidos    ConfiguracaoPedidos[]
+  chamadosSuporte         ChamadoSuporte[]
   configuracoesPedidosErp ConfiguracaoPedidosErp[]
   pedidosAceitos          Pedido[]                 @relation("PedidosAceitos")
   pedidosVendidos         Pedido[]                 @relation("PedidosVendidos")
@@ -1303,20 +1307,21 @@ model Entregador {
   criadoEm            DateTime  @default(now()) @map("criado_em")
   atualizadoEm        DateTime  @updatedAt @map("atualizado_em")
 
-  sessoes      SessaoEntregador[]
-  documentos   DocumentoEntregador[]
-  pedidos      PedidoCredito[]
-  lotes        LoteCredito[]
-  diarias      DiariaEntregador[]
-  chamadas     ChamadaEntrega[]
-  ofertas      OfertaChamada[]
-  empresas     EntregadorEmpresa[]
-  fechamentos  FechamentoEntrega[]
-  contestacoes ContestacaoEntrega[]
-  redefinicoes RedefinicaoSenhaEntregador[]
-  inscricoes   InscricaoTurno[]
-  avarias      AvariaChamada[]
-  lancamentos  LancamentoEntrega[]
+  sessoes         SessaoEntregador[]
+  documentos      DocumentoEntregador[]
+  pedidos         PedidoCredito[]
+  lotes           LoteCredito[]
+  diarias         DiariaEntregador[]
+  chamadas        ChamadaEntrega[]
+  ofertas         OfertaChamada[]
+  empresas        EntregadorEmpresa[]
+  fechamentos     FechamentoEntrega[]
+  contestacoes    ContestacaoEntrega[]
+  redefinicoes    RedefinicaoSenhaEntregador[]
+  inscricoes      InscricaoTurno[]
+  avarias         AvariaChamada[]
+  lancamentos     LancamentoEntrega[]
+  chamadosSuporte ChamadoSuporte[]
 
   @@index([online, posicaoEm])
   @@index([situacao, criadoEm])
@@ -1584,6 +1589,10 @@ model ChamadaEntrega {
   avaliacaoEmpresaNota       Int?      @map("avaliacao_empresa_nota")
   avaliacaoEmpresaComentario String    @default("") @map("avaliacao_empresa_comentario")
   avaliacaoEmpresaEm         DateTime? @map("avaliacao_empresa_em")
+  /// Número do pedido no sistema da empresa (API de integração): a mesma referência não abre duas chamadas.
+  referenciaExterna          String?   @map("referencia_externa")
+  /// Último "situação:parada" já avisado por webhook.
+  webhookEstado              String?   @map("webhook_estado")
   criadoPorId                String?   @map("criado_por_id") @db.Uuid
   criadoEm                   DateTime  @default(now()) @map("criado_em")
   atualizadoEm               DateTime  @updatedAt @map("atualizado_em")
@@ -1601,6 +1610,7 @@ model ChamadaEntrega {
   avarias      AvariaChamada[]
 
   @@unique([empresaId, numero])
+  @@unique([empresaId, referenciaExterna])
   @@index([empresaId, avaliacaoEmpresaEm])
   @@index([empresaId, criadoEm])
   @@index([entregadorId, situacao])
@@ -1926,6 +1936,7 @@ model LancamentoEntrega {
   fechamentoId  String?  @map("fechamento_id") @db.Uuid
   inscricaoId   String?  @unique @map("inscricao_id") @db.Uuid
   avariaId      String?  @unique @map("avaria_id") @db.Uuid
+  metaId        String?  @map("meta_id") @db.Uuid
   criadoEm      DateTime @default(now()) @map("criado_em")
 
   empresa    Empresa            @relation(fields: [empresaId], references: [id], onDelete: Cascade)
@@ -1933,8 +1944,126 @@ model LancamentoEntrega {
   fechamento FechamentoEntrega? @relation(fields: [fechamentoId], references: [id], onDelete: SetNull)
   inscricao  InscricaoTurno?    @relation(fields: [inscricaoId], references: [id], onDelete: Cascade)
   avaria     AvariaChamada?     @relation(fields: [avariaId], references: [id], onDelete: Cascade)
+  meta       MetaEntrega?       @relation(fields: [metaId], references: [id], onDelete: Cascade)
 
+  @@unique([metaId, entregadorId])
   @@index([empresaId, entregadorId, fechamentoId])
   @@index([entregadorId, criadoEm])
   @@map("lancamentos_entrega")
+}
+
+/// Meta da empresa para os entregadores: N chamadas concluídas no período (e no horário de pico, se houver) rendem o bônus.
+model MetaEntrega {
+  id             String    @id @default(uuid()) @db.Uuid
+  empresaId      String    @map("empresa_id") @db.Uuid
+  nome           String
+  inicio         DateTime
+  fim            DateTime
+  minimoChamadas Int       @map("minimo_chamadas")
+  valorCentavos  Int       @map("valor_centavos")
+  /// FaixaMeta (shared) ou nulo = qualquer horário.
+  faixa          Json?
+  canceladaEm    DateTime? @map("cancelada_em")
+  /// Quando o relógio contou e lançou os bônus (uma vez).
+  apuradaEm      DateTime? @map("apurada_em")
+  criadoPorId    String?   @map("criado_por_id") @db.Uuid
+  criadoEm       DateTime  @default(now()) @map("criado_em")
+
+  empresa     Empresa             @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  lancamentos LancamentoEntrega[]
+
+  @@index([empresaId, fim])
+  @@index([apuradaEm, fim])
+  @@map("metas_entrega")
+}
+
+/// Chave da API de integração (só o hash) e o webhook que recebe os avisos das chamadas.
+model ChaveApiEntregas {
+  id                    String    @id @default(uuid()) @db.Uuid
+  empresaId             String    @map("empresa_id") @db.Uuid
+  nome                  String
+  tokenHash             String    @unique @map("token_hash")
+  prefixo               String
+  webhookUrl            String?   @map("webhook_url")
+  webhookSegredoCifrado String    @map("webhook_segredo_cifrado")
+  criadoPorId           String?   @map("criado_por_id") @db.Uuid
+  criadoPorNome         String?   @map("criado_por_nome")
+  criadoEm              DateTime  @default(now()) @map("criado_em")
+  ultimoUsoEm           DateTime? @map("ultimo_uso_em")
+  revogadaEm            DateTime? @map("revogada_em")
+
+  empresa Empresa        @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  envios  EnvioWebhook[]
+
+  @@index([empresaId])
+  @@map("chaves_api_entregas")
+}
+
+/// Fila dos avisos (webhook): cada um tenta até 6 vezes, com espera crescente.
+model EnvioWebhook {
+  id           String    @id @default(uuid()) @db.Uuid
+  chaveId      String    @map("chave_id") @db.Uuid
+  chamadaId    String?   @map("chamada_id") @db.Uuid
+  evento       String
+  corpo        Json
+  tentativas   Int       @default(0)
+  proximaEm    DateTime  @default(now()) @map("proxima_em")
+  enviadoEm    DateTime? @map("enviado_em")
+  falhouEm     DateTime? @map("falhou_em")
+  ultimoStatus Int?      @map("ultimo_status")
+  ultimoErro   String?   @map("ultimo_erro")
+  criadoEm     DateTime  @default(now()) @map("criado_em")
+
+  chave ChaveApiEntregas @relation(fields: [chaveId], references: [id], onDelete: Cascade)
+
+  @@index([enviadoEm, falhouEm, proximaEm])
+  @@index([chaveId, criadoEm])
+  @@map("envios_webhook")
+}
+
+/// Chamado de suporte da plataforma, aberto pela empresa (site) ou pelo entregador (app).
+model ChamadoSuporte {
+  id            String    @id @default(uuid()) @db.Uuid
+  numero        Int       @unique @default(autoincrement())
+  /// EMPRESA ou ENTREGADOR.
+  origem        String
+  empresaId     String?   @map("empresa_id") @db.Uuid
+  usuarioId     String?   @map("usuario_id") @db.Uuid
+  entregadorId  String?   @map("entregador_id") @db.Uuid
+  autorNome     String    @map("autor_nome")
+  categoria     String
+  assunto       String
+  /// ABERTO, RESPONDIDO ou RESOLVIDO.
+  situacao      String    @default("ABERTO")
+  lidoSuporteEm DateTime? @map("lido_suporte_em")
+  lidoAutorEm   DateTime? @map("lido_autor_em")
+  resolvidoEm   DateTime? @map("resolvido_em")
+  criadoEm      DateTime  @default(now()) @map("criado_em")
+  atualizadoEm  DateTime  @updatedAt @map("atualizado_em")
+
+  empresa    Empresa?          @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  usuario    Usuario?          @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  entregador Entregador?       @relation(fields: [entregadorId], references: [id], onDelete: Cascade)
+  mensagens  MensagemSuporte[]
+
+  @@index([situacao, atualizadoEm])
+  @@index([empresaId, atualizadoEm])
+  @@index([entregadorId, atualizadoEm])
+  @@map("chamados_suporte")
+}
+
+model MensagemSuporte {
+  id         String   @id @default(uuid()) @db.Uuid
+  chamadoId  String   @map("chamado_id") @db.Uuid
+  deSuporte  Boolean  @map("de_suporte")
+  autorNome  String   @map("autor_nome")
+  texto      String
+  imagemMime String?  @map("imagem_mime")
+  imagem     Bytes?
+  criadoEm   DateTime @default(now()) @map("criado_em")
+
+  chamado ChamadoSuporte @relation(fields: [chamadoId], references: [id], onDelete: Cascade)
+
+  @@index([chamadoId, criadoEm])
+  @@map("mensagens_suporte")
 }

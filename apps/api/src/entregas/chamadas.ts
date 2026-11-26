@@ -157,7 +157,7 @@ class AssinaturaDto {
   @IsString() @MaxLength(80) recebedor: string;
 }
 
-class NovaChamadaDto {
+export class NovaChamadaDto {
   @IsIn(TIPOS_CHAMADA, { message: 'Escolha o tipo do serviço.' }) tipo: TipoChamada;
   @ValidateNested() @Type(() => ParadaDto) origem: ParadaDto;
   @ValidateNested() @Type(() => ParadaDto) destino: ParadaDto;
@@ -337,7 +337,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
     return { ...rota, valorTabelaCentavos, adicionais, valorCentavos, minimoAplicado: valorCentavos > bruto };
   }
 
-  async criar(empresaId: string, dto: NovaChamadaDto, autorId: string | null): Promise<ChamadaResumo> {
+  async criar(empresaId: string, dto: NovaChamadaDto, autorId: string | null, extra: { referenciaExterna?: string | null; aberturaPor?: string } = {}): Promise<ChamadaResumo> {
     const c: NovaChamada = { ...dto, serieEsperada: dto.serieEsperada ? normalizarSerie(dto.serieEsperada) : null, observacao: dto.observacao.trim() };
     const problemaAgenda = problemaNoAgendamento(dto.agendadaPara, new Date());
     if (problemaAgenda) throw new BadRequestException(problemaAgenda);
@@ -385,7 +385,8 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
           agendadaPara: dto.agendadaPara ? new Date(dto.agendadaPara) : null,
           coletasExtras: (dto.coletasExtras ?? []).map((p): ColetaExtra => ({ parada: limpa(p), coletadaEm: null, volumes: null })) as never,
           valorDeclaradoCentavos: dto.valorDeclaradoCentavos ?? null,
-          historico: [evento('Chamada aberta.', 'empresa')] as never,
+          historico: [evento(extra.aberturaPor ? `Chamada aberta ${extra.aberturaPor}.` : 'Chamada aberta.', 'empresa')] as never,
+          referenciaExterna: extra.referenciaExterna ?? null,
           criadoPorId: autorId,
           pedidoId,
           rastreioHash: rastreio.rastreioHash,
@@ -610,7 +611,7 @@ export class ChamadasService implements OnApplicationBootstrap, OnModuleDestroy 
    * Cancelar depois que alguém aceitou paga a taxa de deslocamento da tabela: a chamada fica
    * CANCELADA com `cancelamento_pago`, o valor vira a taxa e ela entra no "a pagar" do entregador.
    */
-  async cancelar(empresaId: string, chamadaId: string, motivo: string, autorId: string): Promise<ChamadaResumo> {
+  async cancelar(empresaId: string, chamadaId: string, motivo: string, autorId: string | null): Promise<ChamadaResumo> {
     const atual = await this.prisma.chamadaEntrega.findFirst({ where: { id: chamadaId, empresaId }, select: { situacao: true, tipo: true, entregadorId: true, valorCentavos: true, esperaCentavos: true, atualizadoEm: true } });
     if (!atual) throw new NotFoundException('Chamada não encontrada.');
     const { precos } = await this.empresas.config(empresaId);

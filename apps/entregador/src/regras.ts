@@ -6,6 +6,8 @@ import type { DadosCadastroEntregador, SituacaoEntregador, SituacaoPedidoCredito
 import type { ChecklistMaquina, EstadoMaquina } from '../../../packages/shared/src/entregas-servico';
 import type { AssinaturaEntrega, TracoAssinatura } from '../../../packages/shared/src/entregas-comprovacao';
 import type { ResponsavelAvaria, SituacaoAvaria, TipoAvaria } from '../../../packages/shared/src/entregas-escala';
+import type { SituacaoMeta } from '../../../packages/shared/src/entregas-metas';
+import type { CategoriaSuporte, SituacaoSuporte } from '../../../packages/shared/src/suporte';
 
 export const TIPOS_VEICULO: TipoVeiculo[] = ['MOTO', 'CARRO', 'BICICLETA', 'A_PE'];
 export const ROTULO_VEICULO: Record<TipoVeiculo, string> = { MOTO: 'Moto', CARRO: 'Carro', BICICLETA: 'Bicicleta', A_PE: 'A pé' };
@@ -235,3 +237,42 @@ export const ROTULO_SITUACAO_AVARIA: Record<SituacaoAvaria, string> = {
   CONTESTADA: 'Contestada pelo entregador',
   RETIRADA: 'Retirada pela empresa',
 };
+
+// Etapa 14: metas e suporte -------------------------------------------------------------------
+
+export const ROTULO_SITUACAO_META: Record<SituacaoMeta, string> = {
+  AGENDADA: 'Ainda não começou',
+  EM_ANDAMENTO: 'Valendo',
+  ENCERRADA: 'Encerrada',
+  CANCELADA: 'Cancelada',
+};
+
+export const CATEGORIAS_SUPORTE: CategoriaSuporte[] = ['APP', 'PAGAMENTO', 'CONTA', 'ENTREGA', 'OUTRO'];
+
+export const ROTULO_CATEGORIA_SUPORTE: Record<CategoriaSuporte, string> = {
+  APP: 'Problema no app ou no site',
+  PAGAMENTO: 'Pagamento ou diárias',
+  CONTA: 'Cadastro e conta',
+  ENTREGA: 'Uma chamada ou entrega',
+  OUTRO: 'Outro assunto',
+};
+
+export const ROTULO_SITUACAO_SUPORTE: Record<SituacaoSuporte, string> = {
+  ABERTO: 'Esperando o suporte',
+  RESPONDIDO: 'Respondido',
+  RESOLVIDO: 'Resolvido',
+};
+
+export function problemaNaMensagemDeSuporte(texto: string): string | null {
+  const t = (texto ?? '').trim();
+  if (t.length < 5) return 'Escreva a mensagem (ao menos 5 letras).';
+  if (t.length > 2000) return 'A mensagem vai até 2000 letras.';
+  return null;
+}
+
+export function problemaNoChamado(c: { categoria: string; assunto: string; texto: string }): string | null {
+  if (!(CATEGORIAS_SUPORTE as string[]).includes(c.categoria)) return 'Escolha o assunto.';
+  const a = (c.assunto ?? '').trim();
+  if (a.length < 5 || a.length > 120) return 'Resuma o problema no título (de 5 a 120 letras).';
+  return problemaNaMensagemDeSuporte(c.texto);
+}

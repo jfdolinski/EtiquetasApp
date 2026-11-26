@@ -44,6 +44,7 @@ const MENU: ItemMenu[] = [
   { para: '/assinatura', rotulo: 'Assinatura', permissao: 'empresa.ver', grupo: 'Equipe e conta' },
   { para: '/notificacoes', rotulo: 'Notificações', permissao: 'notificacao.ver', grupo: 'Equipe e conta' },
   { para: '/auditoria', rotulo: 'Auditoria', permissao: 'auditoria.ver', grupo: 'Equipe e conta' },
+  { para: '/suporte', rotulo: 'Suporte', permissao: 'suporte.abrir', grupo: 'Equipe e conta' },
   { para: '/minha-conta', rotulo: 'Minha conta', grupo: 'Equipe e conta' },
 ];
 
@@ -105,7 +106,15 @@ function usePendencias(): Record<string, number> {
     enabled: !!usuario?.superAdmin,
     refetchInterval: 60_000,
   });
+  const veSuporte = !!usuario?.superAdmin || (!!empresaId && pode('suporte.abrir'));
+  const { data: suporte } = useQuery({
+    queryKey: ['suporte-nao-lidas', empresaId, usuario?.superAdmin],
+    queryFn: () => api<{ quantidade: number; abertos?: number }>(usuario?.superAdmin ? '/plataforma/suporte/nao-lidas' : '/suporte/nao-lidas'),
+    enabled: veSuporte,
+    refetchInterval: 60_000,
+  });
   return {
+    '/suporte': veSuporte ? (usuario?.superAdmin ? (suporte?.abertos ?? 0) : (suporte?.quantidade ?? 0)) : 0,
     '/usuarios': podeAprovar ? (usuarios?.quantidade ?? 0) : 0,
     '/empresas': (plataforma?.empresas.length ?? 0) + (plataforma?.usuarios.length ?? 0),
   };

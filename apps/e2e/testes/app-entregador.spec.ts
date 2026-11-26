@@ -304,3 +304,48 @@ test('pegar no balcão lendo a etiqueta, volumes na coleta e a conversa com a em
   await sql(`UPDATE chamadas_entrega SET situacao = 'CANCELADA' WHERE id = $1`, [ch.id]);
   await sql(`UPDATE entregadores SET online = false WHERE id = $1`, [ent.id]);
 });
+
+test('metas e bônus das empresas e o suporte do Flow pelo app', async ({ page, context }) => {
+  const erros: string[] = [];
+  page.on('pageerror', (x) => erros.push(x.message));
+  const tokenSuper = await superToken();
+  const emp = await empresaComBase(tokenSuper);
+  const ent = await entregadorOnline(tokenSuper, SE, `Gil${randomUUID().slice(0, 4)} App Teste`);
+  const agora = Date.now();
+  const meta = await pedir('POST', '/entregas/metas', { token: emp.adminToken, corpo: { nome: `Meta app ${randomUUID().slice(0, 4)}`, inicio: new Date(agora - 3600_000).toISOString(), fim: new Date(agora + 2 * 86_400_000).toISOString(), minimoChamadas: 3, valorCentavos: 4500, faixa: null } });
+  expect(meta.status, JSON.stringify(meta.j)).toBe(200);
+  const nome = meta.j[0].nome as string;
+  await context.setGeolocation({ latitude: SE.lat, longitude: SE.lon, accuracy: 10 });
+  await page.setExtraHTTPHeaders({ 'x-forwarded-for': `10.83.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}` });
+  await page.goto('/');
+  await page.getByLabel('Endereço do sistema').fill(new URL(API).origin);
+  await page.getByLabel('E-mail ou CPF').fill(ent.email);
+  await page.getByLabel('Senha').fill('SenhaEntregador1');
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  await expect(page.getByText('Você está online')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Metas e bônus' }).click();
+  await expect(page.getByLabel(`Meta ${nome}`, { exact: false })).toContainText('3 chamadas = R$ 45,00 de bônus');
+  await expect(page.getByLabel('0 de 3 chamadas')).toBeVisible();
+  await page.getByRole('button', { name: 'Voltar' }).click();
+
+  await page.getByRole('tab', { name: /Avisos/ }).click();
+  await page.getByRole('button', { name: 'Falar com o suporte do Flow' }).click();
+  await page.getByRole('button', { name: 'Abrir um chamado' }).click();
+  await page.getByRole('radio', { name: 'Pagamento ou diárias' }).click();
+  await page.getByLabel('Título').fill('Diária não caiu');
+  await page.getByLabel('O que aconteceu').fill('Paguei o Pix ontem à noite e não apareceu.');
+  await page.getByRole('button', { name: 'Enviar ao suporte' }).click();
+  await expect(page.getByText('Paguei o Pix ontem à noite e não apareceu.')).toBeVisible();
+  const [chamado] = await sql<{ id: string }>(`SELECT id FROM chamados_suporte WHERE entregador_id = $1`, [ent.id]);
+  await pedir('POST', `/plataforma/suporte/${chamado.id}/mensagens`, { token: tokenSuper, corpo: { texto: 'Conferimos e liberamos as diárias.' } });
+  await page.getByRole('button', { name: 'Voltar' }).click();
+  await expect(page.getByText('1 resposta nova')).toBeVisible();
+  await page.getByRole('button', { name: /Chamado \d+: Diária não caiu/ }).click();
+  await expect(page.getByText('Conferimos e liberamos as diárias.')).toBeVisible();
+  await page.screenshot({ path: 'test-results/app-entregador-suporte.png' });
+  await page.getByRole('button', { name: 'Meu problema foi resolvido' }).click();
+  await expect(page.getByText('Pagamento ou diárias · Resolvido')).toBeVisible();
+  expect(erros).toEqual([]);
+  await sql(`UPDATE entregadores SET online = false WHERE id = $1`, [ent.id]);
+});

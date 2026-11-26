@@ -362,6 +362,8 @@ export interface PerfilEntregador {
   termoCustodia?: boolean;
   /** Avarias com desconto esperando a resposta dele. */
   avariasPendentes?: number;
+  /** Respostas do suporte ainda não lidas. */
+  suporteNaoLidas?: number;
 }
 
 export interface SessaoEntregadorResposta {

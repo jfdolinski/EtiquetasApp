@@ -45,6 +45,7 @@ export const PERMISSOES = [
   { codigo: 'entrega.ver', grupo: 'Entregas', descricao: 'Ver o mapa dos entregadores online perto da empresa' },
   { codigo: 'entrega.gerenciar', grupo: 'Entregas', descricao: 'Abrir chamadas de coleta e entrega, escolher o entregador, cancelar, resolver ocorrências e avaliar o entregador' },
   { codigo: 'entrega.configurar', grupo: 'Entregas', descricao: 'Configurar o ponto de partida, o raio, a tabela de preços, as regras de direcionamento e os entregadores preferidos e bloqueados' },
+  { codigo: 'suporte.abrir', grupo: 'Suporte', descricao: 'Abrir e acompanhar os chamados da empresa com o suporte da plataforma' },
   { codigo: 'entrega.financeiro', grupo: 'Entregas', descricao: 'Ver o que a empresa deve aos entregadores, registrar pagamentos, lançar extras e responder contestações' },
 ] as const;
 

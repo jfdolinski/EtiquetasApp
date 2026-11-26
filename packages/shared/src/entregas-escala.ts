@@ -274,8 +274,8 @@ export interface AvariaResumo {
 
 // Lançamentos do fechamento ------------------------------------------------------------------
 
-/** Além das chamadas: o valor do turno (crédito) e o desconto de avaria aceito (débito). */
-export const TIPOS_LANCAMENTO = ['TURNO', 'DESCONTO'] as const;
+/** Além das chamadas: o valor do turno e o bônus de meta (crédito) e o desconto de avaria aceito (débito). */
+export const TIPOS_LANCAMENTO = ['TURNO', 'DESCONTO', 'BONUS'] as const;
 export type TipoLancamento = (typeof TIPOS_LANCAMENTO)[number];
 
 export interface LancamentoEntrega {

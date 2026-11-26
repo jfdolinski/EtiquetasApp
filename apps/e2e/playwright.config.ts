@@ -20,6 +20,8 @@ const ambienteApi = {
   CORS_ORIGEM: 'http://localhost:8099,http://localhost:8098',
   // Catálogo de mentira, que o próprio posts.spec.ts sobe.
   CATALOGO_URL: 'http://localhost:8097',
+  // Avisos (webhook) da integração para o servidor local do entregas-integracao.spec.ts.
+  WEBHOOK_PERMITE_REDE_INTERNA: '1',
 };
 
 export default defineConfig({

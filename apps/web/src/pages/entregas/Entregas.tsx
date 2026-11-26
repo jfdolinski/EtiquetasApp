@@ -30,10 +30,12 @@ import { Maquinas } from './Maquinas';
 import { PedidosErp } from './PedidosErp';
 import { Relatorio } from './Relatorio';
 import { Turnos } from './Turnos';
+import { Metas } from './Metas';
+import { Integracao } from './Integracao';
 import { TabelaPrecosEditor } from './TabelaPrecosEditor';
 import { MapaEntregadores } from './MapaEntregadores';
 
-type Aba = 'chamadas' | 'turnos' | 'pedidos-erp' | 'relatorio' | 'mapa' | 'demanda' | 'maquinas' | 'entregadores' | 'financeiro' | 'direcionamento' | 'configuracao';
+type Aba = 'chamadas' | 'turnos' | 'metas' | 'integracao' | 'pedidos-erp' | 'relatorio' | 'mapa' | 'demanda' | 'maquinas' | 'entregadores' | 'financeiro' | 'direcionamento' | 'configuracao';
 type RespostaConfig = { config: ConfigEntregasEmpresa; mapa: ConfigMapa };
 
 const ATUALIZAR_MS = 20_000;
@@ -44,6 +46,7 @@ export function Entregas() {
   const abas: { id: Aba; rotulo: string }[] = [
     { id: 'chamadas', rotulo: 'Chamadas' },
     { id: 'turnos', rotulo: 'Turnos' },
+    { id: 'metas', rotulo: 'Metas' },
     { id: 'pedidos-erp', rotulo: 'Pedidos do ERP' },
     { id: 'mapa', rotulo: 'Mapa' },
     { id: 'demanda', rotulo: 'Demanda' },
@@ -51,7 +54,7 @@ export function Entregas() {
     { id: 'maquinas', rotulo: 'Máquinas' },
     { id: 'entregadores', rotulo: 'Entregadores' },
     ...(pode('entrega.financeiro') ? [{ id: 'financeiro' as const, rotulo: 'Financeiro' }] : []),
-    ...(pode('entrega.configurar') ? [{ id: 'direcionamento' as const, rotulo: 'Direcionamento' }, { id: 'configuracao' as const, rotulo: 'Configuração' }] : []),
+    ...(pode('entrega.configurar') ? [{ id: 'direcionamento' as const, rotulo: 'Direcionamento' }, { id: 'integracao' as const, rotulo: 'Integração' }, { id: 'configuracao' as const, rotulo: 'Configuração' }] : []),
   ];
   const [aba, setAba] = useState<Aba>('chamadas');
   // Abrir uma chamada vindo de outra aba (Pedidos do ERP).
@@ -86,6 +89,8 @@ export function Entregas() {
       {config.data && aba === 'demanda' && <Demanda mapa={config.data.mapa} />}
       {aba === 'maquinas' && <Maquinas />}
       {aba === 'turnos' && <Turnos />}
+      {aba === 'metas' && <Metas />}
+      {aba === 'integracao' && <Integracao />}
       {aba === 'relatorio' && <Relatorio />}
       {aba === 'entregadores' && <EntregadoresDaEmpresa />}
       {aba === 'financeiro' && <Financeiro />}

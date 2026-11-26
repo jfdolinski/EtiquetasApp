@@ -10,7 +10,7 @@ import { Botao, Cartao, cores, Texto, Titulo } from './ui';
  * Guia Avisos: tudo o que falta ajustar no celular ou na conta, num lugar só, para o Início ficar só
  * com o trabalho (online, oferta, diárias). Cada item diz o que é, por que importa e tem o botão.
  */
-export type IdPendencia = 'VERSAO' | 'LOCALIZACAO' | 'NOTIFICACOES' | 'BATERIA' | 'DIARIAS' | 'AVARIAS';
+export type IdPendencia = 'VERSAO' | 'LOCALIZACAO' | 'NOTIFICACOES' | 'BATERIA' | 'DIARIAS' | 'AVARIAS' | 'SUPORTE';
 
 export interface Situacao {
   localizacao: ProblemaPermissao;
@@ -47,6 +47,7 @@ export function pendencias(s: Situacao | null, perfil: PerfilEntregador, versaoN
   if (s && !s.bateriaVista) lista.push('BATERIA');
   if (!perfil.diariaHoje && perfil.saldoDiarias === 0) lista.push('DIARIAS');
   if ((perfil.avariasPendentes ?? 0) > 0) lista.push('AVARIAS');
+  if ((perfil.suporteNaoLidas ?? 0) > 0) lista.push('SUPORTE');
   return lista;
 }
 
@@ -80,6 +81,7 @@ export function TelaAvisos({
   irParaCreditos,
   abrirTermo,
   irParaExtrato,
+  abrirSuporte,
 }: {
   situacao: Situacao | null;
   conferir: () => void;
@@ -90,6 +92,7 @@ export function TelaAvisos({
   irParaCreditos: () => void;
   abrirTermo?: () => void;
   irParaExtrato?: () => void;
+  abrirSuporte?: () => void;
 }) {
   const [ocupado, setOcupado] = useState(false);
   const lista = pendencias(situacao, perfil, versaoNova);
@@ -125,6 +128,11 @@ export function TelaAvisos({
       {(perfil.avariasPendentes ?? 0) > 0 && (
         <Item titulo="Avaria esperando sua resposta" texto={`Uma empresa registrou ${perfil.avariasPendentes === 1 ? 'uma avaria' : `${perfil.avariasPendentes} avarias`} com desconto. Aceite ou conte por que não concorda.`} pendente>
           {irParaExtrato && <Botao titulo="Ver no Extrato" onPress={irParaExtrato} />}
+        </Item>
+      )}
+      {(perfil.suporteNaoLidas ?? 0) > 0 && (
+        <Item titulo="Resposta do suporte" texto={perfil.suporteNaoLidas === 1 ? 'O suporte do Flow respondeu seu chamado.' : `O suporte do Flow mandou ${perfil.suporteNaoLidas} respostas.`} pendente>
+          {abrirSuporte && <Botao titulo="Ver a resposta" onPress={abrirSuporte} />}
         </Item>
       )}
       {versaoNova && (
@@ -164,6 +172,11 @@ export function TelaAvisos({
       <Item titulo="Diárias" texto={!perfil.diariaHoje && perfil.saldoDiarias === 0 ? 'Você está sem diárias: compre créditos para ficar online.' : `${perfil.saldoDiarias} ${perfil.saldoDiarias === 1 ? 'diária disponível' : 'diárias disponíveis'}.`} pendente={!perfil.diariaHoje && perfil.saldoDiarias === 0}>
         <Botao titulo="Comprar créditos" onPress={irParaCreditos} />
       </Item>
+      {abrirSuporte && (
+        <View style={{ marginTop: 12 }}>
+          <Botao titulo="Falar com o suporte do Flow" variante="secundario" onPress={abrirSuporte} />
+        </View>
+      )}
     </ScrollView>
   );
 }

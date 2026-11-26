@@ -1,7 +1,15 @@
 import { BadRequestException, Body, ConflictException, Controller, Get, HttpCode, Injectable, Post } from '@nestjs/common';
-import { ArrayMaxSize, IsArray, IsUUID } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ArrayMaxSize, IsArray, IsBoolean, IsInt, IsUUID, Max, Min, ValidateNested } from 'class-validator';
 import {
   MAX_PEDIDOS_JUNTOS,
+  MAX_PEDIDOS_ROTEIRIZAR,
+  metrosEstimados,
+  problemaNaRoteirizacao,
+  roteirizar,
+  type PedidoDoRoteiro,
+  type ResultadoRoteiro,
+  type RoteiroProposto,
   ordemMaisCurta,
   pedidoPodeChamarEntregador,
   problemaNosPedidosJuntos,
@@ -14,7 +22,9 @@ import {
   type RascunhoJuntos,
   type SituacaoPedido,
 } from '@etiquetas/shared';
-import { EmpresaAtual, RequerPermissao } from '../auth/decorators';
+import { EmpresaAtual, RequerPermissao, UsuarioAtual } from '../auth/decorators';
+import type { UsuarioRequisicao } from '../auth/usuario-requisicao';
+import { ChamadasService } from './chamadas';
 import { PrismaService } from '../prisma/prisma.service';
 import { EntregasEmpresaService } from './empresa';
 import { FechamentoService } from './fechamento';
@@ -25,7 +35,23 @@ class JuntarDto {
   @IsArray() @ArrayMaxSize(MAX_PEDIDOS_JUNTOS) @IsUUID('all', { each: true }) pedidoErpIds: string[];
 }
 
-type Item = ParadaChamada & { pedidoId: string | null; pedidoErpId: string | null; rotulo: string };
+class RoteirizarDto {
+  @IsArray() @ArrayMaxSize(MAX_PEDIDOS_ROTEIRIZAR) @IsUUID('all', { each: true }) pedidoIds: string[];
+  @IsArray() @ArrayMaxSize(MAX_PEDIDOS_ROTEIRIZAR) @IsUUID('all', { each: true }) pedidoErpIds: string[];
+  @IsInt() @Min(1) @Max(MAX_PEDIDOS_JUNTOS) porChamada: number;
+}
+
+class GrupoDto {
+  @IsArray() @ArrayMaxSize(MAX_PEDIDOS_JUNTOS) @IsUUID('all', { each: true }) pedidoIds: string[];
+  @IsArray() @ArrayMaxSize(MAX_PEDIDOS_JUNTOS) @IsUUID('all', { each: true }) pedidoErpIds: string[];
+}
+
+class AbrirRoteiroDto {
+  @IsArray() @ArrayMaxSize(MAX_PEDIDOS_ROTEIRIZAR) @ValidateNested({ each: true }) @Type(() => GrupoDto) grupos: GrupoDto[];
+  @IsBoolean() distribuir: boolean;
+}
+
+type Item = ParadaChamada & { pedidoId: string | null; pedidoErpId: string | null; rotulo: string; cliente: string };
 
 /**
  * Entregas, etapa 11: vários pedidos (do Flow e do ERP) numa chamada só, um por parada, na ordem do
@@ -39,6 +65,7 @@ export class JuntosService {
     private readonly empresas: EntregasEmpresaService,
     private readonly fechamento: FechamentoService,
     private readonly pedidosErp: PedidosErpService,
+    private readonly chamadas: ChamadasService,
   ) {}
 
   /** Com entrega e sem chamada em andamento (nem como parada de outra). */
@@ -69,39 +96,105 @@ export class JuntosService {
     return [...doFlow, ...doErp];
   }
 
-  async rascunho(empresaId: string, dto: JuntarDto): Promise<RascunhoJuntos> {
-    const problema = problemaNosPedidosJuntos(dto.pedidoIds.length + dto.pedidoErpIds.length);
-    if (problema) throw new BadRequestException(problema);
+  private async base(empresaId: string) {
     const { base } = await this.empresas.config(empresaId);
     if (!base) throw new ConflictException('Marque o ponto de partida em Entregas > Configuração antes.');
+    return base;
+  }
+
+  /** Cada pedido como parada, conferido (com entrega, sem chamada). Sem ponto = lat e lon 0. */
+  private async itens(empresaId: string, pedidoIds: string[], pedidoErpIds: string[]): Promise<Item[]> {
     const itens: Item[] = [];
-    for (const id of dto.pedidoIds) {
+    for (const id of pedidoIds) {
       const r = await this.fechamento.rascunhoDoPedido(empresaId, id);
       if (r.chamadaAtiva) throw new ConflictException(`O pedido nº ${r.numero} já está na chamada nº ${r.chamadaAtiva.numero}.`);
-      itens.push({ ...r.destino, pedidoId: id, pedidoErpId: null, rotulo: `Pedido nº ${r.numero}` });
+      itens.push({ ...r.destino, pedidoId: id, pedidoErpId: null, rotulo: `Pedido nº ${r.numero}`, cliente: r.destino.contato });
     }
-    for (const id of dto.pedidoErpIds) {
+    for (const id of pedidoErpIds) {
       const r = await this.pedidosErp.rascunho(empresaId, id);
       if (r.tipo !== 'ENTREGA' || !r.destino) throw new BadRequestException(`O pedido ${r.codigo} do ERP não é de entrega.`);
-      itens.push({ ...r.destino, pedidoId: null, pedidoErpId: id, rotulo: `Pedido ${r.codigo} do ERP` });
+      itens.push({ ...r.destino, pedidoId: null, pedidoErpId: id, rotulo: `Pedido ${r.codigo} do ERP`, cliente: r.destino.contato });
     }
-    // Os que têm ponto, pelo menor caminho; os sem ponto vão no fim, para a empresa marcar no mapa.
-    const comPonto = itens.filter((i) => i.lat !== 0 || i.lon !== 0);
-    const semPonto = itens.filter((i) => i.lat === 0 && i.lon === 0);
+    return itens;
+  }
+
+  /** Base → pedidos com ponto pelo menor caminho; os sem ponto no fim, para a empresa marcar no mapa. */
+  private montar(base: { lat: number; lon: number; endereco?: string | null }, itens: Item[]): RascunhoJuntos {
+    const comPonto = itens.filter((i) => temPonto(i));
+    const semPonto = itens.filter((i) => !temPonto(i));
     const ordenados = [...ordemMaisCurta(base, comPonto).map((i) => comPonto[i]), ...semPonto];
     const [primeiro, ...resto] = ordenados;
-    const limpa = ({ rotulo: _r, pedidoId: _p, pedidoErpId: _e, ...p }: Item): ParadaChamada => p;
+    const limpa = ({ rotulo: _r, pedidoId: _p, pedidoErpId: _e, cliente: _c, ...p }: Item): ParadaChamada => p;
     return {
       origem: { lat: base.lat, lon: base.lon, endereco: base.endereco || 'Empresa', contato: '', telefone: '', instrucoes: '' },
       destino: limpa(primeiro),
       pedidoId: primeiro.pedidoId,
       pedidoErpId: primeiro.pedidoErpId,
       paradasExtras: resto.map((i) => ({ ...limpa(i), pedidoId: i.pedidoId, pedidoErpId: i.pedidoErpId })),
-      observacao: `Pedidos juntos: ${ordenados.map((i) => i.rotulo).join(', ')}`.slice(0, 500),
+      observacao: (ordenados.length > 1 ? `Pedidos juntos: ${ordenados.map((i) => i.rotulo).join(', ')}` : ordenados[0].rotulo).slice(0, 500),
       semPonto: semPonto.map((i) => i.rotulo),
     };
   }
+
+  async rascunho(empresaId: string, dto: JuntarDto): Promise<RascunhoJuntos> {
+    const problema = problemaNosPedidosJuntos(dto.pedidoIds.length + dto.pedidoErpIds.length);
+    if (problema) throw new BadRequestException(problema);
+    const base = await this.base(empresaId);
+    return this.montar(base, await this.itens(empresaId, dto.pedidoIds, dto.pedidoErpIds));
+  }
+
+  /**
+   * Etapa 14: divide muitos pedidos em chamadas por direção a partir da base (`roteirizar`), até
+   * `porChamada` em cada. Só propõe: nada é gravado até `abrir`.
+   */
+  async roteirizar(empresaId: string, dto: RoteirizarDto): Promise<RoteiroProposto> {
+    const problema = problemaNaRoteirizacao(dto.pedidoIds.length + dto.pedidoErpIds.length, dto.porChamada);
+    if (problema) throw new BadRequestException(problema);
+    if (new Set(dto.pedidoIds).size !== dto.pedidoIds.length || new Set(dto.pedidoErpIds).size !== dto.pedidoErpIds.length) throw new BadRequestException('O mesmo pedido aparece duas vezes.');
+    const base = await this.base(empresaId);
+    const itens = await this.itens(empresaId, dto.pedidoIds, dto.pedidoErpIds);
+    const doRoteiro = (i: Item): PedidoDoRoteiro => ({ origem: i.pedidoId ? 'FLOW' : 'ERP', id: (i.pedidoId ?? i.pedidoErpId)!, rotulo: i.rotulo, cliente: i.cliente, endereco: i.endereco });
+    const comPonto = itens.filter((i) => temPonto(i));
+    const grupos = roteirizar(base, comPonto, dto.porChamada).map((g) => {
+      const pontos = g.map((k) => comPonto[k]);
+      return { pedidos: pontos.map(doRoteiro), metrosEstimados: metrosEstimados(base, pontos) };
+    });
+    return { grupos, semPonto: itens.filter((i) => !temPonto(i)).map(doRoteiro) };
+  }
+
+  /** Abre uma chamada por grupo (cada uma conferida de novo); um grupo com problema não impede os outros. */
+  async abrir(empresaId: string, dto: AbrirRoteiroDto, autorId: string): Promise<ResultadoRoteiro> {
+    const total = dto.grupos.reduce((s, g) => s + g.pedidoIds.length + g.pedidoErpIds.length, 0);
+    const problema = problemaNaRoteirizacao(total, MAX_PEDIDOS_JUNTOS);
+    if (problema) throw new BadRequestException(problema);
+    if (dto.grupos.some((g) => g.pedidoIds.length + g.pedidoErpIds.length > MAX_PEDIDOS_JUNTOS)) throw new BadRequestException(`Cada chamada leva até ${MAX_PEDIDOS_JUNTOS} pedidos.`);
+    const base = await this.base(empresaId);
+    const resultado: ResultadoRoteiro = { abertas: [], erros: [] };
+    for (const g of dto.grupos) {
+      const quantos = g.pedidoIds.length + g.pedidoErpIds.length;
+      if (!quantos) continue;
+      let rotulos = `${quantos} pedido(s)`;
+      try {
+        const itens = await this.itens(empresaId, g.pedidoIds, g.pedidoErpIds);
+        rotulos = itens.map((i) => i.rotulo).join(', ');
+        const semPonto = itens.filter((i) => !temPonto(i));
+        if (semPonto.length) throw new ConflictException(`Sem ponto no mapa: ${semPonto.map((i) => i.rotulo).join(', ')}.`);
+        const r = this.montar(base, itens);
+        const c = await this.chamadas.criar(
+          empresaId,
+          { tipo: 'ENTREGA', origem: r.origem, destino: r.destino, serieEsperada: null, observacao: r.observacao, distribuir: dto.distribuir, pedidoId: r.pedidoId, pedidoErpId: r.pedidoErpId, paradasExtras: r.paradasExtras } as never,
+          autorId,
+        );
+        resultado.abertas.push({ id: c.id, numero: c.numero, pedidos: quantos });
+      } catch (e) {
+        resultado.erros.push({ pedidos: rotulos, erro: (e as Error).message });
+      }
+    }
+    return resultado;
+  }
 }
+
+const temPonto = (p: { lat: number; lon: number }) => p.lat !== 0 || p.lon !== 0;
 
 @Controller('entregas/juntar')
 export class JuntosController {
@@ -118,5 +211,24 @@ export class JuntosController {
   @RequerPermissao('entrega.gerenciar')
   rascunho(@EmpresaAtual() empresaId: string, @Body() dto: JuntarDto): Promise<RascunhoJuntos> {
     return this.juntos.rascunho(empresaId, dto);
+  }
+}
+
+@Controller('entregas/roteirizar')
+export class RoteirizarController {
+  constructor(private readonly juntos: JuntosService) {}
+
+  @Post()
+  @HttpCode(200)
+  @RequerPermissao('entrega.gerenciar')
+  propor(@EmpresaAtual() empresaId: string, @Body() dto: RoteirizarDto): Promise<RoteiroProposto> {
+    return this.juntos.roteirizar(empresaId, dto);
+  }
+
+  @Post('abrir')
+  @HttpCode(200)
+  @RequerPermissao('entrega.gerenciar')
+  abrir(@EmpresaAtual() empresaId: string, @Body() dto: AbrirRoteiroDto, @UsuarioAtual() u: UsuarioRequisicao): Promise<ResultadoRoteiro> {
+    return this.juntos.abrir(empresaId, dto, u.id);
   }
 }
