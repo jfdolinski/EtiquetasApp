@@ -77,6 +77,9 @@ model Empresa {
   fechamentosEntregas    FechamentoEntrega[]
   contestacoesEntrega    ContestacaoEntrega[]
   pedidos                Pedido[]
+  turnosEntrega          TurnoEntrega[]
+  avariasChamada         AvariaChamada[]
+  lancamentosEntrega     LancamentoEntrega[]
 
   @@map("empresas")
 }
@@ -1311,6 +1314,9 @@ model Entregador {
   fechamentos  FechamentoEntrega[]
   contestacoes ContestacaoEntrega[]
   redefinicoes RedefinicaoSenhaEntregador[]
+  inscricoes   InscricaoTurno[]
+  avarias      AvariaChamada[]
+  lancamentos  LancamentoEntrega[]
 
   @@index([online, posicaoEm])
   @@index([situacao, criadoEm])
@@ -1569,6 +1575,15 @@ model ChamadaEntrega {
   /// Até quando cada lado leu a conversa (as não lidas são as do outro lado depois disso).
   mensagensLidasEmpresaEm    DateTime? @map("mensagens_lidas_empresa_em")
   mensagensLidasEntregadorEm DateTime? @map("mensagens_lidas_entregador_em")
+  /// Etapa 13: ColetaExtra[] (shared), lugares para pegar depois da origem; a da vez (0 = a origem).
+  coletasExtras              Json      @default("[]") @map("coletas_extras")
+  coletaAtual                Int       @default(0) @map("coleta_atual")
+  /// Quanto vale o que vai no pacote (limita o desconto de avaria).
+  valorDeclaradoCentavos     Int?      @map("valor_declarado_centavos")
+  /// Nota que o entregador deu à empresa (a empresa só vê a média e os comentários, sem o nome).
+  avaliacaoEmpresaNota       Int?      @map("avaliacao_empresa_nota")
+  avaliacaoEmpresaComentario String    @default("") @map("avaliacao_empresa_comentario")
+  avaliacaoEmpresaEm         DateTime? @map("avaliacao_empresa_em")
   criadoPorId                String?   @map("criado_por_id") @db.Uuid
   criadoEm                   DateTime  @default(now()) @map("criado_em")
   atualizadoEm               DateTime  @updatedAt @map("atualizado_em")
@@ -1583,8 +1598,10 @@ model ChamadaEntrega {
   paradas      ParadaExtraChamada[]
   rastro       RastroChamada[]
   mensagens    MensagemChamadaEntrega[]
+  avarias      AvariaChamada[]
 
   @@unique([empresaId, numero])
+  @@index([empresaId, avaliacaoEmpresaEm])
   @@index([empresaId, criadoEm])
   @@index([entregadorId, situacao])
   @@index([distribuicaoAtiva, proximaTentativaEm])
@@ -1662,10 +1679,11 @@ model FechamentoEntrega {
   criadoPorId     String?  @map("criado_por_id") @db.Uuid
   criadoEm        DateTime @default(now()) @map("criado_em")
 
-  empresa    Empresa          @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  entregador Entregador       @relation(fields: [entregadorId], references: [id], onDelete: Cascade)
-  criadoPor  Usuario?         @relation("FechamentosEntregaCriados", fields: [criadoPorId], references: [id], onDelete: SetNull)
-  chamadas   ChamadaEntrega[]
+  empresa     Empresa             @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  entregador  Entregador          @relation(fields: [entregadorId], references: [id], onDelete: Cascade)
+  criadoPor   Usuario?            @relation("FechamentosEntregaCriados", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  chamadas    ChamadaEntrega[]
+  lancamentos LancamentoEntrega[]
 
   @@index([empresaId, criadoEm])
   @@index([entregadorId])
@@ -1810,4 +1828,113 @@ model MensagemChamadaEntrega {
 
   @@index([chamadaId, criadoEm])
   @@map("mensagens_chamada")
+}
+
+/// Etapa 13: turno da escala. Quem está inscrito recebe as chamadas da empresa antes dos outros.
+model TurnoEntrega {
+  id            String    @id @default(uuid()) @db.Uuid
+  empresaId     String    @map("empresa_id") @db.Uuid
+  inicio        DateTime
+  fim           DateTime
+  vagas         Int
+  /// Pago a cada presente, além das chamadas (0 = só a prioridade).
+  valorCentavos Int       @default(0) @map("valor_centavos")
+  observacao    String    @default("")
+  canceladoEm   DateTime? @map("cancelado_em")
+  criadoPorId   String?   @map("criado_por_id") @db.Uuid
+  criadoEm      DateTime  @default(now()) @map("criado_em")
+
+  empresa    Empresa          @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  inscricoes InscricaoTurno[]
+
+  @@index([empresaId, inicio])
+  @@index([inicio])
+  @@map("turnos_entrega")
+}
+
+model InscricaoTurno {
+  id           String   @id @default(uuid()) @db.Uuid
+  turnoId      String   @map("turno_id") @db.Uuid
+  entregadorId String   @map("entregador_id") @db.Uuid
+  /// INSCRITO, SAIU, PRESENTE ou FALTOU.
+  situacao     String   @default("INSCRITO")
+  criadoEm     DateTime @default(now()) @map("criado_em")
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
+
+  turno      TurnoEntrega       @relation(fields: [turnoId], references: [id], onDelete: Cascade)
+  entregador Entregador         @relation(fields: [entregadorId], references: [id], onDelete: Cascade)
+  lancamento LancamentoEntrega?
+
+  @@unique([turnoId, entregadorId])
+  @@index([entregadorId, situacao])
+  @@map("inscricoes_turno")
+}
+
+/// Avaria ou extravio numa chamada, com o desconto proposto ao entregador (que aceita ou contesta).
+model AvariaChamada {
+  id               String    @id @default(uuid()) @db.Uuid
+  chamadaId        String    @map("chamada_id") @db.Uuid
+  empresaId        String    @map("empresa_id") @db.Uuid
+  entregadorId     String    @map("entregador_id") @db.Uuid
+  tipo             String
+  descricao        String
+  prejuizoCentavos Int       @map("prejuizo_centavos")
+  responsavel      String
+  descontoCentavos Int       @default(0) @map("desconto_centavos")
+  /// SEM_DESCONTO, AGUARDANDO, ACEITA, CONTESTADA ou RETIRADA.
+  situacao         String
+  resposta         String?
+  respondidaEm     DateTime? @map("respondida_em")
+  criadoPorId      String?   @map("criado_por_id") @db.Uuid
+  criadoEm         DateTime  @default(now()) @map("criado_em")
+  atualizadoEm     DateTime  @updatedAt @map("atualizado_em")
+
+  chamada    ChamadaEntrega     @relation(fields: [chamadaId], references: [id], onDelete: Cascade)
+  empresa    Empresa            @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  entregador Entregador         @relation(fields: [entregadorId], references: [id], onDelete: Cascade)
+  fotos      FotoAvaria[]
+  lancamento LancamentoEntrega?
+
+  @@index([empresaId, criadoEm])
+  @@index([entregadorId, situacao])
+  @@index([chamadaId])
+  @@map("avarias_chamada")
+}
+
+model FotoAvaria {
+  id       String   @id @default(uuid()) @db.Uuid
+  avariaId String   @map("avaria_id") @db.Uuid
+  mime     String
+  bytes    Bytes
+  criadoEm DateTime @default(now()) @map("criado_em")
+
+  avaria AvariaChamada @relation(fields: [avariaId], references: [id], onDelete: Cascade)
+
+  @@index([avariaId])
+  @@map("fotos_avaria")
+}
+
+/// Além das chamadas, o que entra no pagamento: valor do turno (+) e desconto de avaria aceito (-).
+model LancamentoEntrega {
+  id            String   @id @default(uuid()) @db.Uuid
+  empresaId     String   @map("empresa_id") @db.Uuid
+  entregadorId  String   @map("entregador_id") @db.Uuid
+  /// TURNO ou DESCONTO.
+  tipo          String
+  descricao     String
+  valorCentavos Int      @map("valor_centavos")
+  fechamentoId  String?  @map("fechamento_id") @db.Uuid
+  inscricaoId   String?  @unique @map("inscricao_id") @db.Uuid
+  avariaId      String?  @unique @map("avaria_id") @db.Uuid
+  criadoEm      DateTime @default(now()) @map("criado_em")
+
+  empresa    Empresa            @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  entregador Entregador         @relation(fields: [entregadorId], references: [id], onDelete: Cascade)
+  fechamento FechamentoEntrega? @relation(fields: [fechamentoId], references: [id], onDelete: SetNull)
+  inscricao  InscricaoTurno?    @relation(fields: [inscricaoId], references: [id], onDelete: Cascade)
+  avaria     AvariaChamada?     @relation(fields: [avariaId], references: [id], onDelete: Cascade)
+
+  @@index([empresaId, entregadorId, fechamentoId])
+  @@index([entregadorId, criadoEm])
+  @@map("lancamentos_entrega")
 }

@@ -217,11 +217,12 @@ export class EntregadoresService implements OnApplicationBootstrap, OnModuleDest
     const e = await this.prisma.entregador.findUnique({ where: { id }, include: { documentos: { select: { tipo: true, criadoEm: true } } } });
     if (!e) throw new UnauthorizedException('Cadastro não encontrado.');
     const agora = new Date();
-    const [saldo, diaria] = await Promise.all([
+    const [saldo, diaria, avarias] = await Promise.all([
       this.creditos.saldo(id, agora),
       this.prisma.diariaEntregador.count({ where: { entregadorId: id, dia: dataDoDia(diaNoFuso(agora, config().fusoHorario)) } }),
+      this.prisma.avariaChamada.count({ where: { entregadorId: id, situacao: 'AGUARDANDO' } }),
     ]);
-    return this.montarPerfil(e, saldo, diaria > 0);
+    return { ...this.montarPerfil(e, saldo, diaria > 0), avariasPendentes: avarias };
   }
 
   private montarPerfil(e: EntregadorDoBanco, saldo: number, diariaHoje: boolean): PerfilEntregador {

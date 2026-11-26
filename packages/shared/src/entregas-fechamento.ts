@@ -5,6 +5,7 @@
 import { textoEndereco, type EnderecoPedido, type ModalidadeEntrega, type SituacaoPedido } from './pedidos';
 import type { ParadaChamada, TipoChamada } from './entregas-chamadas';
 import type { TipoVeiculo } from './entregas';
+import type { LancamentoEntrega } from './entregas-escala';
 
 /** O que a empresa deve pela chamada: o valor aceito mais o extra lançado depois (espera, volta). */
 export function totalDaChamada(c: { valorCentavos: number; extraCentavos: number }): number {
@@ -82,6 +83,9 @@ export interface LinhaExtrato {
   devolucaoCentavos?: number;
   contestacao: ContestacaoResumo | null;
   podeContestar: boolean;
+  /** Nota que o entregador deu à empresa nesta chamada. */
+  avaliacaoEmpresa?: number | null;
+  podeAvaliarEmpresa?: boolean;
 }
 
 export interface ExtratoEntregador {
@@ -94,6 +98,8 @@ export interface ExtratoEntregador {
   pagoCentavos: number;
   empresas: string[];
   linhas: LinhaExtrato[];
+  /** Valor de turno e descontos de avaria do período (já somados nos totais). */
+  lancamentos?: LancamentoEntrega[];
 }
 
 export interface ReputacaoEntregador {
@@ -131,6 +137,8 @@ export interface APagarEntregador {
   totalCentavos: number;
   maisAntiga: string;
   contestacoesAbertas: number;
+  /** Turnos e descontos ainda não pagos (já no total). */
+  lancamentos?: number;
 }
 
 export interface FechamentoResumo {
@@ -145,6 +153,7 @@ export interface FechamentoResumo {
   criadoPorNome: string | null;
   criadoEm: string;
   chamadas?: LinhaFechamento[];
+  lancamentos?: LancamentoEntrega[];
 }
 
 export interface ContestacaoEmpresa extends ContestacaoResumo {
@@ -158,6 +167,8 @@ export interface ContestacaoEmpresa extends ContestacaoResumo {
 export interface NovoFechamento {
   entregadorId: string;
   chamadaIds: string[];
+  /** Turnos e descontos que entram (os descontos aceitos sempre entram). */
+  lancamentoIds?: string[];
   /** AAAA-MM-DD */
   pagoEm: string;
   observacao: string;

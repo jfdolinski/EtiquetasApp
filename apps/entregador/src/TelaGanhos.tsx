@@ -4,6 +4,7 @@ import type { ExtratoEntregador, LinhaExtrato, PeriodoExtrato } from '../../../p
 import type { Api } from './api';
 import { dataCurta, formatarCentavos, formatarKm, ROTULO_TIPO_CHAMADA } from './regras';
 import { Alerta, Botao, Campo, cores, Numero, Texto, Titulo } from './ui';
+import { AvaliarEmpresa, AvariasDoEntregador } from './Escala';
 
 const PERIODOS: { id: PeriodoExtrato; rotulo: string }[] = [
   { id: 'HOJE', rotulo: 'Hoje' },
@@ -15,7 +16,7 @@ const PERIODOS: { id: PeriodoExtrato; rotulo: string }[] = [
 const dataIso = (aaaaMmDd: string) => aaaaMmDd.split('-').reverse().join('/');
 
 /** Extrato: o que fez no período, o que cada empresa já pagou e o que falta, com contestação por linha. */
-export function TelaGanhos({ api, servidor }: { api: Api; servidor: string }) {
+export function TelaGanhos({ api, servidor, aoMudarAvarias }: { api: Api; servidor: string; aoMudarAvarias?: () => void }) {
   const [periodo, setPeriodo] = useState<PeriodoExtrato>('SEMANA');
   const [empresa, setEmpresa] = useState<string | null>(null);
   const [dados, setDados] = useState<ExtratoEntregador | null>(null);
@@ -62,6 +63,13 @@ export function TelaGanhos({ api, servidor }: { api: Api; servidor: string }) {
         ))}
       </View>
       {erro && <Alerta>{erro}</Alerta>}
+      <AvariasDoEntregador
+        api={api}
+        aoMudar={() => {
+          void carregar();
+          aoMudarAvarias?.();
+        }}
+      />
       {dados && (
         <>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
@@ -84,6 +92,23 @@ export function TelaGanhos({ api, servidor }: { api: Api; servidor: string }) {
           {linhas.map((l) => (
             <Linha key={l.chamadaId} l={l} api={api} servidor={servidor} aberta={aberta === l.chamadaId} alternar={() => setAberta(aberta === l.chamadaId ? null : l.chamadaId)} aoContestar={() => void carregar()} />
           ))}
+          {(dados.lancamentos ?? []).filter((l) => !empresa || l.empresa === empresa).length > 0 && (
+            <>
+              <Titulo>Turnos e descontos</Titulo>
+              {dados.lancamentos!.filter((l) => !empresa || l.empresa === empresa).map((l) => (
+                <View key={l.id} style={[estilos.linha, { flexDirection: 'row', gap: 8 }]} accessibilityLabel={l.descricao}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: cores.texto }}>{l.descricao}</Text>
+                    <Text style={{ color: cores.suave, fontSize: 12 }}>{l.empresa}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontWeight: '700', color: l.valorCentavos < 0 ? cores.erro : l.pagoEm ? cores.ok : cores.texto }}>{formatarCentavos(l.valorCentavos)}</Text>
+                    <Text style={{ fontSize: 12, color: l.pagoEm ? cores.ok : cores.aviso }}>{l.pagoEm ? `Pago em ${dataIso(l.pagoEm)}` : l.valorCentavos < 0 ? 'Sai no próximo pagamento' : 'A receber'}</Text>
+                  </View>
+                </View>
+              ))}
+            </>
+          )}
         </>
       )}
     </ScrollView>
@@ -149,6 +174,8 @@ function Linha({ l, api, servidor, aberta, alternar, aoContestar }: { l: LinhaEx
           {(l.esperaCentavos ?? 0) > 0 && <Texto suave>Inclui espera: {formatarCentavos(l.esperaCentavos!)}</Texto>}
           {(l.devolucaoCentavos ?? 0) > 0 && <Texto suave>Inclui a volta à origem: {formatarCentavos(l.devolucaoCentavos!)}</Texto>}
           {l.fechamentoId && <Botao titulo="Comprovante do pagamento (PDF)" variante="secundario" onPress={() => void comprovante()} />}
+          {l.avaliacaoEmpresa ? <Texto suave>Você deu nota {l.avaliacaoEmpresa} de 5 à empresa.</Texto> : null}
+          {l.podeAvaliarEmpresa && <AvaliarEmpresa api={api} chamadaId={l.chamadaId} aoAvaliar={aoContestar} />}
           {!l.podeContestar && erro && <Alerta>{erro}</Alerta>}
           {l.contestacao && (
             <View style={{ backgroundColor: cores.azulClaro, borderRadius: 8, padding: 8, gap: 4 }}>

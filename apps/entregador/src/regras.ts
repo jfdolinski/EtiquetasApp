@@ -5,6 +5,7 @@ import type { MotivoOcorrencia, SituacaoChamada, TipoChamada } from '../../../pa
 import type { DadosCadastroEntregador, SituacaoEntregador, SituacaoPedidoCredito, TipoDocumentoEntregador, TipoVeiculo } from '../../../packages/shared/src/entregas';
 import type { ChecklistMaquina, EstadoMaquina } from '../../../packages/shared/src/entregas-servico';
 import type { AssinaturaEntrega, TracoAssinatura } from '../../../packages/shared/src/entregas-comprovacao';
+import type { ResponsavelAvaria, SituacaoAvaria, TipoAvaria } from '../../../packages/shared/src/entregas-escala';
 
 export const TIPOS_VEICULO: TipoVeiculo[] = ['MOTO', 'CARRO', 'BICICLETA', 'A_PE'];
 export const ROTULO_VEICULO: Record<TipoVeiculo, string> = { MOTO: 'Moto', CARRO: 'Carro', BICICLETA: 'Bicicleta', A_PE: 'A pé' };
@@ -223,3 +224,14 @@ export function problemaNosVolumes(v: unknown): string | null {
 }
 
 export const textoVolumes = (n: number) => (n === 1 ? '1 volume' : `${n} volumes`);
+
+// Etapa 13: avarias (cópias de entregas-escala.ts).
+export const ROTULO_TIPO_AVARIA: Record<TipoAvaria, string> = { AVARIA: 'Avaria (chegou danificado)', EXTRAVIO: 'Extravio (não chegou)' };
+export const ROTULO_RESPONSAVEL_AVARIA: Record<ResponsavelAvaria, string> = { ENTREGADOR: 'Entregador', EMPRESA: 'Empresa (embalagem, separação)', CLIENTE: 'Cliente', TERCEIROS: 'Terceiros (acidente, roubo)' };
+export const ROTULO_SITUACAO_AVARIA: Record<SituacaoAvaria, string> = {
+  SEM_DESCONTO: 'Registrada, sem desconto',
+  AGUARDANDO: 'Aguardando o entregador',
+  ACEITA: 'Desconto aceito',
+  CONTESTADA: 'Contestada pelo entregador',
+  RETIRADA: 'Retirada pela empresa',
+};

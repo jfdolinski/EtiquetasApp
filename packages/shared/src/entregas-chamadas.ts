@@ -7,6 +7,7 @@ import type { EmergenciaChamada } from './entregas-rastreio';
 import type { AdicionalAplicado, DestinoDoEntregador, ParadaExtraResumo } from './entregas-paradas';
 import type { ChecklistsDaChamada, DevolucaoChamada, RegraEspera } from './entregas-servico';
 import type { ModoAssinatura } from './entregas-comprovacao';
+import type { ColetaDoEntregador, ColetaExtra } from './entregas-escala';
 
 export const TIPOS_CHAMADA = ['ENTREGA', 'COLETA', 'DEVOLUCAO_MAQUINA'] as const;
 export type TipoChamada = (typeof TIPOS_CHAMADA)[number];
@@ -166,6 +167,10 @@ export interface NovaChamada {
   paradasExtras?: ParadaComPedido[];
   /** Coleta num horário futuro: a distribuição começa um pouco antes. */
   agendadaPara?: string | null;
+  /** Lugares para pegar depois da origem e antes de entregar (só no tipo Entrega). */
+  coletasExtras?: ParadaChamada[];
+  /** Quanto vale o que vai no pacote (limita o desconto de avaria). */
+  valorDeclaradoCentavos?: number | null;
 }
 
 export function problemaNaChamada(c: NovaChamada): string | null {
@@ -220,6 +225,12 @@ export interface OfertaResumo {
   motivo: string | null;
   /** Coleta agendada para esse horário. */
   agendadaPara?: string | null;
+  /** Quantos lugares para pegar (1 = só a origem). */
+  coletas?: number;
+  /** Média que os entregadores deram à empresa (nula com poucas avaliações). */
+  notaEmpresa?: number | null;
+  avaliacoesEmpresa?: number;
+  valorDeclaradoCentavos?: number | null;
 }
 
 export interface ChamadaResumo {
@@ -286,6 +297,11 @@ export interface ChamadaResumo {
   volumesEntregues: number | null;
   agendadaPara: string | null;
   mensagensNaoLidas: number;
+  /** Etapa 13: coletas além da origem e a da vez (0 = a origem). */
+  coletasExtras: ColetaExtra[];
+  coletaAtual: number;
+  valorDeclaradoCentavos: number | null;
+  avarias: number;
 }
 
 /** O que o app do entregador recebe da chamada dele. */
@@ -328,6 +344,10 @@ export interface ChamadaEntregador {
   volumes?: number | null;
   agendadaPara?: string | null;
   mensagensNaoLidas?: number;
+  /** Todas as coletas, na ordem; `origem` é sempre a da vez. */
+  coletas?: ColetaDoEntregador[];
+  coletaAtual?: number;
+  valorDeclaradoCentavos?: number | null;
 }
 
 export interface GanhosEntregador {

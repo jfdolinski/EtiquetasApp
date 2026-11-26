@@ -173,6 +173,15 @@ export class DirecionamentoService implements OnApplicationBootstrap, OnModuleDe
     // Avaliação: média dos últimos 90 dias, de todas as empresas.
     const notas = await tx.chamadaEntrega.groupBy({ by: ['entregadorId'], where: { entregadorId: { in: lista.map((e) => e.id) }, avaliadaEm: { gte: new Date(agora.getTime() - DIAS_MEDIA_AVALIACAO * DIA_MS) } }, _avg: { avaliacaoNota: true } });
     const media = new Map(notas.map((n) => [n.entregadorId, n._avg.avaliacaoNota]));
+    // Escala: inscritos num turno desta empresa que vale agora.
+    const noTurno = new Set(
+      (
+        await tx.inscricaoTurno.findMany({
+          where: { entregadorId: { in: lista.map((e) => e.id) }, situacao: 'INSCRITO', turno: { empresaId, canceladoEm: null, inicio: { lte: agora }, fim: { gt: agora } } },
+          select: { entregadorId: true },
+        })
+      ).map((x) => x.entregadorId),
+    );
     const ofertadas = new Map<string, number>();
     const aceitas = new Map<string, number>();
     for (const r of respostas) {
@@ -194,6 +203,7 @@ export class DirecionamentoService implements OnApplicationBootstrap, OnModuleDe
         avaliacao: media.get(e.id) ?? null,
         preferido: !!marca?.preferido,
         bloqueado: !!marca?.bloqueado,
+        emTurno: noTurno.has(e.id),
         jaOfertado: 'ofertas' in e && Array.isArray(e.ofertas) && e.ofertas.length > 0,
       };
     });

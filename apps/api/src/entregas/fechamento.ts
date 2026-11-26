@@ -18,8 +18,13 @@ import {
 import type { Response } from 'express';
 import { randomBytes } from 'node:crypto';
 import { Throttle } from '@nestjs/throttler';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 import {
+  podeAvaliarEmpresa,
+  problemaNoTotalDoPagamento,
+  somaDosLancamentos,
+  type LancamentoEntrega,
+  type TipoLancamento,
   DIAS_MEDIA_AVALIACAO,
   diaNoFuso,
   destinoDoPedido,
@@ -74,7 +79,8 @@ const PAGAVEIS = { OR: [{ situacao: 'CONCLUIDA' }, { situacao: 'CANCELADA', canc
 
 class NovoFechamentoDto {
   @IsUUID('all', { message: 'Entregador inválido.' }) entregadorId: string;
-  @IsArray() @ArrayMinSize(1, { message: 'Escolha ao menos uma chamada.' }) @ArrayMaxSize(1000) @IsUUID('all', { each: true }) chamadaIds: string[];
+  @IsArray() @ArrayMaxSize(1000) @IsUUID('all', { each: true }) chamadaIds: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(1000) @IsUUID('all', { each: true }) lancamentoIds?: string[];
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Informe a data do pagamento.' }) pagoEm: string;
   @IsString() @MaxLength(300) observacao: string;
   @IsOptional() @IsString() @MaxLength(7_200_000) comprovante?: string | null;
@@ -123,13 +129,19 @@ export class FechamentoService {
   // A pagar ------------------------------------------------------------------------------------
 
   async aPagar(empresaId: string): Promise<APagarEntregador[]> {
-    const grupos = await this.prisma.chamadaEntrega.groupBy({
-      by: ['entregadorId'],
-      where: { empresaId, ...PAGAVEIS, fechamentoId: null, entregadorId: { not: null } },
-      _sum: { valorCentavos: true, extraCentavos: true },
-      _count: { _all: true },
-      _min: { concluidaEm: true },
-    });
+    const [grupos, lancamentos] = await Promise.all([
+      this.prisma.chamadaEntrega.groupBy({
+        by: ['entregadorId'],
+        where: { empresaId, ...PAGAVEIS, fechamentoId: null, entregadorId: { not: null } },
+        _sum: { valorCentavos: true, extraCentavos: true },
+        _count: { _all: true },
+        _min: { concluidaEm: true },
+      }),
+      this.prisma.lancamentoEntrega.groupBy({ by: ['entregadorId'], where: { empresaId, fechamentoId: null }, _sum: { valorCentavos: true }, _count: { _all: true }, _min: { criadoEm: true } }),
+    ]);
+    // Quem só tem turno ou desconto também aparece (o desconto espera a próxima chamada, mas fica à vista).
+    for (const l of lancamentos) if (!grupos.some((g) => g.entregadorId === l.entregadorId)) grupos.push({ entregadorId: l.entregadorId, _sum: { valorCentavos: 0, extraCentavos: 0 }, _count: { _all: 0 }, _min: { concluidaEm: l._min.criadoEm } } as never);
+    const porLancamento = new Map(lancamentos.map((l) => [l.entregadorId, l]));
     if (!grupos.length) return [];
     const ids = grupos.map((g) => g.entregadorId!);
     const [entregadores, abertas] = await Promise.all([
@@ -145,9 +157,10 @@ export class FechamentoService {
           // A chave Pix é para a empresa pagar; o CPF continua fora.
           entregador: { id: e.id, nome: primeiroNome(e.nome), veiculo: e.veiculo as TipoVeiculo, chavePix: e.chavePix },
           quantidade: g._count._all,
-          totalCentavos: (g._sum.valorCentavos ?? 0) + (g._sum.extraCentavos ?? 0),
+          totalCentavos: (g._sum.valorCentavos ?? 0) + (g._sum.extraCentavos ?? 0) + (porLancamento.get(g.entregadorId!)?._sum.valorCentavos ?? 0),
           maisAntiga: g._min.concluidaEm!.toISOString(),
           contestacoesAbertas: contestacoes.get(g.entregadorId!) ?? 0,
+          lancamentos: porLancamento.get(g.entregadorId!)?._count._all ?? 0,
         };
       })
       .sort((a, b) => a.maisAntiga.localeCompare(b.maisAntiga));
@@ -161,6 +174,16 @@ export class FechamentoService {
       include: { contestacoes: { where: { respondidaEm: null }, select: { id: true } } },
     });
     return lista.map((c) => this.linha(c));
+  }
+
+  /** Turnos e descontos ainda não pagos deste entregador. */
+  async lancamentosPendentes(empresaId: string, entregadorId: string): Promise<LancamentoEntrega[]> {
+    const lista = await this.prisma.lancamentoEntrega.findMany({ where: { empresaId, entregadorId, fechamentoId: null }, orderBy: { criadoEm: 'asc' }, take: 500 });
+    return lista.map((l) => this.lancamento(l, null));
+  }
+
+  private lancamento(l: { id: string; tipo: string; descricao: string; valorCentavos: number; criadoEm: Date; fechamentoId: string | null }, pagoEm: Date | null, empresa?: string): LancamentoEntrega {
+    return { id: l.id, tipo: l.tipo as TipoLancamento, descricao: l.descricao, valorCentavos: l.valorCentavos, criadoEm: l.criadoEm.toISOString(), fechamentoId: l.fechamentoId, pagoEm: pagoEm?.toISOString().slice(0, 10) ?? null, ...(empresa ? { empresa } : {}) };
   }
 
   private linha(c: Prisma.ChamadaEntregaGetPayload<{ include: { contestacoes: { select: { id: true } } } }>): LinhaFechamento {
@@ -188,16 +211,29 @@ export class FechamentoService {
     if (Number.isNaN(pagoEm.getTime()) || dto.pagoEm > hoje) throw new BadRequestException('A data do pagamento não pode ser no futuro.');
     const comprovante = dto.comprovante ? imagemDoDataUrl(dto.comprovante, 'O comprovante') : null;
     const ids = [...new Set(dto.chamadaIds)];
+    const idsLancamentos = [...new Set(dto.lancamentoIds ?? [])];
     const id = await this.prisma.$transaction(async (tx) => {
       const chamadas = await tx.chamadaEntrega.findMany({ where: { id: { in: ids }, empresaId, entregadorId: dto.entregadorId, ...PAGAVEIS, fechamentoId: null }, select: { id: true, valorCentavos: true, extraCentavos: true } });
       if (chamadas.length !== ids.length) throw new ConflictException('Alguma chamada já foi paga ou não é deste entregador. Recarregue a lista.');
-      const total = chamadas.reduce((s, c) => s + totalDaChamada(c), 0);
+      const lancamentos = await tx.lancamentoEntrega.findMany({ where: { empresaId, entregadorId: dto.entregadorId, fechamentoId: null }, select: { id: true, tipo: true, valorCentavos: true } });
+      if (idsLancamentos.some((x) => !lancamentos.some((l) => l.id === x))) throw new ConflictException('Algum lançamento já foi pago ou não é deste entregador. Recarregue a lista.');
+      // Desconto aceito sempre entra: a empresa não escolhe pagar sem ele.
+      if (lancamentos.some((l) => l.tipo === 'DESCONTO' && !idsLancamentos.includes(l.id))) throw new BadRequestException('Os descontos aceitos pelo entregador entram no pagamento.');
+      const escolhidos = lancamentos.filter((l) => idsLancamentos.includes(l.id));
+      const totalChamadas = chamadas.reduce((s, c) => s + totalDaChamada(c), 0);
+      const problema = problemaNoTotalDoPagamento(totalChamadas, somaDosLancamentos(escolhidos), chamadas.length + escolhidos.length);
+      if (problema) throw new BadRequestException(problema);
+      const total = totalChamadas + somaDosLancamentos(escolhidos);
       const f = await tx.fechamentoEntrega.create({
         data: { empresaId, entregadorId: dto.entregadorId, pagoEm, quantidade: chamadas.length, totalCentavos: total, observacao: dto.observacao.trim(), comprovanteMime: comprovante?.mime ?? null, comprovante: comprovante?.bytes ?? null, criadoPorId: autorId },
       });
       // Reivindica: duas abas pagando a mesma chamada não passam.
       const { count } = await tx.chamadaEntrega.updateMany({ where: { id: { in: ids }, fechamentoId: null }, data: { fechamentoId: f.id } });
       if (count !== ids.length) throw new ConflictException('Alguma chamada foi paga agora mesmo. Recarregue a lista.');
+      if (escolhidos.length) {
+        const l = await tx.lancamentoEntrega.updateMany({ where: { id: { in: escolhidos.map((x) => x.id) }, fechamentoId: null }, data: { fechamentoId: f.id } });
+        if (l.count !== escolhidos.length) throw new ConflictException('Algum lançamento foi pago agora mesmo. Recarregue a lista.');
+      }
       await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.fechamento.registrar', entidade: 'FechamentoEntrega', entidadeId: f.id, detalhes: { entregadorId: dto.entregadorId, quantidade: chamadas.length, totalCentavos: total, pagoEm: dto.pagoEm } }, tx);
       return f.id;
     });
@@ -244,10 +280,11 @@ export class FechamentoService {
         entregador: { select: { nome: true } },
         criadoPor: { select: { nome: true } },
         chamadas: { orderBy: { concluidaEm: 'asc' }, include: { contestacoes: { where: { respondidaEm: null }, select: { id: true } } } },
+        lancamentos: { orderBy: { criadoEm: 'asc' } },
       },
     });
     if (!f) throw new NotFoundException('Pagamento não encontrado.');
-    return { ...this.resumoFechamento(f), chamadas: f.chamadas.map((c) => this.linha(c)) };
+    return { ...this.resumoFechamento(f), chamadas: f.chamadas.map((c) => this.linha(c)), lancamentos: f.lancamentos.map((l) => this.lancamento(l, f.pagoEm)) };
   }
 
   async comprovante(empresaId: string, id: string): Promise<{ dados: string }> {
@@ -262,6 +299,7 @@ export class FechamentoService {
       const f = await tx.fechamentoEntrega.findFirst({ where: { id, empresaId }, select: { id: true, entregadorId: true, totalCentavos: true } });
       if (!f) throw new NotFoundException('Pagamento não encontrado.');
       await tx.chamadaEntrega.updateMany({ where: { fechamentoId: id, empresaId }, data: { fechamentoId: null } });
+      await tx.lancamentoEntrega.updateMany({ where: { fechamentoId: id, empresaId }, data: { fechamentoId: null } });
       await tx.fechamentoEntrega.delete({ where: { id } });
       await this.auditoria.registrar({ empresaId, usuarioId: autorId, acao: 'entrega.fechamento.desfazer', entidade: 'FechamentoEntrega', entidadeId: id, detalhes: { entregadorId: f.entregadorId, totalCentavos: f.totalCentavos } }, tx);
     });
@@ -352,7 +390,7 @@ export class FechamentoService {
   async extrato(entregadorId: string, periodo: PeriodoExtrato, agora = new Date()): Promise<ExtratoEntregador> {
     const fuso = config().fusoHorario;
     const desde = inicioDoPeriodo(periodo, agora, diaNoFuso(agora, fuso), minutosDoFuso(agora, fuso));
-    const [lista, aReceber, pagos] = await Promise.all([
+    const [lista, aReceber, pagos, lancamentos, lancamentosAReceber] = await Promise.all([
       this.prisma.chamadaEntrega.findMany({
         where: { entregadorId, ...PAGAVEIS, ...(desde ? { concluidaEm: { gte: desde } } : {}) },
         orderBy: { concluidaEm: 'desc' },
@@ -365,6 +403,8 @@ export class FechamentoService {
       }),
       this.prisma.chamadaEntrega.aggregate({ where: { entregadorId, ...PAGAVEIS, fechamentoId: null }, _sum: { valorCentavos: true, extraCentavos: true } }),
       this.prisma.fechamentoEntrega.aggregate({ where: { entregadorId, ...(desde ? { pagoEm: { gte: new Date(diaNoFuso(desde, fuso) + 'T00:00:00Z') } } : {}) }, _sum: { totalCentavos: true } }),
+      this.prisma.lancamentoEntrega.findMany({ where: { entregadorId, ...(desde ? { criadoEm: { gte: desde } } : {}) }, orderBy: { criadoEm: 'desc' }, take: 300, include: { empresa: { select: { nomeFantasia: true, razaoSocial: true } }, fechamento: { select: { pagoEm: true } } } }),
+      this.prisma.lancamentoEntrega.aggregate({ where: { entregadorId, fechamentoId: null }, _sum: { valorCentavos: true } }),
     ]);
     const linhas: LinhaExtrato[] = lista.map((c) => {
       const ct = c.contestacoes[0];
@@ -386,15 +426,19 @@ export class FechamentoService {
         fechamentoId: c.fechamentoId,
         contestacao: ct ? { id: ct.id, mensagem: ct.mensagem, criadoEm: ct.criadoEm.toISOString(), resposta: ct.resposta, respondidaEm: ct.respondidaEm?.toISOString() ?? null } : null,
         podeContestar: podeContestar(c.concluidaEm, agora) && !(ct && !ct.respondidaEm),
+        avaliacaoEmpresa: c.avaliacaoEmpresaNota,
+        podeAvaliarEmpresa: !c.avaliacaoEmpresaEm && podeAvaliarEmpresa(c.concluidaEm, agora),
       };
     });
+    const extras = lancamentos.map((l) => this.lancamento(l, l.fechamento?.pagoEm ?? null, l.empresa.nomeFantasia || l.empresa.razaoSocial));
     return {
       periodo,
-      periodoCentavos: linhas.reduce((s, l) => s + l.valorCentavos + l.extraCentavos, 0),
-      aReceberCentavos: (aReceber._sum.valorCentavos ?? 0) + (aReceber._sum.extraCentavos ?? 0),
+      periodoCentavos: linhas.reduce((s, l) => s + l.valorCentavos + l.extraCentavos, 0) + somaDosLancamentos(extras),
+      aReceberCentavos: (aReceber._sum.valorCentavos ?? 0) + (aReceber._sum.extraCentavos ?? 0) + (lancamentosAReceber._sum.valorCentavos ?? 0),
       pagoCentavos: pagos._sum.totalCentavos ?? 0,
-      empresas: [...new Set(linhas.map((l) => l.empresa))].sort(),
+      empresas: [...new Set([...linhas.map((l) => l.empresa), ...extras.map((l) => l.empresa!)])].sort(),
       linhas,
+      lancamentos: extras,
     };
   }
 
@@ -407,6 +451,7 @@ export class FechamentoService {
         entregador: { select: { nome: true, chavePix: true } },
         criadoPor: { select: { nome: true } },
         chamadas: { orderBy: { concluidaEm: 'asc' }, select: { numero: true, tipo: true, concluidaEm: true, destino: true, valorCentavos: true, extraCentavos: true, situacao: true } },
+        lancamentos: { orderBy: { criadoEm: 'asc' }, select: { descricao: true, valorCentavos: true, criadoEm: true } },
       },
     });
     if (!f) throw new NotFoundException('Pagamento não encontrado.');
@@ -416,6 +461,7 @@ export class FechamentoService {
       f.entregador,
       f.chamadas.map((c) => ({ numero: c.numero, tipo: c.tipo as TipoChamada, concluidaEm: (c.concluidaEm ?? f.criadoEm).toISOString(), destino: destinoCurto(c.destino), valorCentavos: c.valorCentavos, extraCentavos: c.extraCentavos, cancelada: c.situacao === 'CANCELADA' })),
       config().fusoHorario,
+      f.lancamentos.map((l) => ({ em: l.criadoEm.toISOString(), descricao: l.descricao, valorCentavos: l.valorCentavos })),
     );
     return { bytes, nome: `pagamento-flow-${f.pagoEm.toISOString().slice(0, 10)}.pdf` };
   }
@@ -490,6 +536,12 @@ export class FechamentoController {
   @RequerPermissao('entrega.financeiro')
   aPagar(@EmpresaAtual() empresaId: string): Promise<APagarEntregador[]> {
     return this.fechamento.aPagar(empresaId);
+  }
+
+  @Get('financeiro/a-pagar/:entregadorId/lancamentos')
+  @RequerPermissao('entrega.financeiro')
+  lancamentos(@EmpresaAtual() empresaId: string, @Param('entregadorId', ParseUUIDPipe) entregadorId: string): Promise<LancamentoEntrega[]> {
+    return this.fechamento.lancamentosPendentes(empresaId, entregadorId);
   }
 
   @Get('financeiro/a-pagar/:entregadorId')

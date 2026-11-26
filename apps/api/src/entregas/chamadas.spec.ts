@@ -12,7 +12,7 @@ const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJA
 const parada = (p: { lat: number; lon: number }) => ({ ...p, endereco: 'Rua A, 1', contato: '', telefone: '', instrucoes: '' });
 
 function montar(chamada: Record<string, unknown>) {
-  const c = { id: 'c1', entregadorId: 'e1', tipo: 'ENTREGA', situacao: 'ACEITA', origem: parada(SE), destino: parada(PAULISTA), serieEsperada: null, codigoConfirmacao: '1234', tentativasCodigo: 0, paradaAtual: 0, paradas: [], esperaToleranciaMinutos: 10, esperaPorBlocoCentavos: 0, chegouNoPontoEm: null, devolucao: null, checklists: {}, assinatura: 'NAO', ...chamada };
+  const c = { id: 'c1', entregadorId: 'e1', tipo: 'ENTREGA', situacao: 'ACEITA', origem: parada(SE), destino: parada(PAULISTA), serieEsperada: null, codigoConfirmacao: '1234', tentativasCodigo: 0, paradaAtual: 0, coletaAtual: 0, coletasExtras: [], paradas: [], esperaToleranciaMinutos: 10, esperaPorBlocoCentavos: 0, chegouNoPontoEm: null, devolucao: null, checklists: {}, assinatura: 'NAO', ...chamada };
   const tx = {
     chamadaEntrega: { updateMany: jest.fn(async () => ({ count: 1 })) },
     fotoChamada: { create: jest.fn(async () => ({})) },

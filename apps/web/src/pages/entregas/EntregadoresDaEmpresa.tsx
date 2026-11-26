@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ReputacaoDaEmpresa } from './Turnos';
 import { ROTULO_VEICULO, type EntregadorDaEmpresa } from '@etiquetas/shared';
 import { api } from '../../api';
 import { useAuth } from '../../auth';
@@ -18,6 +19,7 @@ export function EntregadoresDaEmpresa() {
   if (isLoading || !data) return <div className="text-sm text-slate-500">Carregando…</div>;
   return (
     <div className="space-y-3">
+      <ReputacaoDaEmpresa />
       <p className="text-sm text-slate-600">Entregadores que já receberam oferta ou atenderam a empresa. Preferido ganha pontos (ou vem primeiro, conforme o Direcionamento); bloqueado não recebe nenhuma oferta da empresa, nem manual.</p>
       {marcar.error && <Alerta>{marcar.error.message}</Alerta>}
       <Tabela colunas={['Entregador', 'Veículo', 'Avaliação', 'Concluídas', 'Última chamada', 'Situação', ...(configura ? [''] : [])]} vazio={data.length === 0}>

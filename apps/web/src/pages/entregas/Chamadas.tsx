@@ -45,6 +45,8 @@ import { MapaEntregadores } from './MapaEntregadores';
 import { PosEntrega } from './PosEntrega';
 import { ConversaDaChamada } from './Conversa';
 import { AlertaEmergencia, LinkRastreio } from './RastreioDaChamada';
+import { AvariasDaChamada, centavosDoTexto } from './Avarias';
+import { MAX_COLETAS_EXTRAS } from '@etiquetas/shared';
 
 const COR_SITUACAO: Record<SituacaoChamada, 'verde' | 'amarelo' | 'vermelho' | 'cinza'> = {
   ABERTA: 'amarelo',
@@ -208,8 +210,10 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, er
   const baseComoParada = (): ParadaChamada => (config.base ? { ...paradaVazia(), lat: config.base.lat, lon: config.base.lon, endereco: config.base.endereco } : paradaVazia());
   const [origem, setOrigem] = useState<ParadaChamada>(() => juntos?.origem ?? erp?.origem ?? baseComoParada());
   const [destino, setDestino] = useState<ParadaChamada>(() => juntos?.destino ?? erp?.destino ?? rascunho?.destino ?? paradaVazia());
-  const [marcando, setMarcando] = useState<'origem' | 'destino' | number>(erp && erp.tipo !== 'ENTREGA' ? 'origem' : 'destino');
+  const [marcando, setMarcando] = useState<'origem' | 'destino' | number | `coleta-${number}`>(erp && erp.tipo !== 'ENTREGA' ? 'origem' : 'destino');
   const [extras, setExtras] = useState<ParadaComPedido[]>(() => juntos?.paradasExtras ?? []);
+  const [coletas, setColetas] = useState<ParadaChamada[]>([]);
+  const [valorDeclarado, setValorDeclarado] = useState('');
   const [serie, setSerie] = useState(erp?.serieEsperada ?? '');
   const [observacao, setObservacao] = useState(juntos?.observacao ?? erp?.observacao ?? rascunho?.observacao ?? '');
   const primeira = useRef(true);
@@ -225,6 +229,7 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, er
       if (rascunho || erp || juntos) return;
     }
     setExtras([]);
+    setColetas([]);
     if (tipo === 'ENTREGA') {
       setOrigem(baseComoParada());
       setDestino(paradaVazia());
@@ -237,11 +242,11 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, er
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipo]);
 
-  const corpo: NovaChamada = { tipo, origem, destino, serieEsperada: serie.trim() || null, observacao, pedidoId: juntos?.pedidoId ?? rascunho?.pedidoId ?? null, pedidoErpId: juntos?.pedidoErpId ?? erp?.pedidoErpId ?? null, paradasExtras: tipo === 'ENTREGA' ? extras : [], agendadaPara: agendar && quando ? new Date(quando).toISOString() : null };
-  const prontos = temPonto(origem) && temPonto(destino) && extras.every(temPonto);
+  const corpo: NovaChamada = { tipo, origem, destino, serieEsperada: serie.trim() || null, observacao, pedidoId: juntos?.pedidoId ?? rascunho?.pedidoId ?? null, pedidoErpId: juntos?.pedidoErpId ?? erp?.pedidoErpId ?? null, paradasExtras: tipo === 'ENTREGA' ? extras : [], agendadaPara: agendar && quando ? new Date(quando).toISOString() : null, coletasExtras: tipo === 'ENTREGA' ? coletas : [], valorDeclaradoCentavos: valorDeclarado.trim() ? centavosDoTexto(valorDeclarado) : null };
+  const prontos = temPonto(origem) && temPonto(destino) && extras.every(temPonto) && coletas.every(temPonto);
   const previa = useQuery({
-    queryKey: ['chamada-previa', tipo, origem.lat, origem.lon, destino.lat, destino.lon, extras.map((p) => `${p.lat},${p.lon}`).join('|')],
-    queryFn: () => api<PreviaChamada>('/entregas/chamadas/previa', { metodo: 'POST', corpo: { ...corpo, origem: { ...origem, endereco: origem.endereco || 'ponto marcado' }, destino: { ...destino, endereco: destino.endereco || 'ponto marcado' }, paradasExtras: corpo.paradasExtras?.map((p) => ({ ...p, endereco: p.endereco || 'ponto marcado' })) } }),
+    queryKey: ['chamada-previa', tipo, origem.lat, origem.lon, destino.lat, destino.lon, extras.map((p) => `${p.lat},${p.lon}`).join('|'), coletas.map((p) => `${p.lat},${p.lon}`).join('|')],
+    queryFn: () => api<PreviaChamada>('/entregas/chamadas/previa', { metodo: 'POST', corpo: { ...corpo, valorDeclaradoCentavos: null, origem: { ...origem, endereco: origem.endereco || 'ponto marcado' }, destino: { ...destino, endereco: destino.endereco || 'ponto marcado' }, paradasExtras: corpo.paradasExtras?.map((p) => ({ ...p, endereco: p.endereco || 'ponto marcado' })), coletasExtras: corpo.coletasExtras?.map((p) => ({ ...p, endereco: p.endereco || 'ponto marcado' })) } }),
     enabled: prontos,
     retry: false,
   });
@@ -253,7 +258,8 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, er
     },
   });
   const marcas = [
-    ...(temPonto(origem) ? [{ ...origem, cor: COR_COLETA, rotulo: 'Coleta' }] : []),
+    ...(temPonto(origem) ? [{ ...origem, cor: COR_COLETA, rotulo: coletas.length ? 'Coleta 1' : 'Coleta' }] : []),
+    ...coletas.flatMap((p, i) => (temPonto(p) ? [{ ...p, cor: COR_COLETA, rotulo: `Coleta ${i + 2}` }] : [])),
     ...(temPonto(destino) ? [{ ...destino, cor: COR_DESTINO, rotulo: 'Destino' }] : []),
     ...extras.flatMap((p, i) => (temPonto(p) ? [{ ...p, cor: COR_PARADA, rotulo: `Parada ${i + 2}` }] : [])),
   ];
@@ -273,7 +279,20 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, er
               </option>
             ))}
           </Selecao>
-          <EditorParada titulo="Coleta" artigo="na" cor={COR_COLETA} parada={origem} mudar={setOrigem} ativa={marcando === 'origem'} marcar={() => setMarcando('origem')} />
+          <EditorParada titulo={coletas.length ? 'Coleta 1' : 'Coleta'} artigo="na" cor={COR_COLETA} parada={origem} mudar={setOrigem} ativa={marcando === 'origem'} marcar={() => setMarcando('origem')} />
+          {coletas.map((p, i) => (
+            <div key={`coleta-${i}`} className="space-y-1" data-testid="coleta-extra">
+              <EditorParada titulo={`Coleta ${i + 2}`} artigo="na" cor={COR_COLETA} parada={p} mudar={(n) => setColetas(coletas.map((x, j) => (j === i ? n : x)))} ativa={marcando === `coleta-${i}`} marcar={() => setMarcando(`coleta-${i}`)} />
+              <button type="button" className="text-xs text-red-700 underline" onClick={() => { setColetas(coletas.filter((_, j) => j !== i)); setMarcando('destino'); }}>
+                Tirar a coleta {i + 2}
+              </button>
+            </div>
+          ))}
+          {tipo === 'ENTREGA' && coletas.length < MAX_COLETAS_EXTRAS && (
+            <Botao variante="secundario" onClick={() => { setColetas([...coletas, paradaVazia()]); setMarcando(`coleta-${coletas.length}`); }}>
+              + Adicionar outra coleta
+            </Botao>
+          )}
           <EditorParada titulo="Destino" artigo="no" cor={COR_DESTINO} parada={destino} mudar={setDestino} ativa={marcando === 'destino'} marcar={() => setMarcando('destino')} />
           {extras.map((p, i) => (
             <div key={i} className="space-y-1">
@@ -305,13 +324,14 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, er
           <div className="grid gap-3 sm:grid-cols-2">
             <Campo rotulo={tipo === 'DEVOLUCAO_MAQUINA' ? 'Número de série da máquina (opcional)' : 'Número de série (opcional)'} value={serie} onChange={(e) => setSerie(e.target.value)} ajuda={tipo === 'DEVOLUCAO_MAQUINA' ? 'O entregador sempre lê a série na coleta; se informada aqui, precisa conferir.' : undefined} />
             <Campo rotulo="Observação para o entregador" value={observacao} onChange={(e) => setObservacao(e.target.value)} />
+            <Campo rotulo="Valor declarado (R$, opcional)" inputMode="decimal" value={valorDeclarado} onChange={(e) => setValorDeclarado(e.target.value)} ajuda="Quanto vale o que vai no pacote. O entregador vê, e o desconto por avaria não passa dele." />
           </div>
         </div>
         <div className="space-y-3">
           <p className="text-sm text-slate-600">
-            Clique no mapa para marcar <strong style={{ color: marcando === 'origem' ? COR_COLETA : marcando === 'destino' ? COR_DESTINO : COR_PARADA }}>{marcando === 'origem' ? 'a coleta' : marcando === 'destino' ? 'o destino' : `a parada ${marcando + 2}`}</strong>.
+            Clique no mapa para marcar <strong style={{ color: marcando === 'origem' || typeof marcando === 'string' && marcando.startsWith('coleta-') ? COR_COLETA : marcando === 'destino' ? COR_DESTINO : COR_PARADA }}>{marcando === 'origem' ? 'a coleta' : marcando === 'destino' ? 'o destino' : typeof marcando === 'string' ? `a coleta ${Number(marcando.slice(7)) + 2}` : `a parada ${marcando + 2}`}</strong>.
           </p>
-          <MapaEntregadores config={mapa} base={null} raioKm={1} marcas={marcas} altura={360} aoClicar={(p) => (marcando === 'origem' ? setOrigem({ ...origem, ...p }) : marcando === 'destino' ? setDestino({ ...destino, ...p }) : setExtras(extras.map((x, j) => (j === marcando ? { ...x, ...p } : x))))} />
+          <MapaEntregadores config={mapa} base={null} raioKm={1} marcas={marcas} altura={360} aoClicar={(p) => (marcando === 'origem' ? setOrigem({ ...origem, ...p }) : marcando === 'destino' ? setDestino({ ...destino, ...p }) : typeof marcando === 'string' ? setColetas(coletas.map((x, j) => (j === Number(marcando.slice(7)) ? { ...x, ...p } : x))) : setExtras(extras.map((x, j) => (j === marcando ? { ...x, ...p } : x))))} />
           {previa.data && (
             <div className="rounded-md bg-slate-50 px-3 py-2 text-sm">
               <div>
@@ -345,7 +365,7 @@ export function NovaChamadaModal({ config, mapa, aoFechar, aoCriar, rascunho, er
               <span className="block text-xs text-slate-500">O sistema oferece pelas regras do Direcionamento. Desmarcado, você escolhe o entregador depois de abrir.</span>
             </span>
           </label>
-          <Botao onClick={() => criar.mutate()} disabled={!prontos || !origem.endereco || !destino.endereco || extras.some((p) => !p.endereco.trim()) || (agendar && !quando) || criar.isPending}>
+          <Botao onClick={() => criar.mutate()} disabled={!prontos || !origem.endereco || !destino.endereco || extras.some((p) => !p.endereco.trim()) || coletas.some((p) => !p.endereco.trim()) || (agendar && !quando) || criar.isPending}>
             {criar.isPending ? 'Abrindo…' : 'Abrir chamada'}
           </Botao>
         </div>
@@ -421,6 +441,7 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
       c
         ? [
             { ...c.origem, cor: COR_COLETA, rotulo: `Coleta: ${c.origem.endereco}` },
+            ...c.coletasExtras.map((x, i) => ({ ...x.parada, cor: COR_COLETA, rotulo: `Coleta ${i + 2}: ${x.parada.endereco}` })),
             { ...c.destino, cor: COR_DESTINO, rotulo: `Destino: ${c.destino.endereco}` },
             ...c.paradasExtras.map((p) => ({ ...p.parada, cor: COR_PARADA, rotulo: `Parada ${p.ordem + 1}: ${p.parada.endereco}` })),
             ...(c.posicaoEntregador ? [{ ...c.posicaoEntregador, cor: COR_ENTREGADOR, rotulo: `${c.entregador?.nome ?? 'Entregador'} (${new Date(c.posicaoEntregador.em).toLocaleTimeString('pt-BR')})` }] : []),
@@ -472,7 +493,13 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
             <EtiquetaDeColeta c={c} gerencia={gerencia} />
             <LinkRastreio c={c} />
             <AlertaEmergencia c={c} aoCiente={() => acao.mutate({ caminho: 'emergencia/ciente' })} ocupado={acao.isPending} />
-            <Parada titulo="Coleta" p={c.origem} />
+            <Parada titulo={c.coletasExtras.length ? `Coleta 1 de ${c.coletasExtras.length + 1}${c.coletaAtual > 0 || ['COLETADA', 'NO_DESTINO', 'CONCLUIDA'].includes(c.situacao) ? ' · coletada' : ''}` : 'Coleta'} p={c.origem} />
+            {c.coletasExtras.map((x, i) => (
+              <div key={`coleta-${i}`} data-testid="coleta-extra">
+                <Parada titulo={`Coleta ${i + 2} de ${c.coletasExtras.length + 1}${x.coletadaEm ? ' · coletada' : c.coletaAtual === i + 1 && !['CANCELADA', 'CONCLUIDA'].includes(c.situacao) ? ' · a vez dela' : ''}`} p={x.parada} />
+              </div>
+            ))}
+            {c.valorDeclaradoCentavos !== null && <div className="text-slate-600">Valor declarado: <strong>{formatarCentavos(c.valorDeclaradoCentavos)}</strong></div>}
             <Parada titulo={c.paradasExtras.length ? `Destino (parada 1 de ${c.paradasExtras.length + 1})${c.paradaAtual > 0 || c.situacao === 'CONCLUIDA' ? ' · entregue' : ''}` : 'Destino'} p={c.destino} />
             {c.paradasExtras.map((p) => (
               <div key={p.ordem} data-testid="parada-extra">
@@ -624,6 +651,7 @@ function DetalheChamada({ id, mapa, gerencia, aoFechar }: { id: string; mapa: Co
             )}
 
             {c.situacao === 'CONCLUIDA' && c.entregador && <PosEntrega c={c} gerencia={gerencia} />}
+            <AvariasDaChamada c={c} gerencia={gerencia} />
 
             {gerencia && c.situacao === 'NO_DESTINO' && (
               <Botao variante="secundario" onClick={() => confirm('Confirmar a entrega sem o código do destinatário?') && acao.mutate({ caminho: 'concluir' })}>

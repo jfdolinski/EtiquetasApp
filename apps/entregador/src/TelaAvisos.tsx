@@ -10,7 +10,7 @@ import { Botao, Cartao, cores, Texto, Titulo } from './ui';
  * Guia Avisos: tudo o que falta ajustar no celular ou na conta, num lugar só, para o Início ficar só
  * com o trabalho (online, oferta, diárias). Cada item diz o que é, por que importa e tem o botão.
  */
-export type IdPendencia = 'VERSAO' | 'LOCALIZACAO' | 'NOTIFICACOES' | 'BATERIA' | 'DIARIAS';
+export type IdPendencia = 'VERSAO' | 'LOCALIZACAO' | 'NOTIFICACOES' | 'BATERIA' | 'DIARIAS' | 'AVARIAS';
 
 export interface Situacao {
   localizacao: ProblemaPermissao;
@@ -46,6 +46,7 @@ export function pendencias(s: Situacao | null, perfil: PerfilEntregador, versaoN
   if (s?.notificacoes === false) lista.push('NOTIFICACOES');
   if (s && !s.bateriaVista) lista.push('BATERIA');
   if (!perfil.diariaHoje && perfil.saldoDiarias === 0) lista.push('DIARIAS');
+  if ((perfil.avariasPendentes ?? 0) > 0) lista.push('AVARIAS');
   return lista;
 }
 
@@ -78,6 +79,7 @@ export function TelaAvisos({
   abrirGuia,
   irParaCreditos,
   abrirTermo,
+  irParaExtrato,
 }: {
   situacao: Situacao | null;
   conferir: () => void;
@@ -87,6 +89,7 @@ export function TelaAvisos({
   abrirGuia: () => void;
   irParaCreditos: () => void;
   abrirTermo?: () => void;
+  irParaExtrato?: () => void;
 }) {
   const [ocupado, setOcupado] = useState(false);
   const lista = pendencias(situacao, perfil, versaoNova);
@@ -119,6 +122,11 @@ export function TelaAvisos({
       <Texto suave>{lista.length ? `${lista.length === 1 ? 'Falta 1 ajuste' : `Faltam ${lista.length} ajustes`} para o app funcionar direito.` : 'Tudo certo: nada pendente.'}</Texto>
       <View style={{ height: 12 }} />
 
+      {(perfil.avariasPendentes ?? 0) > 0 && (
+        <Item titulo="Avaria esperando sua resposta" texto={`Uma empresa registrou ${perfil.avariasPendentes === 1 ? 'uma avaria' : `${perfil.avariasPendentes} avarias`} com desconto. Aceite ou conte por que não concorda.`} pendente>
+          {irParaExtrato && <Botao titulo="Ver no Extrato" onPress={irParaExtrato} />}
+        </Item>
+      )}
       {versaoNova && (
         <Item titulo="Versão nova do app" texto={`A versão ${versaoNova} já está disponível. Baixe e instale por cima desta.`} pendente>
           <Botao titulo="Baixar a versão nova" onPress={baixarVersao} />

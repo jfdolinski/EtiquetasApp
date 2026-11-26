@@ -86,13 +86,15 @@ export function CartaoOferta({ api, oferta, aoResponder }: { api: Api; oferta: O
       <Text style={estilos.linha}>
         {ROTULO_TIPO_CHAMADA[oferta.tipo]} · {oferta.empresa}
       </Text>
-      <Text style={estilos.linha}>Coleta: {oferta.origemResumo || 'ver no mapa'}{oferta.metrosAteColeta != null ? ` (${formatarKm(oferta.metrosAteColeta)} de você)` : ''}</Text>
+      <Text style={estilos.linha}>Coleta: {oferta.origemResumo || 'ver no mapa'}{oferta.metrosAteColeta != null ? ` (${formatarKm(oferta.metrosAteColeta)} de você)` : ''}{(oferta.coletas ?? 1) > 1 ? ` e mais ${(oferta.coletas ?? 1) - 1} lugar${(oferta.coletas ?? 1) > 2 ? 'es' : ''} para pegar` : ''}</Text>
       <Text style={estilos.linha}>Destino: {oferta.destinoResumo || 'ver no mapa'}{(oferta.entregas ?? 1) > 1 ? ` e mais ${(oferta.entregas ?? 1) - 1} entrega${(oferta.entregas ?? 1) > 2 ? 's' : ''}` : ''}</Text>
       <Text style={estilos.linha}>
         Percurso: {formatarKm(oferta.metros)}
         {oferta.estimada ? ' (estimado)' : ''}
       </Text>
       {oferta.agendadaPara ? <Text style={[estilos.linha, { fontFamily: fontes.forte, fontWeight: '700' }]}>Coleta agendada: {new Date(oferta.agendadaPara).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</Text> : null}
+      {oferta.notaEmpresa != null ? <Text style={estilos.linha}>Empresa: nota {oferta.notaEmpresa.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} de 5 ({oferta.avaliacoesEmpresa} avaliações de entregadores)</Text> : null}
+      {oferta.valorDeclaradoCentavos != null ? <Text style={estilos.linha}>Valor declarado do pacote: {formatarCentavos(oferta.valorDeclaradoCentavos)}</Text> : null}
       {oferta.motivo ? <Texto suave>{oferta.motivo}</Texto> : null}
       <Text style={[estilos.prazo, restam <= 10 && { color: cores.erro }]}>{restam > 0 ? `${restam} s para responder` : 'Tempo esgotado'}</Text>
       {erro && <Alerta>{erro}</Alerta>}
@@ -296,7 +298,18 @@ export function TelaChamada({ api, chamada, aoMudar }: { api: Api; chamada: Cham
       )}
       {(chamada.esperaCentavos ?? 0) > 0 && <Texto suave>Espera já somada: {formatarCentavos(chamada.esperaCentavos!)}</Texto>}
 
-      <Parada titulo="Coleta" p={chamada.origem} ativa={indoColetar} />
+      {chamada.valorDeclaradoCentavos != null ? <Texto suave>Valor declarado do pacote: {formatarCentavos(chamada.valorDeclaradoCentavos)}</Texto> : null}
+      <Parada titulo={(chamada.coletas?.length ?? 1) > 1 && !chamada.devolvendo ? `Coleta ${(chamada.coletaAtual ?? 0) + 1} de ${chamada.coletas!.length}` : 'Coleta'} p={chamada.origem} ativa={indoColetar} />
+      {(chamada.coletas?.length ?? 1) > 1 && indoColetar && (
+        <Cartao>
+          {chamada.coletas!.map((d) => (
+            <Text key={d.ordem} style={{ color: d.coletada ? cores.ok : d.ordem === chamada.coletaAtual ? cores.texto : cores.suave, fontWeight: d.ordem === chamada.coletaAtual ? '700' : '400' }}>
+              {d.coletada ? '✓ ' : `${d.ordem + 1}. `}
+              {d.parada.endereco}
+            </Text>
+          ))}
+        </Cartao>
+      )}
       <Parada titulo={chamada.devolvendo ? 'Devolver em' : (chamada.destinos?.length ?? 1) > 1 ? `Entrega ${(chamada.paradaAtual ?? 0) + 1} de ${chamada.destinos!.length}` : 'Destino'} p={chamada.destino} ativa={!indoColetar} />
       {(chamada.destinos?.length ?? 1) > 1 && (
         <Cartao>

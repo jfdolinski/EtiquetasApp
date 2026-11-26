@@ -13,6 +13,8 @@ import {
 import { api, apiArquivo } from '../../api';
 import { useHojeDoSistema } from '../../components/Relogio';
 import { Alerta, Botao, Campo, formatarData, Modal, Selo, Tabela } from '../../components/ui';
+import { AvariasDaEmpresa } from './Avarias';
+import { somaDosLancamentos, type LancamentoEntrega } from '@etiquetas/shared';
 
 const dataBr = (iso: string) => iso.slice(0, 10).split('-').reverse().join('/');
 
@@ -61,7 +63,10 @@ export function Financeiro() {
                   copiar
                 </button>
               </td>
-              <td className="px-4 py-2.5">{a.quantidade}</td>
+              <td className="px-4 py-2.5">
+                {a.quantidade}
+                {(a.lancamentos ?? 0) > 0 && <span className="block text-xs text-slate-500">+ {a.lancamentos} {a.lancamentos === 1 ? 'turno ou desconto' : 'turnos ou descontos'}</span>}
+              </td>
               <td className="px-4 py-2.5">{dataBr(a.maisAntiga)}</td>
               <td className="px-4 py-2.5 font-semibold">{formatarCentavos(a.totalCentavos)}</td>
               <td className="px-4 py-2.5 text-right">
@@ -75,6 +80,7 @@ export function Financeiro() {
       </section>
 
       <Contestacoes />
+      <AvariasDaEmpresa />
       <Pagamentos ver={setVendo} />
 
       {pagando && <RegistrarPagamento a={pagando} aoFechar={() => setPagando(null)} />}
@@ -86,7 +92,9 @@ export function Financeiro() {
 function RegistrarPagamento({ a, aoFechar }: { a: APagarEntregador; aoFechar: () => void }) {
   const cliente = useQueryClient();
   const linhas = useQuery({ queryKey: ['entregas-pendentes', a.entregador.id], queryFn: () => api<LinhaFechamento[]>(`/entregas/financeiro/a-pagar/${a.entregador.id}`) });
+  const lancamentos = useQuery({ queryKey: ['entregas-lancamentos', a.entregador.id], queryFn: () => api<LancamentoEntrega[]>(`/entregas/financeiro/a-pagar/${a.entregador.id}/lancamentos`) });
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
+  const [turnosFora, setTurnosFora] = useState<Set<string>>(new Set());
   const hoje = useHojeDoSistema();
   const [escolhido, setPagoEm] = useState<string | null>(null);
   const pagoEm = escolhido ?? hoje;
@@ -96,10 +104,13 @@ function RegistrarPagamento({ a, aoFechar }: { a: APagarEntregador; aoFechar: ()
     if (linhas.data) setMarcadas(new Set(linhas.data.map((l) => l.chamadaId)));
   }, [linhas.data]);
   const escolhidas = useMemo(() => (linhas.data ?? []).filter((l) => marcadas.has(l.chamadaId)), [linhas.data, marcadas]);
+  // Descontos aceitos sempre entram; turnos entram a não ser que a empresa desmarque.
+  const lancamentosEscolhidos = (lancamentos.data ?? []).filter((l) => l.tipo === 'DESCONTO' || !turnosFora.has(l.id));
+  const totalPagamento = somaDasLinhas(escolhidas) + somaDosLancamentos(lancamentosEscolhidos);
   const registrar = useMutation({
-    mutationFn: () => api<FechamentoResumo>('/entregas/financeiro/fechamentos', { metodo: 'POST', corpo: { entregadorId: a.entregador.id, chamadaIds: escolhidas.map((l) => l.chamadaId), pagoEm, observacao, comprovante } }),
+    mutationFn: () => api<FechamentoResumo>('/entregas/financeiro/fechamentos', { metodo: 'POST', corpo: { entregadorId: a.entregador.id, chamadaIds: escolhidas.map((l) => l.chamadaId), lancamentoIds: lancamentosEscolhidos.map((l) => l.id), pagoEm, observacao, comprovante } }),
     onSuccess: () => {
-      for (const k of ['entregas-a-pagar', 'entregas-pagamentos', 'chamadas']) void cliente.invalidateQueries({ queryKey: [k] });
+      for (const k of ['entregas-a-pagar', 'entregas-pagamentos', 'chamadas', 'entregas-lancamentos']) void cliente.invalidateQueries({ queryKey: [k] });
       aoFechar();
     },
   });
@@ -133,9 +144,37 @@ function RegistrarPagamento({ a, aoFechar }: { a: APagarEntregador; aoFechar: ()
             </label>
           ))}
         </div>
+        {(lancamentos.data ?? []).length > 0 && (
+          <div className="rounded border border-slate-200" data-testid="lancamentos">
+            {lancamentos.data!.map((l) => (
+              <label key={l.id} className="flex items-start gap-3 border-b border-slate-100 px-3 py-2 last:border-0">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={l.tipo === 'DESCONTO' || !turnosFora.has(l.id)}
+                  disabled={l.tipo === 'DESCONTO'}
+                  onChange={() => {
+                    const n = new Set(turnosFora);
+                    if (n.has(l.id)) n.delete(l.id);
+                    else n.add(l.id);
+                    setTurnosFora(n);
+                  }}
+                  aria-label={l.descricao}
+                />
+                <span className="flex-1">
+                  {l.descricao}
+                  {l.tipo === 'DESCONTO' && <span className="block text-xs text-slate-500">Aceito pelo entregador: sempre entra no pagamento.</span>}
+                </span>
+                <span className={`font-medium ${l.valorCentavos < 0 ? 'text-red-700' : ''}`}>{formatarCentavos(l.valorCentavos)}</span>
+              </label>
+            ))}
+          </div>
+        )}
         <div className="text-base">
-          {escolhidas.length} chamada{escolhidas.length === 1 ? '' : 's'}: <strong>{formatarCentavos(somaDasLinhas(escolhidas))}</strong>
+          {escolhidas.length} chamada{escolhidas.length === 1 ? '' : 's'}
+          {lancamentosEscolhidos.length > 0 && ` e ${lancamentosEscolhidos.length} lançamento${lancamentosEscolhidos.length === 1 ? '' : 's'}`}: <strong>{formatarCentavos(totalPagamento)}</strong>
         </div>
+        {totalPagamento < 0 && <Alerta tipo="aviso">O desconto passa do valor a pagar: espere mais chamadas ou retire o desconto na chamada.</Alerta>}
         <div className="grid gap-3 sm:grid-cols-2">
           <Campo rotulo="Data do pagamento" type="date" max={hoje} value={pagoEm} onChange={(e) => setPagoEm(e.target.value)} />
           <Campo rotulo="Observação" value={observacao} onChange={(e) => setObservacao(e.target.value)} placeholder="Ex.: Pix do dia, id da transação" />
@@ -145,8 +184,8 @@ function RegistrarPagamento({ a, aoFechar }: { a: APagarEntregador; aoFechar: ()
           <input type="file" accept="image/png,image/jpeg,image/webp" className="mt-1 block text-sm" onChange={async (e) => setComprovante(e.target.files?.[0] ? await lerArquivo(e.target.files[0]) : null)} />
         </label>
         {registrar.error && <Alerta>{registrar.error.message}</Alerta>}
-        <Botao onClick={() => registrar.mutate()} disabled={!escolhidas.length || !pagoEm || registrar.isPending}>
-          {registrar.isPending ? 'Registrando…' : `Registrar pagamento de ${formatarCentavos(somaDasLinhas(escolhidas))}`}
+        <Botao onClick={() => registrar.mutate()} disabled={(!escolhidas.length && !lancamentosEscolhidos.length) || totalPagamento < 0 || !pagoEm || registrar.isPending}>
+          {registrar.isPending ? 'Registrando…' : `Registrar pagamento de ${formatarCentavos(totalPagamento)}`}
         </Botao>
       </div>
     </Modal>
@@ -271,6 +310,12 @@ function DetalhePagamento({ id, aoFechar }: { id: string; aoFechar: () => void }
                   Nº {l.numero} · {ROTULO_TIPO_CHAMADA[l.tipo]} · {dataBr(l.concluidaEm)} · {l.destino}
                 </span>
                 <span>{formatarCentavos(totalDaChamada(l))}</span>
+              </li>
+            ))}
+            {d.lancamentos?.map((l) => (
+              <li key={l.id} className="flex justify-between px-3 py-1.5">
+                <span>{l.descricao}</span>
+                <span className={l.valorCentavos < 0 ? 'text-red-700' : ''}>{formatarCentavos(l.valorCentavos)}</span>
               </li>
             ))}
           </ul>

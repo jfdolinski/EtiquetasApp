@@ -20,7 +20,7 @@ describe('operação', () => {
   it('nome e rótulo da foto por parada', () => {
     expect(etapaDaFoto('ENTREGA', 0)).toBe('ENTREGA');
     expect(etapaDaFoto('ENTREGA', 2)).toBe('ENTREGA_2');
-    expect(etapaDaFoto('COLETA', 3)).toBe('COLETA');
+    expect(etapaDaFoto('COLETA', 3)).toBe('COLETA_3');
     expect(rotuloDaFoto('ENTREGA_2')).toBe('Foto da entrega na parada 3');
     expect(rotuloDaFoto('COLETA')).toBe('Foto da coleta');
   });

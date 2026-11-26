@@ -73,6 +73,7 @@ export async function pagamentoPdf(
   entregador: { nome: string; chavePix: string },
   linhas: { numero: number; tipo: keyof typeof ROTULO_TIPO_CHAMADA; concluidaEm: string; destino: string; valorCentavos: number; extraCentavos: number; cancelada: boolean }[],
   fuso: string,
+  lancamentos: { em: string; descricao: string; valorCentavos: number }[] = [],
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   pdf.setTitle(`Pagamento Flow Entregas - ${limpo(entregador.nome)}`);
@@ -114,6 +115,17 @@ export async function pagamentoPdf(
       cabecalho();
     }
     const celulas = [String(l.numero), data(diaNoFuso(new Date(l.concluidaEm), fuso)), l.cancelada ? 'Taxa de cancelamento' : ROTULO_TIPO_CHAMADA[l.tipo], l.destino.slice(0, 44), formatarCentavos(l.valorCentavos + l.extraCentavos)];
+    celulas.forEach((t, i) => escrever(t, colunas[i], 9));
+    y -= 13;
+  }
+  // Turnos (a receber) e descontos de avaria (negativos), na mesma tabela.
+  for (const l of lancamentos) {
+    if (y < MARGEM + 20) {
+      pagina = pdf.addPage(A4);
+      y = A4[1] - MARGEM;
+      cabecalho();
+    }
+    const celulas = ['-', data(diaNoFuso(new Date(l.em), fuso)), l.valorCentavos < 0 ? 'Desconto' : 'Turno', l.descricao.slice(0, 44), formatarCentavos(l.valorCentavos)];
     celulas.forEach((t, i) => escrever(t, colunas[i], 9));
     y -= 13;
   }

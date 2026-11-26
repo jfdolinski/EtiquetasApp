@@ -160,6 +160,8 @@ export interface CandidatoDirecionamento {
   /** Média de 1 a 5; null = sem avaliação. */
   avaliacao: number | null;
   preferido: boolean;
+  /** Inscrito no turno desta empresa que está valendo agora: recebe antes dos outros. */
+  emTurno?: boolean;
   bloqueado: boolean;
   /** Já recebeu esta chamada (recusou, deixou expirar ou estava no grupo). */
   jaOfertado: boolean;
@@ -174,6 +176,7 @@ export interface Classificado {
   metrosAteColeta: number;
   minutosLivre: number;
   preferido: boolean;
+  emTurno?: boolean;
   notas: Notas;
   /** De 0 a 100. */
   pontos: number;
@@ -230,9 +233,11 @@ export function classificar(candidatos: CandidatoDirecionamento[], r: RegrasDire
       continue;
     }
     const notas = notasDoCandidato(c, raioKm);
-    dentro.push({ id: c.id, nome: c.nome, veiculo: c.veiculo, metrosAteColeta: c.metrosAteColeta, minutosLivre: c.minutosLivre, preferido: c.preferido, notas, pontos: pontosDasNotas(notas, r.pesos) });
+    dentro.push({ id: c.id, nome: c.nome, veiculo: c.veiculo, metrosAteColeta: c.metrosAteColeta, minutosLivre: c.minutosLivre, preferido: c.preferido, emTurno: !!c.emTurno, notas, pontos: pontosDasNotas(notas, r.pesos) });
   }
   dentro.sort((a, b) => {
+    // Quem está no turno da empresa vem antes de todos (preferidos inclusive).
+    if (!!a.emTurno !== !!b.emTurno) return a.emTurno ? -1 : 1;
     if (r.preferidosPrimeiro && a.preferido !== b.preferido) return a.preferido ? -1 : 1;
     return b.pontos - a.pontos || b.minutosLivre - a.minutosLivre || a.metrosAteColeta - b.metrosAteColeta;
   });
@@ -258,10 +263,11 @@ export interface MotivoOferta {
   preferido: boolean;
   raioKm: number;
   rodada: number;
+  emTurno?: boolean;
 }
 
 export function motivoDaOferta(c: Classificado, r: RegrasDirecionamento, rodada: number, raioKm: number): MotivoOferta {
-  return { automatica: true, posicao: c.posicao, total: c.total, pontos: c.pontos, metrosAteColeta: c.metrosAteColeta, minutosLivre: c.minutosLivre, notas: c.notas, pesos: r.pesos, preferido: c.preferido, raioKm, rodada };
+  return { automatica: true, posicao: c.posicao, total: c.total, pontos: c.pontos, metrosAteColeta: c.metrosAteColeta, minutosLivre: c.minutosLivre, notas: c.notas, pesos: r.pesos, preferido: c.preferido, raioKm, rodada, ...(c.emTurno ? { emTurno: true } : {}) };
 }
 
 const minutos = (m: number) => (m >= 120 ? `${Math.floor(m / 60)} h livre` : `${Math.round(m)} min livre`);
@@ -269,6 +275,7 @@ const minutos = (m: number) => (m >= 120 ? `${Math.floor(m / 60)} h livre` : `${
 export function textoDoMotivo(m: MotivoOferta): string {
   const partes = [formatarKm(m.metrosAteColeta), minutos(m.minutosLivre), `aceite ${Math.round(m.notas.aceite * 100)}%`];
   if (m.preferido) partes.push('preferido');
+  if (m.emTurno) partes.push('no turno');
   return `${partes.join(', ')} → ${m.posicao}º de ${m.total} (${m.pontos.toLocaleString('pt-BR')} pontos)`;
 }
 
@@ -282,6 +289,7 @@ export function motivoParaEntregador(m: MotivoOferta): string {
     avaliacao: 'sua avaliação',
     preferido: 'você é preferido desta empresa',
   };
+  if (m.emTurno) return `Você foi o ${m.posicao}º de ${m.total}: você está no turno desta empresa.`;
   return `Você foi o ${m.posicao}º de ${m.total}: ${porque[maior]}.`;
 }
 

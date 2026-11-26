@@ -20,7 +20,7 @@ const PERMISSAO: Record<NonNullable<ProblemaPermissao>, string> = {
   SEM_SEGUNDO_PLANO: 'Para continuar online com a tela apagada, permita a localização "o tempo todo" nas configurações do aplicativo.',
 };
 
-export function TelaInicio({ api, perfil, aoMudar, irParaCreditos, oferta, irParaAvisos, aoPegar }: { api: Api; perfil: PerfilEntregador; aoMudar: (p: PerfilEntregador) => void; irParaCreditos: () => void; oferta?: ReactNode; irParaAvisos?: () => void; aoPegar?: (c: ChamadaEntregador) => void }) {
+export function TelaInicio({ api, perfil, aoMudar, irParaCreditos, oferta, irParaAvisos, aoPegar, abrirTurnos }: { api: Api; perfil: PerfilEntregador; aoMudar: (p: PerfilEntregador) => void; irParaCreditos: () => void; oferta?: ReactNode; irParaAvisos?: () => void; aoPegar?: (c: ChamadaEntregador) => void; abrirTurnos?: () => void }) {
   const [ocupado, setOcupado] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [permissao, setPermissao] = useState<ProblemaPermissao>(null);
@@ -124,6 +124,7 @@ export function TelaInicio({ api, perfil, aoMudar, irParaCreditos, oferta, irPar
         <Numero rotulo="Diárias disponíveis" valor={perfil.saldoDiarias} alerta={perfil.saldoDiarias === 0} />
         <Numero rotulo="Diária de hoje" valor={perfil.diariaHoje ? 'Paga' : 'Não usada'} detalhe={perfil.diariaHoje ? 'Fique online à vontade hoje.' : 'É descontada ao ficar online.'} />
       </View>
+      {abrirTurnos && <Botao titulo="Turnos das empresas" variante="secundario" onPress={abrirTurnos} />}
 
     </ScrollView>
   );

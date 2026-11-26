@@ -30,7 +30,7 @@ describe('assinatura', () => {
   it('foto da assinatura de cada parada', () => {
     expect(etapaDaFoto('ASSINATURA')).toBe('ASSINATURA');
     expect(etapaDaFoto('ASSINATURA', 2)).toBe('ASSINATURA_2');
-    expect(etapaDaFoto('COLETA', 2)).toBe('COLETA');
+    expect(etapaDaFoto('COLETA', 2)).toBe('COLETA_2');
     expect(rotuloDaFoto('ASSINATURA_2')).toBe('Assinatura na parada 3');
   });
 });

@@ -20,13 +20,14 @@ import {
   type TipoDocumentoEntregador,
 } from '@etiquetas/shared';
 import { api } from '../../api';
+import type { EmpresaAvaliada } from '@etiquetas/shared';
 import { TabelaPrecosEditor } from './TabelaPrecosEditor';
 
 /** "12,50" → 1250; vazio ou inválido vira 0 e a validação avisa. */
 const paraCentavos = (t: string) => Math.round(Number(t.trim().replace(/\./g, '').replace(',', '.') || '0') * 100) || 0;
 import { Alerta, Botao, Cabecalho, Campo, formatarData, Modal, Selecao, Selo, Tabela } from '../../components/ui';
 
-type Aba = 'cadastros' | 'creditos' | 'pacotes';
+type Aba = 'cadastros' | 'creditos' | 'pacotes' | 'empresas';
 
 const COR_SITUACAO: Record<SituacaoEntregador, 'verde' | 'amarelo' | 'vermelho' | 'cinza'> = { PENDENTE: 'amarelo', APROVADO: 'verde', RECUSADO: 'vermelho', SUSPENSO: 'cinza' };
 
@@ -37,6 +38,7 @@ export function Entregadores() {
     { id: 'cadastros', rotulo: 'Cadastros' },
     { id: 'creditos', rotulo: 'Compras de diárias' },
     { id: 'pacotes', rotulo: 'Pacotes e Pix' },
+    { id: 'empresas', rotulo: 'Empresas avaliadas' },
   ];
   return (
     <div>
@@ -51,6 +53,29 @@ export function Entregadores() {
       {aba === 'cadastros' && <Cadastros />}
       {aba === 'creditos' && <Compras />}
       {aba === 'pacotes' && <PacotesEPix />}
+      {aba === 'empresas' && <EmpresasAvaliadas />}
+    </div>
+  );
+}
+
+// Empresas avaliadas pelos entregadores -----------------------------------------------------
+
+function EmpresasAvaliadas() {
+  const { data, error } = useQuery({ queryKey: ['empresas-avaliadas'], queryFn: () => api<EmpresaAvaliada[]>('/plataforma-entregas/empresas-avaliadas') });
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-600">Notas que os entregadores deram às empresas nos últimos 90 dias, da pior para a melhor. A média só aparece a partir de 3 avaliações.</p>
+      {error && <Alerta>{error.message}</Alerta>}
+      <Tabela colunas={['Empresa', 'Média', 'Avaliações', 'Notas 1 e 2']} vazio={data?.length === 0}>
+        {data?.map((e) => (
+          <tr key={e.empresaId}>
+            <td className="px-4 py-2.5">{e.nome}</td>
+            <td className="px-4 py-2.5">{e.media !== null ? <span className={e.media < 3.5 ? 'font-semibold text-red-700' : ''}>{e.media.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}</span> : '—'}</td>
+            <td className="px-4 py-2.5">{e.avaliacoes}</td>
+            <td className="px-4 py-2.5">{e.ruins}</td>
+          </tr>
+        ))}
+      </Tabela>
     </div>
   );
 }

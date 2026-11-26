@@ -360,6 +360,8 @@ export interface PerfilEntregador {
   saldoDiarias: number;
   /** Aceitou a versão atual do termo de custódia (para levar maquininha). */
   termoCustodia?: boolean;
+  /** Avarias com desconto esperando a resposta dele. */
+  avariasPendentes?: number;
 }
 
 export interface SessaoEntregadorResposta {

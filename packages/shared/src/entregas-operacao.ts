@@ -16,9 +16,9 @@ export interface FotosObrigatorias {
   entrega: boolean;
 }
 
-/** Nome da foto de cada etapa; com várias paradas, a entrega de cada uma tem a sua. */
+/** Nome da foto de cada etapa; com várias paradas (ou coletas), cada uma tem a sua. */
 export function etapaDaFoto(etapa: 'COLETA' | 'ENTREGA' | 'ASSINATURA', ordem = 0): string {
-  return etapa !== 'COLETA' && ordem > 0 ? `${etapa}_${ordem}` : etapa;
+  return ordem > 0 ? `${etapa}_${ordem}` : etapa;
 }
 
 export function rotuloDaFoto(etapa: string): string {
@@ -26,6 +26,8 @@ export function rotuloDaFoto(etapa: string): string {
   if (etapa === 'OCORRENCIA') return 'Foto da ocorrência';
   if (etapa === 'ENTREGA') return 'Foto da entrega';
   if (etapa === 'ASSINATURA') return 'Assinatura de quem recebeu';
+  const col = /^COLETA_(\d+)$/.exec(etapa);
+  if (col) return `Foto da coleta ${Number(col[1]) + 1}`;
   const a = /^ASSINATURA_(\d+)$/.exec(etapa);
   if (a) return `Assinatura na parada ${Number(a[1]) + 1}`;
   const m = /^ENTREGA_(\d+)$/.exec(etapa);
