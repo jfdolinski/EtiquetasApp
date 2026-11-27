@@ -39,6 +39,13 @@ export interface ProvedorNfse {
 export const comprimir = (xml: string) => gzipSync(Buffer.from(xml, 'utf8')).toString('base64');
 export const descomprimir = (b64: string) => gunzipSync(Buffer.from(b64, 'base64')).toString('utf8');
 
+/**
+ * A Sefin recusa com E1229 ("Xml não está utilizando codificação UTF-8") o XML sem a declaração:
+ * ela vai na frente do documento assinado (fica fora do trecho assinado, então não mexe na assinatura).
+ */
+export const DECLARACAO_XML = '<?xml version="1.0" encoding="UTF-8"?>';
+export const comDeclaracao = (xml: string) => (xml.startsWith('<?xml') ? xml : DECLARACAO_XML + xml);
+
 /** Número da NFS-e dentro do XML autorizado (`<nNFSe>`). */
 export function numeroDoXml(xml: string): string | null {
   return xml.match(/<nNFSe>(\d+)<\/nNFSe>/)?.[1] ?? null;
@@ -132,7 +139,7 @@ export class SefinNacional implements ProvedorNfse {
   async emitir(cred: CredencialNfse, ambiente: AmbienteNfse, dps: string): Promise<ResultadoEmissao> {
     let r: Resposta;
     try {
-      r = await this.chamar(cred, `${this.urls[ambiente]}/nfse`, 'POST', { dpsXmlGZipB64: comprimir(dps) });
+      r = await this.chamar(cred, `${this.urls[ambiente]}/nfse`, 'POST', { dpsXmlGZipB64: comprimir(comDeclaracao(dps)) });
     } catch (e) {
       return { ok: false, temporaria: true, status: null, mensagem: this.falhaDeRede(e), duplicada: false };
     }
@@ -166,7 +173,7 @@ export class SefinNacional implements ProvedorNfse {
   async registrarEvento(cred: CredencialNfse, ambiente: AmbienteNfse, chave: string, pedido: string): Promise<ResultadoEvento> {
     let r: Resposta;
     try {
-      r = await this.chamar(cred, `${this.urls[ambiente]}/nfse/${encodeURIComponent(chave)}/eventos`, 'POST', { pedidoRegistroEventoXmlGZipB64: comprimir(pedido) });
+      r = await this.chamar(cred, `${this.urls[ambiente]}/nfse/${encodeURIComponent(chave)}/eventos`, 'POST', { pedidoRegistroEventoXmlGZipB64: comprimir(comDeclaracao(pedido)) });
     } catch (e) {
       return { ok: false, temporaria: true, status: null, mensagem: this.falhaDeRede(e) };
     }

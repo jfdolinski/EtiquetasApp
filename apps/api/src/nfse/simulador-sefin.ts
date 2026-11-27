@@ -12,7 +12,12 @@ function chavesRsa() {
   return { privateKey: privada, publicKey: forge.pki.setRsaPublicKey(privada.n, privada.e) };
 }
 import { conferirAssinatura } from './certificado';
-import { comprimir, descomprimir } from './sefin';
+import { comprimir, descomprimir, DECLARACAO_XML } from './sefin';
+
+/** Como a Sefin real: sem a declaração UTF-8, E1229. Devolve o XML sem ela, ou nulo. */
+function semDeclaracao(xml: string): string | null {
+  return xml.startsWith(DECLARACAO_XML) ? xml.slice(DECLARACAO_XML.length) : null;
+}
 
 /**
  * Simulador da Sefin Nacional para os testes (jest e e2e). Fala HTTPS com certificado do
@@ -110,7 +115,8 @@ export async function iniciarSimuladorSefin(porta = 0): Promise<SimuladorSefin> 
       }
       const b64 = (corpo as { dpsXmlGZipB64?: string } | null)?.dpsXmlGZipB64;
       if (!b64) return erro(res, 400, 'E0001', 'dpsXmlGZipB64 não informado.');
-      const xml = descomprimir(b64);
+      const xml = semDeclaracao(descomprimir(b64));
+      if (xml === null) return erro(res, 400, 'E1229', 'Xml não está utilizando codificação UTF-8.');
       const assinatura = conferirAssinatura(xml, 'infDPS');
       if (!assinatura.ok) return erro(res, 400, 'E0714', assinatura.motivo);
       const idDps = xml.match(/<infDPS Id="(DPS\d{42})">/)?.[1];
@@ -143,7 +149,8 @@ export async function iniciarSimuladorSefin(porta = 0): Promise<SimuladorSefin> 
       if (!n) return erro(res, 404, 'E1001', 'NFS-e não encontrada.');
       const b64 = (corpo as { pedidoRegistroEventoXmlGZipB64?: string } | null)?.pedidoRegistroEventoXmlGZipB64;
       if (!b64) return erro(res, 400, 'E0001', 'pedidoRegistroEventoXmlGZipB64 não informado.');
-      const xml = descomprimir(b64);
+      const xml = semDeclaracao(descomprimir(b64));
+      if (xml === null) return erro(res, 400, 'E1229', 'Xml não está utilizando codificação UTF-8.');
       const assinatura = conferirAssinatura(xml, 'infPedReg');
       if (!assinatura.ok) return erro(res, 400, 'E0714', assinatura.motivo);
       if (tag(xml, 'chNFSe') !== n.chave || n.cnpj !== cnpjCert) return erro(res, 403, 'E1235', 'Autor do evento não é o prestador da NFS-e.');
